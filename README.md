@@ -95,3 +95,5 @@ TM-scores match the original C++ implementations to ~4-5 decimal places. The C++
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+This is a clean-room Rust reimplementation. The original TM-align and US-align algorithms were developed by [Yang Zhang's group](https://zhanggroup.org/) under a BSD-like permissive license that requires attribution. Please cite the original papers if you use this in published work.
