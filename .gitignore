@@ -1,0 +1,13 @@
+/target/
+**/*.rs.bk
+Cargo.lock
+*.swp
+*.swo
+.DS_Store
+
+# C++ binaries
+TMAlign/TMalign
+USAlign/USalign
+
+# Test outputs
+dump/

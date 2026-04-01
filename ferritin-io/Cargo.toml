@@ -1,0 +1,10 @@
+[package]
+name = "ferritin-io"
+version.workspace = true
+edition.workspace = true
+description = "Structure I/O for PDB and mmCIF files"
+
+[dependencies]
+ferritin-align = { path = "../ferritin-align" }
+pdbtbx = { path = "../../pdbtbx" }
+anyhow = "1"

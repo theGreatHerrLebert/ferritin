@@ -1,0 +1,12 @@
+[package]
+name = "ferritin-bin"
+version.workspace = true
+edition.workspace = true
+description = "CLI binaries for TM-align and US-align"
+
+[dependencies]
+ferritin-align = { path = "../ferritin-align" }
+ferritin-io = { path = "../ferritin-io" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+rayon = "1"

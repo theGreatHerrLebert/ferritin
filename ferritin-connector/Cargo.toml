@@ -1,0 +1,15 @@
+[package]
+name = "ferritin-connector"
+version.workspace = true
+edition.workspace = true
+description = "PyO3 Python bindings for ferritin structural bioinformatics tools"
+
+[lib]
+name = "ferritin_connector"
+crate-type = ["cdylib"]
+
+[dependencies]
+ferritin-align = { path = "../ferritin-align" }
+ferritin-io = { path = "../ferritin-io" }
+pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"

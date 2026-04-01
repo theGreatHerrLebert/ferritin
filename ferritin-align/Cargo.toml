@@ -1,0 +1,11 @@
+[package]
+name = "ferritin-align"
+version.workspace = true
+edition.workspace = true
+description = "Structural alignment algorithms for proteins and nucleic acids (TM-align + US-align)"
+
+[dependencies]
+anyhow = "1"
+
+[dev-dependencies]
+approx = "0.5"
