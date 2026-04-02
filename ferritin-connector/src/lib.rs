@@ -2,11 +2,13 @@ use pyo3::prelude::*;
 use pyo3::wrap_pymodule;
 
 mod dssp;
+mod forcefield;
 mod hbond;
 mod py_align;
 mod py_align_funcs;
 mod py_analysis;
 mod py_dssp;
+mod py_forcefield;
 mod py_geometry;
 mod py_hbond;
 mod py_io;
@@ -23,6 +25,7 @@ fn ferritin_connector(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(py_align_funcs::py_align_funcs))?;
     m.add_wrapped(wrap_pymodule!(py_analysis::py_analysis))?;
     m.add_wrapped(wrap_pymodule!(py_dssp::py_dssp))?;
+    m.add_wrapped(wrap_pymodule!(py_forcefield::py_forcefield))?;
     m.add_wrapped(wrap_pymodule!(py_geometry::py_geometry))?;
     m.add_wrapped(wrap_pymodule!(py_hbond::py_hbond))?;
     m.add_wrapped(wrap_pymodule!(py_io::py_io))?;

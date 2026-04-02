@@ -51,6 +51,11 @@ from .analysis import (
     to_dataframe,
 )
 from .core import RustWrapperObject
+from .forcefield import (
+    compute_energy,
+    minimize_hydrogens,
+    minimize_structure,
+)
 from .hbond import (
     backbone_hbonds,
     batch_backbone_hbonds,
