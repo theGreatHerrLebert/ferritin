@@ -37,11 +37,11 @@ The structural bioinformatics landscape is fragmented: Biopython is slow, Gemmi 
 
 Ferritin fills that gap:
 
-- **Rust core** — 3.9x faster than Biopython for SASA, 34x for dihedrals
+- **Rust core** — 24.6x faster than Biopython for SASA, 34x for dihedrals
 - **Rayon parallelism** — batch operations scale to all cores automatically
 - **Zero-GIL pipelines** — `load_and_analyze()` runs entirely in Rust, 6x faster than a Python loop
-- **Oracle-tested** — validated against Biopython, Gemmi, and C++ USAlign to 4-5 decimal places
-- **316 tests** — comprehensive test suite including cross-tool oracle validation
+- **Oracle-validated on 1000 structures** — 0.20% SASA agreement with Biopython, 97.3% load rate
+- **342 tests** — comprehensive test suite including cross-tool oracle validation
 
 ## Features
 
@@ -141,14 +141,16 @@ results = ferritin.load_and_dssp(pdb_files, n_threads=-1)
 
 ## Performance
 
-Benchmarks on 97 PDB files (327 to 58,870 atoms):
+Validated on 1000 diverse PDB structures (10 to 50,000 residues):
 
-| Operation | Ferritin | vs Biopython | Rayon speedup |
-|-----------|----------|-------------|---------------|
-| SASA (single) | 12ms | **3.9x faster** | — |
-| Dihedrals (single) | 3ms | **34x faster** | — |
-| Batch SASA (97 structs) | 17s | — | **2.5x** (16 threads) |
-| load_and_analyze (97) | 585ms | **6x faster** | pipeline |
+| Metric | Value |
+|--------|-------|
+| **SASA accuracy** | 0.20% median diff vs Biopython (100% within 5%) |
+| **SASA speed** | **24.6x faster** than Biopython (median across 1000 structures) |
+| **Dihedrals speed** | **34x faster** than Python |
+| **Load + analyze** | 101 structures/second (zero-GIL pipeline) |
+| **PDB loading** | 97.3% of PDB archive loads successfully |
+| **Batch parallelism** | 2.5x rayon speedup on 16 cores |
 
 ## Architecture
 
@@ -175,14 +177,47 @@ cargo run --release --bin usalign -- s1.pdb s2.pdb
 cargo run --release --bin usalign -- chain_list.txt --dir /pdbs/ --outfmt 2
 ```
 
+## Geometric Deep Learning Examples
+
+Ferritin is the missing link between PDB files and GNNs. Zero glue code:
+
+```python
+# Load 100 structures, extract ALL features, build graphs → train GCN
+results = ferritin.load_and_analyze(pdb_files, n_threads=-1)  # 5 seconds
+
+for r in results:
+    graph = Data(
+        x=node_features(r["phi"], r["psi"], r["rsa"], r["dssp"]),  # 14 features
+        edge_index=edges_from(r["contact_map"]),                     # CA-CA contacts
+        pos=torch.tensor(r["ca_coords"]),                            # 3D coordinates
+    )
+```
+
+| Example | Task | Result |
+|---------|------|--------|
+| `06_geometric_dl_pipeline.py` | Protein fold classification (GCN) | **94.7% accuracy** |
+| `07_bfactor_prediction.py` | B-factor regression (GCN) | **Pearson r=0.54** |
+| `08_interface_residues.py` | Interface prediction (GAT) | **F1=0.42** |
+| `09_structure_similarity.py` | Siamese GNN for TM-score | **Pearson r=0.72** |
+
+All examples use ferritin for data prep and PyTorch Geometric for training. Ferritin has no DL dependency — it produces numpy arrays, you bring your own framework.
+
 ## Examples
 
 See [`examples/`](examples/) for runnable scripts:
+
+**Structural analysis:**
 - `01_load_and_explore.py` — I/O, hierarchy, DataFrame
 - `02_structural_alignment.py` — TM-align, batch, superposition
 - `03_contact_map.py` — distance matrices, contacts
 - `04_ramachandran.py` — backbone dihedrals, SS correlation
 - `05_sasa_analysis.py` — SASA, RSA, burial classification
+
+**Geometric deep learning (requires `pip install torch torch-geometric`):**
+- `06_geometric_dl_pipeline.py` — PDB → features → GCN fold classifier
+- `07_bfactor_prediction.py` — per-residue B-factor regression
+- `08_interface_residues.py` — protein-protein interface prediction
+- `09_structure_similarity.py` — Siamese GNN for structure similarity
 
 ## Agent-Aware Documentation
 
