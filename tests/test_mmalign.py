@@ -7,7 +7,7 @@ import pytest
 from ferritin_connector import py_align_funcs, py_io
 
 TEST_PDBS = os.path.join(os.path.dirname(__file__), "..", "..", "test-pdbs")
-EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "pdbtbx", "example-pdbs")
+EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "test-pdbs")
 
 # Multi-chain structures
 HHB = os.path.join(TEST_PDBS, "4hhb.pdb")     # hemoglobin, 4 chains

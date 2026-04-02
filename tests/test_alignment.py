@@ -12,7 +12,7 @@ import pytest
 
 from ferritin_connector import py_align_funcs, py_io
 
-EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "pdbtbx", "example-pdbs")
+EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "test-pdbs")
 TEST_PDBS_DIR = os.path.join(os.path.dirname(__file__), "..", "test-pdbs")
 # Parent test-pdbs has a larger collection
 PARENT_TEST_PDBS = os.path.join(os.path.dirname(__file__), "..", "..", "test-pdbs")

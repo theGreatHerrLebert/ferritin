@@ -6,7 +6,7 @@ import pytest
 import ferritin
 
 TEST_PDBS_DIR = os.path.join(os.path.dirname(__file__), "..", "test-pdbs")
-EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "pdbtbx", "example-pdbs")
+EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "test-pdbs")
 
 
 def load_crambin():

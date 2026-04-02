@@ -16,7 +16,7 @@ import pytest
 # ---------------------------------------------------------------------------
 
 PDBTBX_EXAMPLES = os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "pdbtbx", "example-pdbs"
+    os.path.dirname(__file__), "..", "..", "test-pdbs"
 )
 TEST_PDBS = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "test-pdbs"

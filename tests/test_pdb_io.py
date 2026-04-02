@@ -12,11 +12,10 @@ import pytest
 
 from ferritin_connector import py_io, py_pdb
 
-EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "pdbtbx", "example-pdbs")
-EXAMPLE_PDB = os.path.join(EXAMPLE_DIR, "1ubq.pdb")
-EXAMPLE_CIF = os.path.join(EXAMPLE_DIR, "1ubq.cif")
-MULTI_MODEL = os.path.join(EXAMPLE_DIR, "models.pdb")
 TEST_PDBS_DIR = os.path.join(os.path.dirname(__file__), "..", "test-pdbs")
+EXAMPLE_PDB = os.path.join(TEST_PDBS_DIR, "1ubq.pdb")
+EXAMPLE_CIF = os.path.join(TEST_PDBS_DIR, "1ubq.cif")
+MULTI_MODEL = os.path.join(TEST_PDBS_DIR, "models.pdb")
 
 
 # ---------------------------------------------------------------------------

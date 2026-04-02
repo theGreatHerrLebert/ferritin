@@ -14,7 +14,7 @@ from ferritin_connector import py_align_funcs, py_io
 
 USALIGN_BIN = "/scratch/TMAlign/USAlign/USalign"
 PDBTBX_EXAMPLES = os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "pdbtbx", "example-pdbs"
+    os.path.dirname(__file__), "..", "..", "test-pdbs"
 )
 TEST_PDBS = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "test-pdbs"
