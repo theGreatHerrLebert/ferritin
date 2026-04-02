@@ -1,6 +1,6 @@
 //! PyO3 bindings for structure data.
 
-use numpy::{IntoPyArray, PyArray2, PyArrayMethods};
+use numpy::{PyArray2, PyArrayMethods};
 use pyo3::prelude::*;
 
 use ferritin_align::core::types::StructureData;

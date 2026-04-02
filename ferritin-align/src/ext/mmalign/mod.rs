@@ -141,6 +141,189 @@ pub fn concatenate_assigned_chains(
     (xa, ya, seqx, seqy, secx, secy, mol_type_sum, sequence)
 }
 
+use anyhow::{bail, Result};
+
+use crate::ext::se::{se_main, SeOptions};
+
+use chain_assign::{
+    check_heterooligomer, enhanced_greedy_search, homo_refined_greedy_search,
+};
+use complex_score::calculate_centroids;
+use iter::copy_chain_assign_data;
+
+/// Align two multi-chain complexes using MM-align.
+///
+/// This is the top-level orchestrator that:
+/// 1. Computes pairwise per-chain TM-scores via SE alignment
+/// 2. Determines chain-to-chain assignment (homo vs hetero detection)
+/// 3. Iteratively refines the assignment
+///
+/// Returns an `MMAlignResult` with chain assignments, per-chain results,
+/// and an overall complex TM-score.
+pub fn mmalign_complex(
+    x_chains: &[ChainData],
+    y_chains: &[ChainData],
+) -> Result<MMAlignResult> {
+    let chain1_num = x_chains.len();
+    let chain2_num = y_chains.len();
+
+    if chain1_num == 0 || chain2_num == 0 {
+        bail!("Both complexes must have at least one chain");
+    }
+
+    let se_opts = SeOptions::default();
+
+    // Step 1: Pairwise per-chain alignment → TM matrix + alignment strings
+    let mut tm_mat = vec![vec![0.0f64; chain2_num]; chain1_num];
+    let mut seqx_a_mat = vec![vec![String::new(); chain2_num]; chain1_num];
+    let mut seqy_a_mat = vec![vec![String::new(); chain2_num]; chain1_num];
+    let mut ut_mat: Vec<Vec<f64>> = vec![vec![0.0; 12]; chain1_num * chain2_num];
+
+    for i in 0..chain1_num {
+        for j in 0..chain2_num {
+            let xc = &x_chains[i];
+            let yc = &y_chains[j];
+            if xc.is_empty() || yc.is_empty() {
+                continue;
+            }
+
+            let result = se_main(
+                &xc.coords, &yc.coords, &xc.sequence, &yc.sequence,
+                xc.len(), yc.len(), &se_opts, None, 0,
+            );
+
+            tm_mat[i][j] = result.tm1;
+            seqx_a_mat[i][j] = result.seq_x_aligned.clone();
+            seqy_a_mat[i][j] = result.seq_y_aligned.clone();
+
+            // Identity placeholder for homo search transform matrix
+            ut_mat[i * chain2_num + j] =
+                vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+        }
+    }
+
+    // Step 2: Calculate centroids
+    let x_coords_vec: Vec<Vec<Coord3D>> = x_chains.iter().map(|c| c.coords.clone()).collect();
+    let y_coords_vec: Vec<Vec<Coord3D>> = y_chains.iter().map(|c| c.coords.clone()).collect();
+    let (x_centroids, _) = calculate_centroids(&x_coords_vec);
+    let (y_centroids, d0mm) = calculate_centroids(&y_coords_vec);
+    let (len_aa, len_na) = total_chain_lengths(y_chains);
+    let total_len = len_aa + len_na;
+
+    // Step 3: Check heterooligomer
+    let het_deg = check_heterooligomer(&tm_mat, chain1_num, chain2_num);
+    let is_hetero = het_deg > 0.3;
+
+    // Step 4: Initial chain assignment
+    let (mut assign1, mut assign2, mut best_score) = if is_hetero || chain1_num <= 2 {
+        enhanced_greedy_search(&tm_mat, chain1_num, chain2_num)
+    } else {
+        homo_refined_greedy_search(
+            &tm_mat, chain1_num, chain2_num,
+            &x_centroids, &y_centroids, d0mm, total_len, &ut_mat,
+        )
+    };
+
+    // Step 5: Iterative refinement (inlined to avoid lifetime issues with callbacks)
+    let max_iter = chain1_num.min(chain2_num) * 2 + 1;
+    for _round in 0..max_iter {
+        // Refine: re-align each assigned chain pair using SE with prior invmap
+        for (i, &j) in assign1.iter().enumerate() {
+            if j < 0 {
+                continue;
+            }
+            let ju = j as usize;
+            let xc = &x_chains[i];
+            let yc = &y_chains[ju];
+            if xc.is_empty() || yc.is_empty() {
+                continue;
+            }
+
+            let prior = invmap_from_alignment(
+                &seqx_a_mat[i][ju], &seqy_a_mat[i][ju], yc.len(),
+            );
+
+            let result = se_main(
+                &xc.coords, &yc.coords, &xc.sequence, &yc.sequence,
+                xc.len(), yc.len(), &se_opts, Some(&prior), 0,
+            );
+
+            tm_mat[i][ju] = result.tm1;
+            seqx_a_mat[i][ju] = result.seq_x_aligned;
+            seqy_a_mat[i][ju] = result.seq_y_aligned;
+        }
+
+        // Re-assign chains
+        let (new_a1, new_a2, new_score) =
+            enhanced_greedy_search(&tm_mat, chain1_num, chain2_num);
+
+        if new_score <= best_score {
+            break; // no improvement
+        }
+        assign1 = new_a1;
+        assign2 = new_a2;
+        best_score = new_score;
+    }
+
+    // Step 6: Save best state
+    let best_state = copy_chain_assign_data(
+        chain1_num, chain2_num,
+        &seqx_a_mat, &seqy_a_mat, &assign1, &assign2, &tm_mat,
+    );
+
+    // Step 7: Build result — final SE alignment for each assigned pair
+    let mut chain_assignments = Vec::new();
+    let mut per_chain_results = Vec::new();
+    let mut transforms = Vec::new();
+
+    for (i, &j) in best_state.assign1.iter().enumerate() {
+        if j < 0 {
+            continue;
+        }
+        let ju = j as usize;
+        chain_assignments.push((i, ju));
+
+        let xc = &x_chains[i];
+        let yc = &y_chains[ju];
+        let result = se_main(
+            &xc.coords, &yc.coords, &xc.sequence, &yc.sequence,
+            xc.len(), yc.len(), &se_opts, None, 0,
+        );
+        transforms.push(Transform::default());
+        per_chain_results.push(result);
+    }
+
+    Ok(MMAlignResult {
+        total_score: best_score,
+        chain_assignments,
+        per_chain_results,
+        transforms,
+    })
+}
+
+/// Reconstruct invmap from alignment strings.
+/// `invmap[j] = i` means y[j] aligns to x[i], -1 = gap.
+fn invmap_from_alignment(seq_x: &str, seq_y: &str, ylen: usize) -> Vec<i32> {
+    let sx = seq_x.as_bytes();
+    let sy = seq_y.as_bytes();
+    let len = sx.len().min(sy.len());
+    let mut invmap = vec![-1i32; ylen];
+    let mut xi: i32 = -1;
+    let mut yj: i32 = -1;
+    for k in 0..len {
+        if sx[k] != b'-' {
+            xi += 1;
+        }
+        if sy[k] != b'-' {
+            yj += 1;
+        }
+        if sx[k] != b'-' && sy[k] != b'-' && (yj as usize) < ylen {
+            invmap[yj as usize] = xi;
+        }
+    }
+    invmap
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

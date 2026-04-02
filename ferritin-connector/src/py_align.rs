@@ -1,6 +1,6 @@
 //! PyO3 bindings for alignment results and functions.
 
-use numpy::{IntoPyArray, PyArray2, PyArrayMethods};
+use numpy::{PyArray2, PyArrayMethods};
 use pyo3::prelude::*;
 
 use ferritin_align::core::types::AlignResult;

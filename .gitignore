@@ -5,6 +5,16 @@ Cargo.lock
 *.swo
 .DS_Store
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
 # C++ binaries
 TMAlign/TMalign
 USAlign/USalign
