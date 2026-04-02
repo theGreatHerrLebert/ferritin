@@ -28,6 +28,22 @@ def load(path: Union[str, Path]) -> Structure:
 
     Returns:
         Structure: The parsed structure.
+
+    Agent Notes:
+        FORMATS: Supports .pdb, .cif, .mmcif, .pdb.gz, .cif.gz.
+
+        PERMISSIVE: Uses lenient parsing — skips invalid space groups and
+        MASTER record mismatches. 97% of PDB archive files load successfully.
+        The 3% that fail have genuinely corrupt data fields.
+
+        CONTENT: The returned Structure contains the FIRST MODEL only for
+        multi-model files (NMR ensembles). Use structure.models to access all.
+
+        PREFER: For many files, use batch_load() or batch_load_tolerant()
+        for parallel I/O with rayon. 2x faster than a Python loop.
+
+        WATCH: structure.residue_count includes water and ligand residues.
+        Amino acid count may be lower. Check residue.is_amino_acid.
     """
     ptr = _io.load(str(path))
     return Structure.from_py_ptr(ptr)

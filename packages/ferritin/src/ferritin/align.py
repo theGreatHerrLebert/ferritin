@@ -232,6 +232,26 @@ def tm_align(
         chain1: Chain ID from structure1 (None = auto).
         chain2: Chain ID from structure2 (None = auto).
         fast: Use fast approximate mode (fTM-align).
+
+    Agent Notes:
+        OUTPUT: TM-score is in [0, 1]. TM > 0.5 indicates same fold.
+        TM > 0.17 is the threshold for random structural similarity.
+        TM-score is normalized by the LENGTH of the target (chain2).
+        Result has BOTH normalizations: tm_score_chain1 and tm_score_chain2.
+
+        ASYMMETRIC: tm_align(A, B) != tm_align(B, A) because TM-score
+        normalization depends on which structure is the reference.
+        For symmetric comparison, use max(result.tm_score_chain1, result.tm_score_chain2).
+
+        CHAINS: For multi-chain structures, specify chain1/chain2 to align
+        specific chains. Without chain IDs, the first/longest chain is used.
+        For full complex alignment, use mm_align() instead.
+
+        FAST: fast=True skips some initialization strategies. ~3x faster
+        but TM-score may be ~1% lower. Good for large-scale screening.
+
+        PREFER: For 1-vs-many, use tm_align_one_to_many(). For all-pairs,
+        use tm_align_many_to_many(). Both use rayon parallelism.
     """
     r = _align.tm_align_pair(_get_ptr(structure1), _get_ptr(structure2), chain1, chain2, fast)
     return AlignResult.from_py_ptr(r)

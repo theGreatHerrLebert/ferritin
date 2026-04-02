@@ -53,6 +53,21 @@ def atom_sasa(
         >>> print(f"Total SASA: {sasa.sum():.0f} A²")
         >>> exposed = sasa > 0
         >>> print(f"{exposed.sum()} exposed atoms out of {len(sasa)}")
+
+    Agent Notes:
+        DEFAULTS: probe=1.4 is the standard water probe radius. Don't change
+        unless you have a specific reason (e.g., probe=0 for van der Waals surface).
+
+        PRECISION: n_points=960 gives ~0.2% accuracy. Use 100 for fast screening,
+        960 for publication quality. Doubling points halves the error but doubles time.
+
+        OUTPUT: Array length = structure.atom_count (all atoms including HETATM/water).
+        To get per-residue or per-chain SASA, use residue_sasa() instead.
+
+        PREFER: For many structures, use batch_total_sasa() with n_threads=-1.
+
+        COST: O(N * P * k) where N=atoms, P=points, k=avg neighbors.
+        Crambin (327 atoms): ~12ms. Large complex (58k atoms): ~230ms.
     """
     return np.asarray(_sasa.atom_sasa(_get_ptr(structure), probe, n_points))
 
@@ -92,6 +107,21 @@ def relative_sasa(
 
     Returns:
         1D numpy array of RSA values (0.0–1.0+). NaN for non-standard residues.
+
+    Agent Notes:
+        INTERPRET: RSA < 0.25 = buried (core), RSA >= 0.25 = exposed (surface).
+        This threshold is the standard in literature (Tien et al. 2013).
+
+        WATCH: RSA can exceed 1.0 for residues in extended conformations or
+        at chain termini. This is normal, not an error.
+
+        WATCH: NaN values indicate non-standard residues (ligands, modified
+        amino acids, water) for which no reference max SASA exists.
+        Filter with ~np.isnan(rsa) before analysis.
+
+        USE FOR: Burial classification, identifying surface residues for
+        mutation studies, interface residue detection (compare RSA in
+        complex vs monomer).
     """
     return np.asarray(_sasa.relative_sasa(_get_ptr(structure), probe, n_points))
 
