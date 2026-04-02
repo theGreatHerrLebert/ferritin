@@ -24,6 +24,10 @@ def generate_html(results_file: str, output_file: str):
     # Aggregate stats per test
     test_stats = defaultdict(lambda: {"pass": 0, "warn": 0, "fail": 0, "error": 0})
     sasa_diffs = []
+    sasa_speedups = []
+    sasa_fe_times = []
+    sasa_bp_times = []
+    sasa_n_atoms = []
     failures = []
     warnings = []
 
@@ -34,10 +38,21 @@ def generate_html(results_file: str, output_file: str):
                 failures.append((r["file"], t["test"], t.get("details", {}).get("error", "?")))
             if t["status"] == "warn":
                 warnings.append((r["file"], t["test"], t.get("details", {}).get("warning", "?")))
-            if t["test"] == "sasa" and "relative_diff" in t.get("details", {}):
-                sasa_diffs.append(t["details"]["relative_diff"])
+            if t["test"] == "sasa":
+                d = t.get("details", {})
+                if "relative_diff" in d:
+                    sasa_diffs.append(d["relative_diff"])
+                if "speedup" in d:
+                    sasa_speedups.append(d["speedup"])
+                if "ferritin_time_ms" in d:
+                    sasa_fe_times.append(d["ferritin_time_ms"])
+                if "biopython_time_ms" in d:
+                    sasa_bp_times.append(d["biopython_time_ms"])
+                if "n_atoms" in d:
+                    sasa_n_atoms.append(d["n_atoms"])
 
     sasa_arr = np.array(sasa_diffs) if sasa_diffs else np.array([])
+    speedup_arr = np.array(sasa_speedups) if sasa_speedups else np.array([])
 
     # Compute overall pass rate
     total_tests = sum(sum(v.values()) for v in test_stats.values())
@@ -156,6 +171,21 @@ def generate_html(results_file: str, output_file: str):
 <tr><td>Within 1%</td><td>{np.sum(sasa_arr < 0.01)}/{len(sasa_arr)} ({np.sum(sasa_arr < 0.01)/len(sasa_arr)*100:.1f}%)</td></tr>
 <tr><td>Within 5%</td><td>{np.sum(sasa_arr < 0.05)}/{len(sasa_arr)} ({np.sum(sasa_arr < 0.05)/len(sasa_arr)*100:.1f}%)</td></tr>
 <tr><td>Within 10%</td><td>{np.sum(sasa_arr < 0.10)}/{len(sasa_arr)} ({np.sum(sasa_arr < 0.10)/len(sasa_arr)*100:.1f}%)</td></tr>
+</table>
+"""
+
+    if len(speedup_arr) > 0:
+        html += f"""
+<h2>SASA Speed: Ferritin vs Biopython</h2>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Structures benchmarked</td><td>{len(speedup_arr)}</td></tr>
+<tr><td>Median speedup</td><td><strong>{np.median(speedup_arr):.1f}x faster</strong></td></tr>
+<tr><td>Mean speedup</td><td>{np.mean(speedup_arr):.1f}x faster</td></tr>
+<tr><td>Min speedup</td><td>{np.min(speedup_arr):.1f}x</td></tr>
+<tr><td>Max speedup</td><td>{np.max(speedup_arr):.1f}x</td></tr>
+<tr><td>Total ferritin time</td><td>{sum(sasa_fe_times)/1000:.1f}s</td></tr>
+<tr><td>Total biopython time</td><td>{sum(sasa_bp_times)/1000:.1f}s</td></tr>
 </table>
 """
 
