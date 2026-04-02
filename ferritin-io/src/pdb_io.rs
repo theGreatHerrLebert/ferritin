@@ -290,6 +290,11 @@ mod tests {
 
     fn example_path(name: &str) -> String {
         let manifest = env!("CARGO_MANIFEST_DIR");
+        // Try test-pdbs in repo first, fall back to pdbtbx example-pdbs
+        let repo_path = format!("{manifest}/../test-pdbs/{name}");
+        if std::path::Path::new(&repo_path).exists() {
+            return repo_path;
+        }
         format!("{manifest}/../../pdbtbx/example-pdbs/{name}")
     }
 
