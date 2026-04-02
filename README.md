@@ -1,99 +1,188 @@
 # Ferritin
 
-Structural bioinformatics toolkit in Rust with Python bindings.
+**Fast structural bioinformatics in Python, powered by Rust.**
 
-Ferritin ports battle-tested structural alignment algorithms (TM-align, US-align) to Rust, organized as a modular workspace with a PyO3 Python bridge. Named after the iron-storage protein — because all the best structural biology tools should be forged in Rust.
+One `pip install`, Rust speed, clean API. Load structures, align proteins, compute SASA, assign secondary structure, detect hydrogen bonds — all with batch parallelism out of the box.
 
-## What's Inside
+```python
+import ferritin
 
-| Crate | Purpose |
-|-------|---------|
-| **ferritin-align** | Core alignment algorithms — Kabsch rotation, TM-score, Needleman-Wunsch DP, secondary structure assignment, plus US-align extensions (SOI-align, MM-align, flex-align) |
-| **ferritin-io** | Structure I/O for PDB and mmCIF formats via [pdbtbx](https://github.com/douweschulte/pdbtbx) |
-| **ferritin-bin** | CLI binaries: `tmalign` and `usalign` with rayon-parallel batch modes |
-| **ferritin-connector** | PyO3 Python bindings (scaffold) |
-| **packages/ferritin** | Pythonic wrapper package |
+# Load and analyze
+s = ferritin.load("1crn.pdb")
+sasa = ferritin.atom_sasa(s)                          # Shrake-Rupley SASA
+ss = ferritin.dssp(s)                                  # Kabsch-Sander DSSP
+phi, psi, _ = ferritin.backbone_dihedrals(s)           # Ramachandran angles
+hbonds = ferritin.backbone_hbonds(s)                   # H-bond detection
+ca = ferritin.extract_ca_coords(s)                     # CA coordinates
+cm = ferritin.contact_map(ca, cutoff=8.0)              # Contact map
+df = ferritin.to_dataframe(s)                          # → pandas DataFrame
 
-## Quick Start
+# Align structures
+result = ferritin.tm_align(s1, s2)
+print(f"TM-score: {result.tm_score_chain1:.4f}")
 
-```bash
-# Build everything
-cargo build --release
-
-# Align two structures
-cargo run --release --bin usalign -- structure1.pdb structure2.pdb
-
-# Tabular output
-cargo run --release --bin usalign -- structure1.pdb structure2.pdb --outfmt 2
-
-# Circular permutation
-cargo run --release --bin usalign -- structure1.pdb structure2.pdb --cp
-
-# Sequence-order-independent alignment
-cargo run --release --bin usalign -- structure1.pdb structure2.pdb --mm 5
-
-# Flexible alignment with hinge detection
-cargo run --release --bin usalign -- structure1.pdb structure2.pdb --mm 7
+# Batch: process 1000 structures on all cores
+results = ferritin.load_and_analyze(pdb_files, n_threads=-1)
 ```
 
-## Parallel Batch Alignment
-
-Ferritin uses [rayon](https://github.com/rayon-rs/rayon) to parallelize batch alignments across all available cores — something the original C++ tools can't do.
+## Installation
 
 ```bash
-# All-against-all: N structures → N*(N-1)/2 pairs, computed in parallel
-usalign chain_list.txt --dir /path/to/pdbs/ --outfmt 2
-
-# One-against-many: query against a database
-usalign chain_list.txt query.pdb --dir1 /path/to/pdbs/ --outfmt 2
-
-# Many-against-one: database against a query
-usalign query.pdb chain_list.txt --dir2 /path/to/pdbs/ --outfmt 2
+pip install ferritin
 ```
 
-100 structures (4,950 pairs) complete in ~15 seconds on a modern machine — roughly 16x faster than serial C++ USalign.
+## Why Ferritin?
+
+The structural bioinformatics landscape is fragmented: Biopython is slow, Gemmi is C++-focused, MDAnalysis is trajectory-oriented. Nobody has a single library where you `pip install` and get loading, alignment, SASA, DSSP, and batch parallelism.
+
+Ferritin fills that gap:
+
+- **Rust core** — 3.9x faster than Biopython for SASA, 34x for dihedrals
+- **Rayon parallelism** — batch operations scale to all cores automatically
+- **Zero-GIL pipelines** — `load_and_analyze()` runs entirely in Rust, 6x faster than a Python loop
+- **Oracle-tested** — validated against Biopython, Gemmi, and C++ USAlign to 4-5 decimal places
+- **316 tests** — comprehensive test suite including cross-tool oracle validation
+
+## Features
+
+### Structure I/O
+```python
+s = ferritin.load("protein.pdb")        # auto-detect PDB/mmCIF
+s = ferritin.load("protein.cif")        # mmCIF
+ferritin.save(s, "output.pdb")          # save
+
+# Batch load (parallel)
+structures = ferritin.batch_load(pdb_files, n_threads=-1)
+```
+
+### Structural Alignment
+Four alignment algorithms with single-pair, one-to-many, and many-to-many variants:
+```python
+r = ferritin.tm_align(s1, s2)                   # TM-align
+r = ferritin.soi_align(s1, s2)                   # sequence-order independent
+r = ferritin.flex_align(s1, s2)                   # flexible (hinge-based)
+r = ferritin.mm_align(complex1, complex2)         # multi-chain complex
+
+# Batch: all pairs, parallel
+results = ferritin.tm_align_many_to_many(queries, targets, n_threads=-1)
+```
+
+### SASA (Solvent Accessible Surface Area)
+Shrake-Rupley algorithm, 0.18% agreement with Biopython:
+```python
+sasa = ferritin.atom_sasa(s)             # per-atom (Å²)
+res_sasa = ferritin.residue_sasa(s)      # per-residue
+rsa = ferritin.relative_sasa(s)          # relative (0-1, burial classification)
+total = ferritin.total_sasa(s)           # total
+
+# Batch (rayon parallel)
+totals = ferritin.batch_total_sasa(structures, n_threads=-1)
+```
+
+### DSSP (Secondary Structure)
+Native Kabsch-Sander implementation — no external binary needed:
+```python
+ss = ferritin.dssp(s)          # → "CEEEEEETTTCEEEEECHHHHHHHH..."
+ss_arr = ferritin.dssp_array(s) # → numpy uint8 array
+
+# Batch
+all_ss = ferritin.batch_dssp(structures, n_threads=-1)
+```
+
+### Hydrogen Bonds
+```python
+hb = ferritin.backbone_hbonds(s)          # Kabsch-Sander energy criterion
+ghb = ferritin.geometric_hbonds(s)        # distance-based, all polar atoms
+counts = ferritin.hbond_count(s)          # per-residue participation
+```
+
+### Geometry & Analysis
+```python
+phi, psi, omega = ferritin.backbone_dihedrals(s)     # Ramachandran
+ca = ferritin.extract_ca_coords(s)                    # CA coordinates
+dm = ferritin.distance_matrix(ca)                     # pairwise distances
+cm = ferritin.contact_map(ca, cutoff=8.0)             # contact map
+rg = ferritin.radius_of_gyration(s)                   # radius of gyration
+ss = ferritin.assign_secondary_structure(ca)          # quick SS (CA-distance)
+rmsd, R, t = ferritin.kabsch_superpose(x, y)          # optimal superposition
+```
+
+### DataFrame Export
+```python
+df = ferritin.to_dataframe(s)                  # pandas
+df = ferritin.to_dataframe(s, engine="polars")  # polars
+```
+
+### Zero-GIL Pipelines
+Load files and compute everything in one Rust call — no Python overhead:
+```python
+# Load + full analysis (CA coords, distance matrix, contact map, dihedrals, Rg)
+results = ferritin.load_and_analyze(pdb_files, n_threads=-1)
+for r in results:
+    print(f"{r['path']}: {r['n_ca']} CA, Rg={r['rg']:.1f}")
+
+# Load + SASA
+results = ferritin.load_and_sasa(pdb_files, n_threads=-1)
+
+# Load + DSSP
+results = ferritin.load_and_dssp(pdb_files, n_threads=-1)
+```
+
+## Performance
+
+Benchmarks on 97 PDB files (327 to 58,870 atoms):
+
+| Operation | Ferritin | vs Biopython | Rayon speedup |
+|-----------|----------|-------------|---------------|
+| SASA (single) | 12ms | **3.9x faster** | — |
+| Dihedrals (single) | 3ms | **34x faster** | — |
+| Batch SASA (97 structs) | 17s | — | **2.5x** (16 threads) |
+| load_and_analyze (97) | 585ms | **6x faster** | pipeline |
 
 ## Architecture
 
 ```
-ferritin-align/src/
-├── core/                  # TM-align port (~4,500 lines)
-│   ├── kabsch.rs          # Kabsch optimal rotation (SVD)
-│   ├── tmscore.rs         # TM-score computation
-│   ├── nwdp.rs            # Needleman-Wunsch DP (4 variants)
-│   ├── secondary_structure.rs
-│   ├── residue_map.rs
-│   ├── types.rs           # Coord3D, Transform, AlignResult, TMParams
-│   └── align/             # tmalign, cpalign, dp_iter, 5 initialization strategies
-└── ext/                   # US-align extensions (~6,500 lines)
-    ├── blosum.rs           # BLOSUM62 + BLASTN scoring matrix
-    ├── nwalign.rs          # Gotoh affine-gap alignment
-    ├── se.rs               # Structure Extension refinement
-    ├── hwrmsd.rs           # Iterative HwRMSD refinement
-    ├── flexalign.rs        # Flexible hinge-based alignment
-    ├── soialign/           # Sequence Order Independent alignment
-    └── mmalign/            # Multi-chain complex alignment
+Pure Rust (no Python dependency)
+├── ferritin-align    — TM-align, SOI-align, FlexAlign, MM-align
+├── ferritin-io       — PDB/mmCIF I/O via pdbtbx
+└── ferritin-bin      — CLI binaries (tmalign, usalign)
+
+PyO3 connector (cdylib, rayon, GIL-released)
+└── ferritin-connector — analysis, SASA, DSSP, H-bonds, alignment
+
+Python package
+└── ferritin           — clean Pythonic API
 ```
 
-The Python bridge follows the [rustims/imspy](https://github.com/theGreatHerrLebert/rustims) pattern:
+## CLI Tools
 
+```bash
+# Align two structures
+cargo run --release --bin usalign -- s1.pdb s2.pdb
+
+# Batch all-against-all (parallel)
+cargo run --release --bin usalign -- chain_list.txt --dir /pdbs/ --outfmt 2
 ```
-Pure Rust library (ferritin-align, ferritin-io)
-    → PyO3 connector (ferritin-connector, cdylib)
-        → Python package (packages/ferritin)
-```
 
-## Numerical Fidelity
+## Examples
 
-TM-scores match the original C++ implementations to ~4-5 decimal places. The C++ versions compile with `-ffast-math` which reorders float operations; Rust preserves strict IEEE 754 ordering. On rare small-protein edge cases, the two may find different local optima — this is expected and inherent to the heuristic search.
+See [`examples/`](examples/) for runnable scripts:
+- `01_load_and_explore.py` — I/O, hierarchy, DataFrame
+- `02_structural_alignment.py` — TM-align, batch, superposition
+- `03_contact_map.py` — distance matrices, contacts
+- `04_ramachandran.py` — backbone dihedrals, SS correlation
+- `05_sasa_analysis.py` — SASA, RSA, burial classification
 
 ## References
 
-- Y Zhang, J Skolnick. "TM-align: a protein structure alignment algorithm based on the TM-score." *Nucleic Acids Research* 33, 2302-9 (2005)
-- C Zhang, M Shine, AM Pyle, Y Zhang. "US-align: universal structure alignments of proteins, nucleic acids, and macromolecular complexes." *Nature Methods* 19(9), 1109-1115 (2022)
+- Zhang & Skolnick. "TM-align." *Nucleic Acids Research* 33, 2302-9 (2005)
+- Zhang et al. "US-align." *Nature Methods* 19(9), 1109-1115 (2022)
+- Kabsch & Sander. "DSSP." *Biopolymers* 22, 2577-2637 (1983)
+- Shrake & Rupley. "Environment and exposure to solvent." *J Mol Biol* 79(2), 351-71 (1973)
+- Tien et al. "Maximum allowed solvent accessibilities." *PLoS ONE* 8(11), e80635 (2013)
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
-This is a clean-room Rust reimplementation. The original TM-align and US-align algorithms were developed by [Yang Zhang's group](https://zhanggroup.org/) under a BSD-like permissive license that requires attribution. Please cite the original papers if you use this in published work.
+Clean-room Rust reimplementation. The original algorithms are from published papers. Please cite the relevant papers if you use Ferritin in published work.
