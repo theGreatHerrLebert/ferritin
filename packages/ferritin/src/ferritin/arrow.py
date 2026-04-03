@@ -36,6 +36,14 @@ except ImportError:
     _arrow = None
 
 
+def _check_available():
+    if _arrow is None:
+        raise ImportError(
+            "ferritin Arrow support requires the ferritin-connector native extension. "
+            "Rebuild with: cd ferritin-connector && maturin develop --release"
+        )
+
+
 def _get_ptr(s):
     """Extract PyPDB pointer from Structure or raw PyPDB."""
     if isinstance(s, Structure):
@@ -63,6 +71,7 @@ def to_arrow(
         insertion_code, conformer_id, atom_name, atom_serial, element,
         x, y, z, b_factor, occupancy, is_hetero, is_backbone.
     """
+    _check_available()
     return _arrow.to_arrow_ipc(_get_ptr(structure), structure_id)
 
 
@@ -80,6 +89,7 @@ def to_structure_arrow(
         Arrow IPC bytes with columns: structure_id, atom_count,
         residue_count, chain_count, model_count, chains.
     """
+    _check_available()
     return _arrow.to_structure_arrow_ipc(_get_ptr(structure), structure_id)
 
 
@@ -97,6 +107,7 @@ def from_arrow(data: bytes) -> List[Tuple[str, Structure]]:
     Raises:
         RuntimeError: If the Arrow data does not have the expected atom schema.
     """
+    _check_available()
     pairs = _arrow.from_arrow_ipc(data)
     return [(sid, Structure.from_py_ptr(pdb)) for sid, pdb in pairs]
 
@@ -115,4 +126,5 @@ def to_parquet(
         path: Output file path.
         structure_id: Identifier for the structure in the file.
     """
+    _check_available()
     _arrow.to_parquet(_get_ptr(structure), path, structure_id)

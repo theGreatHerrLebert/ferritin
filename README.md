@@ -173,6 +173,56 @@ Python package
 └── ferritin           — clean Pythonic API
 ```
 
+## Ferritin Data Engine
+
+Bulk structure → Parquet pipeline. One command turns raw PDB/mmCIF files into queryable datasets:
+
+```bash
+# Ingest a directory of structures into a single Parquet file
+ferritin-ingest structures/ --out features.parquet
+
+# One Parquet file per structure
+ferritin-ingest structures/ --out output/ --per-structure
+
+# Control parallelism and chunk size
+ferritin-ingest structures/ --out features.parquet -j 8 --chunk-size 1000
+```
+
+Output is a columnar Parquet table (Zstd compressed) with 17 columns per atom — ready for pandas, polars, DuckDB, Spark, or PyTorch Geometric:
+
+```python
+import duckdb
+
+# "Show me all glycine CA atoms in chain A with high B-factors"
+duckdb.sql("""
+    SELECT structure_id, residue_serial, b_factor
+    FROM 'features.parquet'
+    WHERE residue_name = 'GLY' AND atom_name = 'CA'
+      AND chain_id = 'A' AND b_factor > 30
+    ORDER BY b_factor DESC
+""")
+```
+
+The shift:
+- **Before:** load structure, parse quirks, compute features, write one-off code, repeat.
+- **After:** run one ingestion command, get a usable structural dataset.
+
+### Arrow/Parquet API (Python)
+```python
+import ferritin
+
+s = ferritin.load("protein.pdb")
+
+# Structure → Arrow IPC bytes (zero-copy to pyarrow/polars)
+ipc = ferritin.to_arrow(s, "1crn")
+
+# Arrow → back to structure (round-trip)
+structures = ferritin.from_arrow(ipc)
+
+# Direct to Parquet (Zstd compressed, from Rust)
+ferritin.to_parquet(s, "output.parquet", "1crn")
+```
+
 ## CLI Tools
 
 ```bash
@@ -181,6 +231,9 @@ cargo run --release --bin usalign -- s1.pdb s2.pdb
 
 # Batch all-against-all (parallel)
 cargo run --release --bin usalign -- chain_list.txt --dir /pdbs/ --outfmt 2
+
+# Bulk ingest to Parquet
+cargo run --release --bin ingest -- structures/ --out features.parquet
 ```
 
 ## Geometric Deep Learning Examples

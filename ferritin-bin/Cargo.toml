@@ -6,7 +6,10 @@ description = "CLI binaries for TM-align and US-align"
 
 [dependencies]
 ferritin-align = { path = "../ferritin-align" }
+ferritin-arrow = { path = "../ferritin-arrow" }
 ferritin-io = { path = "../ferritin-io" }
+pdbtbx = { git = "https://github.com/douweschulte/pdbtbx", branch = "main" }
 clap = { version = "4", features = ["derive"] }
+parquet = "54"
 anyhow = "1"
 rayon = "1"
