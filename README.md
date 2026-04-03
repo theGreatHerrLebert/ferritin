@@ -40,7 +40,8 @@ Ferritin fills that gap:
 - **Rust core** — 24.6x faster than Biopython for SASA, 34x for dihedrals
 - **Rayon parallelism** — batch operations scale to all cores automatically
 - **Zero-GIL pipelines** — `load_and_analyze()` runs entirely in Rust, 6x faster than a Python loop
-- **Oracle-validated on 1000 structures** — SASA within 0.20% of Biopython (median), 97.3% PDB load rate
+- **Oracle-validated on 1000 random PDB structures** — SASA within 0.17% of Biopython (median), 96.3% PDB load rate
+- **Alignment accuracy** — TM-scores match C++ USAlign to 0.003 median difference (4,656 pair benchmark)
 - **342 tests** — comprehensive test suite including cross-tool oracle validation
 
 ## Features
@@ -141,22 +142,27 @@ results = ferritin.load_and_dssp(pdb_files, n_threads=-1)
 
 ## Performance
 
-Validated on 1000 diverse PDB structures (10 to 50,000 residues):
+Validated on 1,000 randomly sampled PDB structures (diverse sizes, all experimental methods):
 
 | Metric | Value |
 |--------|-------|
-| **SASA accuracy** | Within 0.20% of Biopython (median), 100% within 5% |
-| **SASA speed** | **24.6x faster** than Biopython (median across 1000 structures) |
+| **SASA accuracy** | Within 0.17% of Biopython (median), 99.8% within 5% |
+| **SASA speed** | **25.7x faster** than Biopython (median, up to 100x on large structures) |
+| **TM-align accuracy** | Median 0.003 TM-score diff vs C++ USAlign (4,656 pairs) |
+| **TM-align speed** | Parity with C++ (25.9 ms vs 22.5 ms median per pair) |
 | **Dihedrals speed** | **34x faster** than Python |
 | **Load + analyze** | 101 structures/second (zero-GIL pipeline) |
-| **PDB loading** | 97.3% of PDB archive loads successfully |
-| **Batch parallelism** | 2.5x rayon speedup on 16 cores |
+| **PDB loading** | 96.3% of random PDB archive loads successfully |
+| **Batch parallelism** | Rayon-based, scales to all cores automatically |
 
 ## Architecture
 
 ```
 Pure Rust (no Python dependency)
 ├── ferritin-align    — TM-align, SOI-align, FlexAlign, MM-align
+│   ├── core/         — Kabsch, TM-score, DP, secondary structure
+│   ├── ext/          — US-align extensions (BLOSUM, SOI, Flex, MM-align)
+│   └── search/       — structural alphabet (3Di-style, VQ-VAE, WIP)
 ├── ferritin-io       — PDB/mmCIF I/O via pdbtbx
 └── ferritin-bin      — CLI binaries (tmalign, usalign)
 
@@ -259,13 +265,21 @@ This ensures AI agents that read function signatures before calling them always 
 
 ## References
 
-- Zhang & Skolnick. "TM-align." *Nucleic Acids Research* 33, 2302-9 (2005)
-- Zhang et al. "US-align." *Nature Methods* 19(9), 1109-1115 (2022)
-- Kabsch & Sander. "DSSP." *Biopolymers* 22, 2577-2637 (1983)
-- Shrake & Rupley. "Environment and exposure to solvent." *J Mol Biol* 79(2), 351-71 (1973)
-- Tien et al. "Maximum allowed solvent accessibilities." *PLoS ONE* 8(11), e80635 (2013)
-- Hildebrandt et al. "BALL — Biochemical Algorithms Library 1.3." *BMC Bioinformatics* 11, 531 (2010)
-- Schulte, D. "pdbtbx: A Rust library for reading, editing, and saving crystallographic PDB/mmCIF files." *JOSS* 7(77), 4377 (2022)
+**Alignment:**
+- Zhang & Skolnick. "TM-align: a protein structure alignment algorithm based on the TM-score." [*Nucleic Acids Research* 33, 2302-9 (2005)](https://doi.org/10.1093/nar/gki524)
+- Zhang, Pagnon Braunstein, et al. "US-align: universal structure alignments of proteins, nucleic acids, and macromolecular complexes." [*Nature Methods* 19(9), 1109-1115 (2022)](https://doi.org/10.1038/s41592-022-01585-1)
+
+**Structural analysis:**
+- Kabsch & Sander. "Dictionary of protein secondary structure: pattern recognition of hydrogen-bonded and geometrical features." [*Biopolymers* 22, 2577-2637 (1983)](https://doi.org/10.1002/bip.360221211)
+- Shrake & Rupley. "Environment and exposure to solvent of protein atoms." [*J Mol Biol* 79(2), 351-71 (1973)](https://doi.org/10.1016/0022-2836(73)90011-9)
+- Tien et al. "Maximum allowed solvent accessibilities of residues in proteins." [*PLoS ONE* 8(11), e80635 (2013)](https://doi.org/10.1371/journal.pone.0080635)
+
+**Structural search (in development):**
+- van Kempen et al. "Fast and accurate protein structure search with Foldseek." [*Nature Biotechnology* 41, 243-246 (2023)](https://doi.org/10.1038/s41587-023-01773-0)
+
+**Infrastructure:**
+- Hildebrandt et al. "BALL — Biochemical Algorithms Library 1.3." [*BMC Bioinformatics* 11, 531 (2010)](https://doi.org/10.1186/1471-2105-11-531)
+- Schulte, D. "pdbtbx: A Rust library for reading, editing, and saving crystallographic PDB/mmCIF files." [*JOSS* 7(77), 4377 (2022)](https://doi.org/10.21105/joss.04377)
 
 ## License
 

@@ -22,7 +22,22 @@ USAlign/USalign
 # Test outputs
 dump/
 
-# Validation PDB downloads (large, not tracked)
+# Validation PDB downloads and results (large, not tracked)
 validation/pdbs/
+validation/pdbs_10k/
+validation/pdbs_1k_sample/
 validation/results.json
+validation/results_*.json
 validation/report.html
+validation/align_bench.json
+validation/foldseek_bench.json
+validation/alphabet_weights*.json
+validation/alphabet_vqvae*.json
+validation/alphabet_weights_rust.txt
+validation/alphabet_vqvae_rust.txt
+validation/pdb_ids_10k.txt
+
+# FoldSeek binary (downloaded, not tracked)
+foldseek/
+foldseek.tar.gz
+foldseek-src/

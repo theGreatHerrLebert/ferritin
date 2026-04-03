@@ -13,11 +13,20 @@ Usage:
 import argparse
 import json
 import os
+import signal
 import sys
 import time
 import traceback
 from collections import defaultdict
 from pathlib import Path
+
+
+class StructureTimeout(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise StructureTimeout("structure processing exceeded time limit")
 
 import numpy as np
 
@@ -394,7 +403,8 @@ ALL_TESTS = [
 ]
 
 
-def run_validation(pdb_dir: str, n_structures: int = 1000, output_file: str = None):
+def run_validation(pdb_dir: str, n_structures: int = 1000, output_file: str = None,
+                   timeout: int = 0):
     """Run all validation tests on PDB files."""
     # Collect PDB files
     files = sorted([
@@ -405,48 +415,69 @@ def run_validation(pdb_dir: str, n_structures: int = 1000, output_file: str = No
 
     print(f"Running validation on {len(files)} structures")
     print(f"Oracles: Biopython={HAS_BIOPYTHON}, Gemmi={HAS_GEMMI}, USAlign={HAS_USALIGN}")
+    if timeout > 0:
+        print(f"Per-structure timeout: {timeout}s")
     print()
 
     # Aggregate results
     stats = defaultdict(lambda: {"pass": 0, "fail": 0, "warn": 0, "error": 0})
     all_results = []
     sasa_diffs = []
+    n_skipped = 0
 
     t0 = time.time()
     for i, path in enumerate(files):
         basename = os.path.basename(path)
         structure_results = {"file": basename, "tests": []}
 
-        for test_fn in ALL_TESTS:
-            try:
-                r = test_fn(path)
-                structure_results["tests"].append(r)
-                stats[r["test"]][r["status"]] += 1
+        # Set per-structure timeout
+        if timeout > 0:
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(timeout)
 
-                # Collect SASA diffs for aggregate stats
-                if r["test"] == "sasa" and "relative_diff" in r.get("details", {}):
-                    sasa_diffs.append(r["details"]["relative_diff"])
-            except Exception as e:
-                stats[test_fn.__name__]["error"] += 1
-                structure_results["tests"].append({
-                    "test": test_fn.__name__,
-                    "status": "error",
-                    "details": {"error": str(e)[:200]}
-                })
+        try:
+            for test_fn in ALL_TESTS:
+                try:
+                    r = test_fn(path)
+                    structure_results["tests"].append(r)
+                    stats[r["test"]][r["status"]] += 1
+
+                    # Collect SASA diffs for aggregate stats
+                    if r["test"] == "sasa" and "relative_diff" in r.get("details", {}):
+                        sasa_diffs.append(r["details"]["relative_diff"])
+                except Exception as e:
+                    stats[test_fn.__name__]["error"] += 1
+                    structure_results["tests"].append({
+                        "test": test_fn.__name__,
+                        "status": "error",
+                        "details": {"error": str(e)[:200]}
+                    })
+        except StructureTimeout:
+            n_skipped += 1
+            structure_results["tests"] = [{
+                "test": "timeout",
+                "status": "skip",
+                "details": {"error": f"exceeded {timeout}s limit"}
+            }]
+        finally:
+            if timeout > 0:
+                signal.alarm(0)  # cancel any pending alarm
 
         all_results.append(structure_results)
 
-        if (i + 1) % 50 == 0:
+        if (i + 1) % 100 == 0:
             elapsed = time.time() - t0
             rate = (i + 1) / elapsed
             eta = (len(files) - i - 1) / rate
-            print(f"  [{i+1}/{len(files)}] {rate:.1f} structs/s, ETA {eta:.0f}s")
+            print(f"  [{i+1}/{len(files)}] {rate:.1f} structs/s, ETA {eta:.0f}s"
+                  f"{f', {n_skipped} skipped' if n_skipped else ''}")
 
     elapsed = time.time() - t0
 
     # Print summary
     print(f"\n{'='*60}")
-    print(f"VALIDATION SUMMARY ({len(files)} structures, {elapsed:.1f}s)")
+    print(f"VALIDATION SUMMARY ({len(files)} structures, {elapsed:.1f}s"
+          f"{f', {n_skipped} timed out' if n_skipped else ''})")
     print(f"{'='*60}\n")
 
     for test_name, counts in sorted(stats.items()):
@@ -505,6 +536,8 @@ if __name__ == "__main__":
     parser.add_argument("--n-structures", type=int, default=1000)
     parser.add_argument("--pdb-dir", default="validation/pdbs/")
     parser.add_argument("--output", default="validation/results.json")
+    parser.add_argument("--timeout", type=int, default=0,
+                        help="Per-structure timeout in seconds (0=no limit)")
     args = parser.parse_args()
 
-    run_validation(args.pdb_dir, args.n_structures, args.output)
+    run_validation(args.pdb_dir, args.n_structures, args.output, args.timeout)

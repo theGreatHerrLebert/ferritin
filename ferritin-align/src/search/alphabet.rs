@@ -1,0 +1,579 @@
+//! 3D structural alphabet encoder.
+//!
+//! Assigns each residue in a protein structure a letter from a 20-letter
+//! structural alphabet that encodes local tertiary interaction geometry.
+//! This is conceptually similar to the 3Di alphabet described in:
+//!
+//!   van Kempen et al., "Fast and accurate protein structure search with
+//!   Foldseek", Nature Biotechnology (2023).
+//!
+//! The algorithm:
+//! 1. Compute a virtual center point for each residue from backbone atoms.
+//! 2. Find each residue's nearest spatial neighbor by virtual-center distance.
+//! 3. Compute 10 geometric features describing the CA backbone geometry of
+//!    the residue-neighbor pair (unit vector dot products, distance, sequence
+//!    separation).
+//! 4. Map the 10D feature vector to a structural state via a learned encoder
+//!    (linear projection → 2D embedding → nearest centroid from 20 states).
+//!
+//! The encoder weights and centroids are trained independently using
+//! knowledge distillation, NOT derived from any GPL-licensed code.
+
+use crate::core::types::Coord3D;
+
+/// Number of states in the structural alphabet.
+pub const NUM_STATES: usize = 20;
+
+/// Number of geometric features per residue.
+pub const NUM_FEATURES: usize = 10;
+
+/// Embedding dimension (encoder output).
+pub const EMBED_DIM: usize = 2;
+
+/// Distance from CA to CB in angstroms (standard tetrahedral geometry).
+const DISTANCE_CA_CB: f64 = 1.5336;
+
+/// State assigned to residues where features cannot be computed
+/// (chain termini, missing coordinates, no valid neighbor).
+pub const INVALID_STATE: u8 = 2; // maps to a "coil" state
+
+/// The structural alphabet letters, ordered by state index 0..19.
+pub const STATE_CHARS: [char; NUM_STATES] = [
+    'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L',
+    'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y',
+];
+
+// ============================================================================
+// Linear encoder: 10D features → 2D embedding
+// Weights are trained via knowledge distillation (see train_alphabet.py).
+// Format: W is [EMBED_DIM x NUM_FEATURES], b is [EMBED_DIM].
+//   embedding = W @ features + b
+// ============================================================================
+
+/// Encoder weights: 2x10 matrix (row-major), maps features to 2D embedding.
+/// PLACEHOLDER — replace with trained weights.
+static ENCODER_W: [[f64; NUM_FEATURES]; EMBED_DIM] = [
+    [0.0; NUM_FEATURES],
+    [0.0; NUM_FEATURES],
+];
+
+/// Encoder bias: 2-element vector.
+static ENCODER_B: [f64; EMBED_DIM] = [0.0; EMBED_DIM];
+
+/// VQ centroids: 20 points in 2D embedding space.
+/// PLACEHOLDER — replace with trained centroids.
+static CENTROIDS: [[f64; EMBED_DIM]; NUM_STATES] = [[0.0; EMBED_DIM]; NUM_STATES];
+
+/// Whether the encoder has been trained (weights are non-zero).
+fn encoder_is_trained() -> bool {
+    // Check if any weight is non-zero
+    ENCODER_W.iter().any(|row| row.iter().any(|&w| w != 0.0))
+}
+
+// ============================================================================
+// Vec3 operations
+// ============================================================================
+
+#[inline]
+fn sub(a: &Coord3D, b: &Coord3D) -> Coord3D {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+#[inline]
+fn add(a: &Coord3D, b: &Coord3D) -> Coord3D {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+#[inline]
+fn scale(a: &Coord3D, f: f64) -> Coord3D {
+    [a[0] * f, a[1] * f, a[2] * f]
+}
+
+#[inline]
+fn dot(a: &Coord3D, b: &Coord3D) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+#[inline]
+fn cross(a: &Coord3D, b: &Coord3D) -> Coord3D {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+#[inline]
+fn norm(a: &Coord3D) -> Coord3D {
+    let len = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    if len < 1e-12 {
+        return [0.0; 3];
+    }
+    [a[0] / len, a[1] / len, a[2] / len]
+}
+
+#[inline]
+fn distance(a: &Coord3D, b: &Coord3D) -> f64 {
+    let d = sub(a, b);
+    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+}
+
+// ============================================================================
+// Virtual CB / virtual center computation
+// ============================================================================
+
+/// Approximate CB position from CA, N, C assuming tetrahedral geometry.
+/// Used when CB coordinates are missing (e.g., glycine).
+fn approx_cb(ca: &Coord3D, n: &Coord3D, c: &Coord3D) -> Coord3D {
+    let v1 = norm(&sub(c, ca));
+    let v2 = norm(&sub(n, ca));
+
+    let b1 = add(&v2, &scale(&v1, 1.0 / 3.0));
+    let b2 = cross(&v1, &b1);
+
+    let u1 = norm(&b1);
+    let u2 = norm(&b2);
+
+    // Direction from CA to CB in tetrahedral geometry
+    let term1 = scale(&v1, -1.0 / 3.0);
+    let term2a = sub(&scale(&u1, -0.5), &scale(&u2, 3.0_f64.sqrt() / 2.0));
+    let term2 = scale(&term2a, 8.0_f64.sqrt() / 3.0);
+    let v4 = add(&term1, &term2);
+
+    add(ca, &scale(&v4, DISTANCE_CA_CB))
+}
+
+/// Compute a virtual center point from CA, CB, N using Rodrigues rotation.
+///
+/// The virtual center is a point derived by rotating the CA→CB vector
+/// by fixed angles around the CA-N axis, then scaling. This provides
+/// a rotationally consistent reference point that captures side-chain
+/// orientation.
+///
+/// Parameters: alpha=270°, beta=0°, d=2.0 (from paper description).
+fn virtual_center(ca: &Coord3D, cb: &Coord3D, n: &Coord3D) -> Coord3D {
+    let alpha = 270.0_f64.to_radians();
+    let beta = 0.0_f64.to_radians();
+    let d = 2.0;
+
+    let mut v = sub(cb, ca);
+
+    // First rotation: angle alpha around axis perpendicular to CA-CB and CA-N
+    let a = sub(cb, ca);
+    let b = sub(n, ca);
+    let k = norm(&cross(&a, &b));
+
+    let cos_a = alpha.cos();
+    let sin_a = alpha.sin();
+    let kv = dot(&k, &v);
+    let cross_kv = cross(&k, &v);
+    v = add(
+        &add(&scale(&v, cos_a), &scale(&cross_kv, sin_a)),
+        &scale(&scale(&k, kv), 1.0 - cos_a),
+    );
+
+    // Second rotation: dihedral angle beta around CA-N axis
+    let k2 = norm(&sub(n, ca));
+    let cos_b = beta.cos();
+    let sin_b = beta.sin();
+    let kv2 = dot(&k2, &v);
+    let cross_kv2 = cross(&k2, &v);
+    v = add(
+        &add(&scale(&v, cos_b), &scale(&cross_kv2, sin_b)),
+        &scale(&scale(&k2, kv2), 1.0 - cos_b),
+    );
+
+    add(ca, &scale(&v, d))
+}
+
+// ============================================================================
+// Feature extraction
+// ============================================================================
+
+/// Compute 10 geometric features describing the backbone interaction
+/// between residue i and its spatial neighbor j.
+///
+/// Features are based on dot products of unit direction vectors along
+/// the CA backbone, the CA-CA distance, and sequence separation:
+///
+/// - f0: dot(u_prev_i, u_next_i)  — local bend at residue i
+/// - f1: dot(u_prev_j, u_next_j)  — local bend at residue j
+/// - f2: dot(u_prev_i, u_ij)      — orientation of i's backbone relative to j
+/// - f3: dot(u_prev_j, u_ij)      — orientation of j's backbone relative to i
+/// - f4: dot(u_prev_i, u_next_j)  — cross-orientation
+/// - f5: dot(u_next_i, u_prev_j)  — cross-orientation
+/// - f6: dot(u_prev_i, u_prev_j)  — backbone direction correlation
+/// - f7: dist(CA_i, CA_j)         — spatial distance
+/// - f8: clamp(j-i, -4, 4)        — signed sequence separation (clipped)
+/// - f9: sign(j-i) * ln(|j-i|+1)  — log sequence separation
+///
+/// where u_prev_i = norm(CA_i - CA_{i-1}), u_next_i = norm(CA_{i+1} - CA_i),
+/// u_ij = norm(CA_j - CA_i).
+pub fn compute_features(ca: &[Coord3D], i: usize, j: usize) -> [f64; NUM_FEATURES] {
+    let u1 = norm(&sub(&ca[i], &ca[i - 1]));       // prev direction at i
+    let u2 = norm(&sub(&ca[i + 1], &ca[i]));        // next direction at i
+    let u3 = norm(&sub(&ca[j], &ca[j - 1]));        // prev direction at j
+    let u4 = norm(&sub(&ca[j + 1], &ca[j]));        // next direction at j
+    let u5 = norm(&sub(&ca[j], &ca[i]));             // direction i→j
+
+    let sep = j as f64 - i as f64;
+
+    [
+        dot(&u1, &u2),                                      // f0: local bend i
+        dot(&u3, &u4),                                      // f1: local bend j
+        dot(&u1, &u5),                                      // f2: i backbone vs i→j
+        dot(&u3, &u5),                                      // f3: j backbone vs i→j
+        dot(&u1, &u4),                                      // f4: cross i-prev, j-next
+        dot(&u2, &u3),                                      // f5: cross i-next, j-prev
+        dot(&u1, &u3),                                      // f6: backbone correlation
+        distance(&ca[i], &ca[j]),                            // f7: CA-CA distance
+        sep.signum() * sep.abs().min(4.0),                   // f8: clipped seq sep
+        sep.signum() * (sep.abs() + 1.0).ln(),               // f9: log seq sep
+    ]
+}
+
+// ============================================================================
+// Encoder (linear projection + VQ)
+// ============================================================================
+
+/// Apply the linear encoder: features (10D) → embedding (2D).
+fn encode(features: &[f64; NUM_FEATURES]) -> [f64; EMBED_DIM] {
+    let mut embedding = [0.0; EMBED_DIM];
+    for d in 0..EMBED_DIM {
+        let mut sum = ENCODER_B[d];
+        for f in 0..NUM_FEATURES {
+            sum += ENCODER_W[d][f] * features[f];
+        }
+        embedding[d] = sum;
+    }
+    embedding
+}
+
+/// Find the nearest centroid to a 2D embedding point.
+fn nearest_centroid(embedding: &[f64; EMBED_DIM]) -> u8 {
+    let mut best = 0u8;
+    let mut best_dist = f64::INFINITY;
+    for (j, centroid) in CENTROIDS.iter().enumerate() {
+        let mut dist = 0.0;
+        for d in 0..EMBED_DIM {
+            let diff = embedding[d] - centroid[d];
+            dist += diff * diff;
+        }
+        if dist < best_dist {
+            best_dist = dist;
+            best = j as u8;
+        }
+    }
+    best
+}
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+/// Input structure for structural alphabet encoding.
+/// All coordinate arrays must have the same length (one entry per residue).
+pub struct BackboneAtoms<'a> {
+    /// CA (alpha carbon) coordinates, one per residue.
+    pub ca: &'a [Coord3D],
+    /// N (amide nitrogen) coordinates, one per residue.
+    pub n: &'a [Coord3D],
+    /// C (carbonyl carbon) coordinates, one per residue.
+    pub c: &'a [Coord3D],
+    /// CB (beta carbon) coordinates, one per residue.
+    /// Use [NaN, NaN, NaN] for glycine or missing CB.
+    pub cb: &'a [Coord3D],
+}
+
+/// Result of structural alphabet encoding.
+#[derive(Debug, Clone)]
+pub struct AlphabetResult {
+    /// State index (0..19) per residue. Invalid residues get `INVALID_STATE`.
+    pub states: Vec<u8>,
+    /// Partner index per residue (nearest spatial neighbor). -1 if none.
+    pub partners: Vec<i32>,
+    /// 10D feature vectors per residue. Zero for invalid residues.
+    pub features: Vec<[f64; NUM_FEATURES]>,
+    /// Validity mask per residue.
+    pub valid: Vec<bool>,
+}
+
+impl AlphabetResult {
+    /// Convert states to a string using the structural alphabet characters.
+    pub fn to_string(&self) -> String {
+        self.states
+            .iter()
+            .map(|&s| {
+                if (s as usize) < NUM_STATES {
+                    STATE_CHARS[s as usize]
+                } else {
+                    'X'
+                }
+            })
+            .collect()
+    }
+}
+
+/// Encode a protein backbone into a structural alphabet sequence.
+///
+/// Each residue is assigned one of 20 structural states based on the
+/// local tertiary interaction geometry of its backbone with the nearest
+/// spatial neighbor.
+///
+/// # Arguments
+/// * `atoms` - Backbone atom coordinates (CA, N, C, CB), one per residue.
+///
+/// # Returns
+/// `AlphabetResult` containing per-residue states, features, and metadata.
+///
+/// # Panics
+/// Panics if the coordinate arrays have different lengths.
+pub fn encode_structure(atoms: &BackboneAtoms) -> AlphabetResult {
+    let len = atoms.ca.len();
+    assert_eq!(atoms.n.len(), len);
+    assert_eq!(atoms.c.len(), len);
+    assert_eq!(atoms.cb.len(), len);
+
+    let mut states = vec![INVALID_STATE; len];
+    let mut partners = vec![-1i32; len];
+    let mut features = vec![[0.0; NUM_FEATURES]; len];
+    let mut valid = vec![false; len];
+
+    if len < 3 {
+        return AlphabetResult { states, partners, features, valid };
+    }
+
+    // Step 1: Create coordinate validity mask (need CA, N, C for each residue)
+    let coord_valid: Vec<bool> = (0..len)
+        .map(|i| {
+            !atoms.ca[i][0].is_nan()
+                && !atoms.n[i][0].is_nan()
+                && !atoms.c[i][0].is_nan()
+        })
+        .collect();
+    valid.copy_from_slice(&coord_valid);
+
+    // Step 2: Compute virtual centers
+    // For each residue, compute CB (if missing) and then virtual center
+    let mut virt_centers: Vec<Coord3D> = Vec::with_capacity(len);
+    for i in 0..len {
+        if coord_valid[i] {
+            let cb = if atoms.cb[i][0].is_nan() {
+                approx_cb(&atoms.ca[i], &atoms.n[i], &atoms.c[i])
+            } else {
+                atoms.cb[i]
+            };
+            virt_centers.push(virtual_center(&atoms.ca[i], &cb, &atoms.n[i]));
+        } else {
+            virt_centers.push([f64::NAN; 3]);
+        }
+    }
+
+    // Step 3: Find nearest spatial neighbor for each residue
+    // (by virtual center distance, excluding self)
+    // First and last residues are excluded (need i-1, i+1 for features)
+    for i in 1..len - 1 {
+        if !coord_valid[i] {
+            continue;
+        }
+        let mut min_dist = f64::INFINITY;
+        for j in 1..len - 1 {
+            if i == j || !coord_valid[j] {
+                continue;
+            }
+            let d = distance(&virt_centers[i], &virt_centers[j]);
+            if d < min_dist {
+                min_dist = d;
+                partners[i] = j as i32;
+            }
+        }
+        if partners[i] == -1 {
+            valid[i] = false;
+        }
+    }
+
+    // Invalidate first and last residues (need neighbors for features)
+    valid[0] = false;
+    valid[len - 1] = false;
+
+    // Step 4: Compute features for each valid residue
+    // Feature computation needs CA at positions i-1, i, i+1, j-1, j, j+1
+    for i in 1..len - 1 {
+        let j = partners[i];
+        if j < 0 || !valid[i] {
+            continue;
+        }
+        let j = j as usize;
+        // Need CA coordinates at j-1, j, j+1 (and i-1, i, i+1 already guaranteed)
+        if j == 0
+            || j >= len - 1
+            || !coord_valid[j - 1]
+            || !coord_valid[j]
+            || !coord_valid[j + 1]
+        {
+            valid[i] = false;
+            continue;
+        }
+        features[i] = compute_features(atoms.ca, i, j);
+    }
+
+    // Step 5: Encode features → states
+    if encoder_is_trained() {
+        for i in 0..len {
+            if valid[i] {
+                let embedding = encode(&features[i]);
+                states[i] = nearest_centroid(&embedding);
+            }
+        }
+    }
+    // If encoder not trained, states remain INVALID_STATE (placeholder)
+
+    AlphabetResult { states, partners, features, valid }
+}
+
+/// Compute features only (without encoding to states).
+/// Useful for generating training data.
+pub fn extract_features(atoms: &BackboneAtoms) -> AlphabetResult {
+    let mut result = encode_structure(atoms);
+    // Reset states since we only want features
+    result.states.fill(INVALID_STATE);
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_helix(n: usize) -> (Vec<Coord3D>, Vec<Coord3D>, Vec<Coord3D>, Vec<Coord3D>) {
+        // Generate an approximate alpha helix (3.6 residues/turn, 1.5 Å rise)
+        let mut ca = Vec::with_capacity(n);
+        let mut n_atoms = Vec::with_capacity(n);
+        let mut c_atoms = Vec::with_capacity(n);
+        let mut cb = Vec::with_capacity(n);
+
+        for i in 0..n {
+            let t = i as f64;
+            let angle = t * 100.0_f64.to_radians(); // ~100° per residue
+            let rise = t * 1.5;
+            let r = 2.3; // helix radius
+
+            let x = r * angle.cos();
+            let y = r * angle.sin();
+            let z = rise;
+            ca.push([x, y, z]);
+
+            // Approximate N position (offset from CA)
+            n_atoms.push([x - 0.5, y + 0.3, z - 0.7]);
+            // Approximate C position
+            c_atoms.push([x + 0.5, y - 0.3, z + 0.7]);
+            // CB: NaN (will be computed)
+            cb.push([f64::NAN, f64::NAN, f64::NAN]);
+        }
+
+        (ca, n_atoms, c_atoms, cb)
+    }
+
+    #[test]
+    fn test_approx_cb() {
+        let ca = [0.0, 0.0, 0.0];
+        let n = [1.458, 0.0, 0.0];
+        let c = [-0.5, 1.4, 0.0];
+        let cb = approx_cb(&ca, &n, &c);
+        // CB should be ~1.53 Å from CA
+        let d = distance(&ca, &cb);
+        assert!((d - DISTANCE_CA_CB).abs() < 0.01, "CB distance: {d}");
+    }
+
+    #[test]
+    fn test_virtual_center() {
+        let ca = [0.0, 0.0, 0.0];
+        let n = [1.458, 0.0, 0.0];
+        let c = [-0.5, 1.4, 0.0];
+        let cb = approx_cb(&ca, &n, &c);
+        let vc = virtual_center(&ca, &cb, &n);
+        // Virtual center should be ~2.0 Å from CA
+        let d = distance(&ca, &vc);
+        assert!(d > 1.0 && d < 4.0, "VC distance: {d}");
+    }
+
+    #[test]
+    fn test_feature_extraction_helix() {
+        let (ca, n, c, cb) = make_helix(20);
+        let atoms = BackboneAtoms {
+            ca: &ca,
+            n: &n,
+            c: &c,
+            cb: &cb,
+        };
+        let result = extract_features(&atoms);
+
+        // Should have valid features for interior residues
+        let n_valid = result.valid.iter().filter(|&&v| v).count();
+        assert!(n_valid > 10, "Expected >10 valid residues, got {n_valid}");
+
+        // All valid residues should have partners
+        for i in 0..result.valid.len() {
+            if result.valid[i] {
+                assert!(result.partners[i] >= 0, "residue {i} has no partner");
+                // Features should be non-zero
+                let f = &result.features[i];
+                let sum: f64 = f.iter().map(|x| x.abs()).sum();
+                assert!(sum > 0.0, "residue {i} has zero features");
+            }
+        }
+    }
+
+    #[test]
+    fn test_features_are_bounded() {
+        let (ca, n, c, cb) = make_helix(30);
+        let atoms = BackboneAtoms {
+            ca: &ca,
+            n: &n,
+            c: &c,
+            cb: &cb,
+        };
+        let result = extract_features(&atoms);
+
+        for i in 0..result.valid.len() {
+            if !result.valid[i] {
+                continue;
+            }
+            let f = &result.features[i];
+            // f0-f6 are dot products of unit vectors: should be in [-1, 1]
+            for k in 0..7 {
+                assert!(
+                    f[k] >= -1.01 && f[k] <= 1.01,
+                    "feature {k} at residue {i} out of range: {}",
+                    f[k]
+                );
+            }
+            // f7 is distance: should be positive
+            assert!(f[7] > 0.0, "distance feature should be positive");
+            // f8 is clipped to [-4, 4]
+            assert!(
+                f[8] >= -4.01 && f[8] <= 4.01,
+                "f8 out of range: {}",
+                f[8]
+            );
+        }
+    }
+
+    #[test]
+    fn test_short_chain() {
+        // Chain too short for feature extraction
+        let ca = vec![[0.0, 0.0, 0.0], [3.8, 0.0, 0.0]];
+        let n = vec![[1.0, 0.0, 0.0], [4.0, 0.0, 0.0]];
+        let c = vec![[-0.5, 1.0, 0.0], [3.0, 1.0, 0.0]];
+        let cb = vec![[f64::NAN; 3]; 2];
+        let atoms = BackboneAtoms {
+            ca: &ca,
+            n: &n,
+            c: &c,
+            cb: &cb,
+        };
+        let result = encode_structure(&atoms);
+        assert_eq!(result.states.len(), 2);
+        // All should be invalid
+        assert!(result.valid.iter().all(|&v| !v));
+    }
+}
