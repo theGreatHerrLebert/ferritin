@@ -53,7 +53,7 @@ pub fn steepest_descent(
     for step in 0..max_steps {
         steps = step + 1;
 
-        let (energy, forces) = compute_energy_and_forces(&pos, topo, params);
+        let (_energy, forces) = compute_energy_and_forces(&pos, topo, params);
 
         // Compute max force magnitude
         let mut max_force = 0.0f64;

@@ -2,7 +2,7 @@
 //!
 //! Single-structure and batch-parallel variants, plus load+analyze combos.
 
-use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
+use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use rayon::prelude::*;

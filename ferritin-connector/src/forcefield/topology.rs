@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use super::params::{AmberParams, AtomTypeEntry};
+use super::params::AmberParams;
 
 /// Per-atom data for force field computation.
 #[derive(Clone, Debug)]
@@ -13,7 +13,9 @@ pub struct FFAtom {
     pub pos: [f64; 3],
     pub amber_type: String,
     pub charge: f64,
+    #[allow(dead_code)]
     pub residue_name: String,
+    #[allow(dead_code)]
     pub atom_name: String,
     pub element: String,
     pub residue_idx: usize,

@@ -1,6 +1,6 @@
 //! PyO3 bindings for AMBER force field and energy minimization.
 
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods};
+use numpy::{PyArray1, PyArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use rayon::prelude::*;

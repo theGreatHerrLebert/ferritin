@@ -7,10 +7,12 @@
 use std::f64::consts::PI;
 
 /// Default probe radius (water molecule) in Angstroms.
+#[allow(dead_code)]
 pub const PROBE_RADIUS: f64 = 1.4;
 
 /// Default number of test points per sphere (Fibonacci spiral).
 /// 960 gives ~0.1 A² precision. 92 is fast but rough.
+#[allow(dead_code)]
 pub const DEFAULT_N_POINTS: usize = 960;
 
 // ---------------------------------------------------------------------------

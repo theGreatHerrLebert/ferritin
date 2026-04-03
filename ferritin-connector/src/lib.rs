@@ -7,6 +7,7 @@ mod hbond;
 mod py_align;
 mod py_align_funcs;
 mod py_analysis;
+mod py_arrow;
 mod py_dssp;
 mod py_forcefield;
 mod py_geometry;
@@ -23,6 +24,7 @@ mod sasa;
 fn ferritin_connector(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(py_align::py_align))?;
     m.add_wrapped(wrap_pymodule!(py_align_funcs::py_align_funcs))?;
+    m.add_wrapped(wrap_pymodule!(py_arrow::py_arrow))?;
     m.add_wrapped(wrap_pymodule!(py_analysis::py_analysis))?;
     m.add_wrapped(wrap_pymodule!(py_dssp::py_dssp))?;
     m.add_wrapped(wrap_pymodule!(py_forcefield::py_forcefield))?;

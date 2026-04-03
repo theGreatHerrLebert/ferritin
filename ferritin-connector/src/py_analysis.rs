@@ -310,6 +310,7 @@ pub fn radius_of_gyration(_py: Python<'_>, pdb: &PyPDB) -> f64 {
 /// Batch extract CA coordinates from many structures in parallel.
 #[pyfunction]
 #[pyo3(signature = (structures, n_threads=None))]
+#[allow(unused_variables)]
 pub fn batch_extract_ca<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,

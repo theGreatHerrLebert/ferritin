@@ -90,8 +90,10 @@ pub struct GeometricHBond {
     /// Donor-Acceptor distance (Å)
     pub distance: f64,
     /// Donor residue index
+    #[allow(dead_code)]
     pub donor_residue: usize,
     /// Acceptor residue index
+    #[allow(dead_code)]
     pub acceptor_residue: usize,
 }
 

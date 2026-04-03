@@ -407,6 +407,7 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
 }
 
 /// Assign DSSP from a pdbtbx PDB structure.
+#[allow(dead_code)]
 pub fn dssp_from_pdb(pdb: &pdbtbx::PDB) -> String {
     let residues = extract_dssp_residues(pdb);
     assign_dssp(&residues)

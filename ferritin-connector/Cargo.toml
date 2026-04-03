@@ -10,8 +10,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 ferritin-align = { path = "../ferritin-align" }
+ferritin-arrow = { path = "../ferritin-arrow" }
 ferritin-io = { path = "../ferritin-io" }
 pdbtbx = { git = "https://github.com/douweschulte/pdbtbx", branch = "main" }
+arrow = { version = "54", features = ["ipc"] }
 pyo3 = { version = "0.23", features = ["extension-module"] }
 numpy = "0.23"
 rayon = "1"
