@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "ferritin-align",
+    "ferritin-arrow",
     "ferritin-io",
     "ferritin-bin",
     "ferritin-connector",
