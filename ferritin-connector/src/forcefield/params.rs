@@ -1,14 +1,45 @@
-//! AMBER96 force field parameters.
+//! Force field parameters and the `ForceField` trait.
 //!
-//! Atom types, charges, bond/angle/torsion/LJ parameters parsed from amber96.ini.
+//! Provides a common interface for AMBER96 and CHARMM19+EEF1 force fields.
+//! All energy/topology/MD functions are generic over `impl ForceField`.
 
 use std::collections::{HashMap, HashSet};
 
-/// Atom type assignment: residue_name:atom_name → (amber_type, charge)
+/// Atom type assignment: residue_name:atom_name → (type, charge)
 #[derive(Clone, Debug)]
 pub struct AtomTypeEntry {
-    pub amber_type: String,
-    pub charge: f64, // in elementary charge units
+    pub amber_type: String, // force field atom type (works for both AMBER and CHARMM)
+    pub charge: f64,        // in elementary charge units
+}
+
+/// EEF1 implicit solvation parameters per atom type.
+#[derive(Clone, Debug)]
+pub struct EEF1Param {
+    pub volume: f64,   // van der Waals volume (ų)
+    pub dg_ref: f64,   // reference solvation free energy (kcal/mol)
+    pub dg_free: f64,  // solvation free energy for Gaussian exclusion (kcal/mol)
+    pub sigma: f64,    // Gaussian width (Å)
+    pub r_min: f64,    // minimum interaction radius (Å)
+}
+
+/// Common interface for force field parameter lookup.
+///
+/// Implemented by `AmberParams` and `CharmmParams`. All energy computation,
+/// topology building, minimization, and MD functions are generic over this trait.
+pub trait ForceField: Send + Sync {
+    fn get_atom_type(&self, residue: &str, atom: &str) -> Option<&AtomTypeEntry>;
+    fn get_bond(&self, type_a: &str, type_b: &str) -> Option<&BondParam>;
+    fn get_angle(&self, type_a: &str, type_b: &str, type_c: &str) -> Option<&AngleParam>;
+    fn get_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>>;
+    fn get_improper_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>>;
+    fn is_improper_center(&self, residue: &str, atom: &str) -> bool;
+    fn get_lj(&self, atype: &str) -> Option<&LJParam>;
+    fn scee(&self) -> f64;
+    fn scnb(&self) -> f64;
+    /// EEF1 solvation parameters (None for force fields without implicit solvent).
+    fn get_eef1(&self, _atype: &str) -> Option<&EEF1Param> { None }
+    /// Whether this force field has EEF1 solvation enabled.
+    fn has_eef1(&self) -> bool { false }
 }
 
 /// Bond stretch parameters: E = k * (r - r0)²
@@ -367,9 +398,169 @@ impl AmberParams {
     }
 }
 
+impl ForceField for AmberParams {
+    fn get_atom_type(&self, residue: &str, atom: &str) -> Option<&AtomTypeEntry> {
+        self.get_atom_type(residue, atom)
+    }
+    fn get_bond(&self, type_a: &str, type_b: &str) -> Option<&BondParam> {
+        self.get_bond(type_a, type_b)
+    }
+    fn get_angle(&self, type_a: &str, type_b: &str, type_c: &str) -> Option<&AngleParam> {
+        self.get_angle(type_a, type_b, type_c)
+    }
+    fn get_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>> {
+        self.get_torsion(a, b, c, d)
+    }
+    fn get_improper_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>> {
+        self.get_improper_torsion(a, b, c, d)
+    }
+    fn is_improper_center(&self, residue: &str, atom: &str) -> bool {
+        self.is_improper_center(residue, atom)
+    }
+    fn get_lj(&self, atype: &str) -> Option<&LJParam> {
+        self.get_lj(atype)
+    }
+    fn scee(&self) -> f64 { self.scee }
+    fn scnb(&self) -> f64 { self.scnb }
+}
+
 /// Load the embedded AMBER96 parameter set.
 pub fn amber96() -> AmberParams {
     AmberParams::from_ini(include_str!("../../data/amber96.ini"))
+}
+
+// ---------------------------------------------------------------------------
+// CHARMM19 + EEF1 force field
+// ---------------------------------------------------------------------------
+
+/// CHARMM19 force field parameters with EEF1 implicit solvation.
+#[derive(Clone, Debug)]
+pub struct CharmmParams {
+    /// Same bonded/nonbonded parameter storage as AMBER
+    pub atom_types: HashMap<String, AtomTypeEntry>,
+    pub wildcard_types: HashMap<String, AtomTypeEntry>,
+    pub bonds: HashMap<(String, String), BondParam>,
+    pub angles: HashMap<(String, String, String), AngleParam>,
+    pub torsions: HashMap<(String, String, String, String), Vec<TorsionTerm>>,
+    pub improper_torsions: HashMap<(String, String, String, String), Vec<TorsionTerm>>,
+    pub residue_impropers: HashSet<String>,
+    pub lj: HashMap<String, LJParam>,
+    pub scee: f64,
+    pub scnb: f64,
+    /// EEF1 solvation parameters per atom type
+    pub eef1: HashMap<String, EEF1Param>,
+}
+
+impl CharmmParams {
+    /// Parse CHARMM parameters from BALL INI file content.
+    pub fn from_ini(content: &str) -> Self {
+        // Reuse the AMBER INI parser for bonded/nonbonded terms (same format)
+        let amber = AmberParams::from_ini(content);
+        let mut eef1 = HashMap::new();
+
+        // Parse EEF1 solvation section
+        let mut section = String::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with(';') || line.starts_with('@')
+                || line.starts_with("ver:") || line.starts_with("key:") || line.starts_with("value:") {
+                continue;
+            }
+            if line.starts_with('[') {
+                section = line.trim_start_matches('[').trim_end_matches(']').to_string();
+                continue;
+            }
+            if section == "EEF1Solvation" {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                // format: ver type V dG_ref dG_free dH_ref Cp_ref sig_w R_min
+                if fields.len() >= 9 {
+                    let atype = fields[1].to_string();
+                    if let (Ok(v), Ok(dg_ref), Ok(dg_free), Ok(sigma), Ok(r_min)) = (
+                        fields[2].parse::<f64>(),
+                        fields[3].parse::<f64>(),
+                        fields[4].parse::<f64>(),
+                        fields[7].parse::<f64>(),
+                        fields[8].parse::<f64>(),
+                    ) {
+                        // Skip hydrogen types (volume = 0 and dG = 0)
+                        if v.abs() > 1e-10 || dg_ref.abs() > 1e-10 || dg_free.abs() > 1e-10 {
+                            eef1.insert(atype, EEF1Param {
+                                volume: v,
+                                dg_ref,
+                                dg_free,
+                                sigma,
+                                r_min,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        CharmmParams {
+            atom_types: amber.atom_types,
+            wildcard_types: amber.wildcard_types,
+            bonds: amber.bonds,
+            angles: amber.angles,
+            torsions: amber.torsions,
+            improper_torsions: amber.improper_torsions,
+            residue_impropers: amber.residue_impropers,
+            lj: amber.lj,
+            scee: amber.scee,
+            scnb: amber.scnb,
+            eef1,
+        }
+    }
+}
+
+impl ForceField for CharmmParams {
+    fn get_atom_type(&self, residue: &str, atom: &str) -> Option<&AtomTypeEntry> {
+        let key = format!("{residue}:{atom}");
+        self.atom_types.get(&key).or_else(|| self.wildcard_types.get(atom))
+    }
+    fn get_bond(&self, type_a: &str, type_b: &str) -> Option<&BondParam> {
+        let key = sorted_pair(type_a, type_b);
+        self.bonds.get(&key)
+    }
+    fn get_angle(&self, type_a: &str, type_b: &str, type_c: &str) -> Option<&AngleParam> {
+        let key = sorted_triple(type_a, type_b, type_c);
+        self.angles.get(&key)
+    }
+    fn get_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>> {
+        let key = (a.to_string(), b.to_string(), c.to_string(), d.to_string());
+        self.torsions.get(&key).or_else(|| {
+            let wk = ("*".to_string(), b.to_string(), c.to_string(), "*".to_string());
+            self.torsions.get(&wk)
+        })
+    }
+    fn get_improper_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>> {
+        let key = (a.to_string(), b.to_string(), c.to_string(), d.to_string());
+        self.improper_torsions.get(&key).or_else(|| {
+            let wk = ("*".to_string(), b.to_string(), c.to_string(), d.to_string());
+            self.improper_torsions.get(&wk).or_else(|| {
+                let wk2 = ("*".to_string(), "*".to_string(), c.to_string(), d.to_string());
+                self.improper_torsions.get(&wk2)
+            })
+        })
+    }
+    fn is_improper_center(&self, residue: &str, atom: &str) -> bool {
+        let key = format!("{residue}:{atom}");
+        self.residue_impropers.contains(&key)
+    }
+    fn get_lj(&self, atype: &str) -> Option<&LJParam> {
+        self.lj.get(atype)
+    }
+    fn scee(&self) -> f64 { self.scee }
+    fn scnb(&self) -> f64 { self.scnb }
+    fn get_eef1(&self, atype: &str) -> Option<&EEF1Param> {
+        self.eef1.get(atype)
+    }
+    fn has_eef1(&self) -> bool { !self.eef1.is_empty() }
+}
+
+/// Load the embedded CHARMM19 + EEF1 parameter set.
+pub fn charmm19_eef1() -> CharmmParams {
+    CharmmParams::from_ini(include_str!("../../data/charmm19_eef1.ini"))
 }
 
 #[cfg(test)]

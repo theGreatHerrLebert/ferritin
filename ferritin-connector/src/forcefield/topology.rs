@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use super::params::AmberParams;
+use super::params::ForceField;
 
 /// Per-atom data for force field computation.
 #[derive(Clone, Debug)]
@@ -73,7 +73,7 @@ fn max_bond_distance(elem_a: &str, elem_b: &str) -> f64 {
 }
 
 /// Build topology from a PDB structure.
-pub fn build_topology(pdb: &pdbtbx::PDB, params: &AmberParams) -> Topology {
+pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
     // Step 1: Extract atoms with type assignment
     let mut atoms = Vec::new();
     let mut unassigned_atoms = Vec::new();

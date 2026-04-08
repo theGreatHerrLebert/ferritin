@@ -5,7 +5,7 @@
 //! and nonbonded interactions with cubic switching functions.
 
 use super::neighbor_list::NeighborList;
-use super::params::AmberParams;
+use super::params::ForceField;
 use super::topology::Topology;
 
 /// Energy breakdown by component.
@@ -17,6 +17,7 @@ pub struct EnergyResult {
     pub improper_torsion: f64,
     pub vdw: f64,
     pub electrostatic: f64,
+    pub solvation: f64,
     pub total: f64,
 }
 
@@ -70,7 +71,7 @@ impl CubicSwitch {
 pub fn compute_energy(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
 ) -> EnergyResult {
     compute_energy_impl(coords, topo, params, false)
 }
@@ -79,7 +80,7 @@ pub fn compute_energy(
 pub fn compute_energy_dd(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     distance_dependent_dielectric: bool,
 ) -> EnergyResult {
     compute_energy_impl(coords, topo, params, distance_dependent_dielectric)
@@ -88,7 +89,7 @@ pub fn compute_energy_dd(
 fn compute_energy_impl(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     distance_dependent_dielectric: bool,
 ) -> EnergyResult {
     let mut result = EnergyResult::default();
@@ -180,8 +181,8 @@ fn compute_energy_impl(
 
             let (switch_val, _) = sw.eval(r2);
             let is_14 = topo.pairs_14.contains(&pair);
-            let scale_vdw = if is_14 { 1.0 / params.scnb } else { 1.0 };
-            let scale_es = if is_14 { 1.0 / params.scee } else { 1.0 };
+            let scale_vdw = if is_14 { 1.0 / params.scnb() } else { 1.0 };
+            let scale_es = if is_14 { 1.0 / params.scee() } else { 1.0 };
 
             let r = r2.sqrt();
 
@@ -207,12 +208,18 @@ fn compute_energy_impl(
         }
     }
 
+    // --- EEF1 solvation (if enabled) ---
+    if params.has_eef1() {
+        eef1_energy(coords, topo, params, &mut result.solvation);
+    }
+
     result.total = result.bond_stretch
         + result.angle_bend
         + result.torsion
         + result.improper_torsion
         + result.vdw
-        + result.electrostatic;
+        + result.electrostatic
+        + result.solvation;
     result
 }
 
@@ -222,7 +229,7 @@ fn compute_energy_impl(
 pub fn compute_energy_and_forces(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
 ) -> (EnergyResult, Vec<[f64; 3]>) {
     compute_energy_and_forces_impl(coords, topo, params, false)
 }
@@ -231,7 +238,7 @@ pub fn compute_energy_and_forces(
 pub fn compute_energy_and_forces_dd(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     distance_dependent_dielectric: bool,
 ) -> (EnergyResult, Vec<[f64; 3]>) {
     compute_energy_and_forces_impl(coords, topo, params, distance_dependent_dielectric)
@@ -240,7 +247,7 @@ pub fn compute_energy_and_forces_dd(
 fn compute_energy_and_forces_impl(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     distance_dependent_dielectric: bool,
 ) -> (EnergyResult, Vec<[f64; 3]>) {
     let n = coords.len();
@@ -367,8 +374,8 @@ fn compute_energy_and_forces_impl(
 
             let (switch_val, dsw_dr2) = sw.eval(r2);
             let is_14 = topo.pairs_14.contains(&pair);
-            let scale_vdw = if is_14 { 1.0 / params.scnb } else { 1.0 };
-            let scale_es = if is_14 { 1.0 / params.scee } else { 1.0 };
+            let scale_vdw = if is_14 { 1.0 / params.scnb() } else { 1.0 };
+            let scale_es = if is_14 { 1.0 / params.scee() } else { 1.0 };
 
             let r = r2.sqrt();
             let inv_r = 1.0 / r;
@@ -432,12 +439,18 @@ fn compute_energy_and_forces_impl(
         }
     }
 
+    // --- EEF1 solvation (if enabled) ---
+    if params.has_eef1() {
+        eef1_energy_and_forces(coords, topo, params, &mut result.solvation, &mut forces);
+    }
+
     result.total = result.bond_stretch
         + result.angle_bend
         + result.torsion
         + result.improper_torsion
         + result.vdw
-        + result.electrostatic;
+        + result.electrostatic
+        + result.solvation;
     (result, forces)
 }
 
@@ -452,7 +465,7 @@ fn compute_energy_and_forces_impl(
 pub fn compute_energy_and_forces_nbl(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     nbl: &NeighborList,
 ) -> (EnergyResult, Vec<[f64; 3]>) {
     let n = coords.len();
@@ -488,8 +501,8 @@ pub fn compute_energy_and_forces_nbl(
         }
 
         let (switch_val, dsw_dr2) = sw.eval(r2);
-        let scale_vdw = if pair.is_14 { 1.0 / params.scnb } else { 1.0 };
-        let scale_es = if pair.is_14 { 1.0 / params.scee } else { 1.0 };
+        let scale_vdw = if pair.is_14 { 1.0 / params.scnb() } else { 1.0 };
+        let scale_es = if pair.is_14 { 1.0 / params.scee() } else { 1.0 };
 
         let r = r2.sqrt();
         let inv_r = 1.0 / r;
@@ -558,7 +571,7 @@ pub fn compute_energy_and_forces_nbl(
 fn bonded_energy_and_forces(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     result: &mut EnergyResult,
     forces: &mut [[f64; 3]],
 ) {
@@ -629,6 +642,173 @@ fn bonded_energy_and_forces(
 }
 
 // ---------------------------------------------------------------------------
+// EEF1 implicit solvation (Lazaridis & Karplus, Proteins 35:133, 1999)
+//
+// E_solv = Σ_i ΔG_ref_i                                   (self-solvation)
+//        + Σ_{i<j} f(r_ij)                                (pair exclusion)
+//
+// f(r_ij) = -0.5 * V_j * ΔG_free_i * exp(-(r - R_min_i)²/σ_i²) / (σ_i * π√π * r²)
+//         + -0.5 * V_i * ΔG_free_j * exp(-(r - R_min_j)²/σ_j²) / (σ_j * π√π * r²)
+// ---------------------------------------------------------------------------
+
+const PI_SQRT_PI: f64 = 5.568_327_996_831_708; // π * √π
+
+/// EEF1 solvation energy (energy only, no forces).
+fn eef1_energy(
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &impl ForceField,
+    solvation: &mut f64,
+) {
+    let n = coords.len();
+    let cutoff_sq = 9.0 * 9.0; // 9 Å cutoff for solvation
+
+    // Self-solvation: Σ ΔG_ref
+    for atom in &topo.atoms {
+        if atom.is_hydrogen { continue; }
+        if let Some(eef) = params.get_eef1(&atom.amber_type) {
+            *solvation += eef.dg_ref;
+        }
+    }
+
+    // Pair exclusion
+    for i in 0..n {
+        if topo.atoms[i].is_hydrogen { continue; }
+        let eef_i = match params.get_eef1(&topo.atoms[i].amber_type) {
+            Some(e) => e,
+            None => continue,
+        };
+
+        for j in (i + 1)..n {
+            if topo.atoms[j].is_hydrogen { continue; }
+            let eef_j = match params.get_eef1(&topo.atoms[j].amber_type) {
+                Some(e) => e,
+                None => continue,
+            };
+
+            let dx = coords[i][0] - coords[j][0];
+            let dy = coords[i][1] - coords[j][1];
+            let dz = coords[i][2] - coords[j][2];
+            let r2 = dx * dx + dy * dy + dz * dz;
+            if r2 > cutoff_sq || r2 < 0.01 { continue; }
+
+            let r = r2.sqrt();
+
+            // Contribution from atom j excluding atom i's solvation
+            if eef_i.dg_free.abs() > 1e-10 && eef_j.volume > 1e-10 {
+                let dr = (r - eef_i.r_min) / eef_i.sigma;
+                *solvation += -0.5 * eef_j.volume * eef_i.dg_free
+                    * (-dr * dr).exp() / (eef_i.sigma * PI_SQRT_PI * r2);
+            }
+
+            // Contribution from atom i excluding atom j's solvation
+            if eef_j.dg_free.abs() > 1e-10 && eef_i.volume > 1e-10 {
+                let dr = (r - eef_j.r_min) / eef_j.sigma;
+                *solvation += -0.5 * eef_i.volume * eef_j.dg_free
+                    * (-dr * dr).exp() / (eef_j.sigma * PI_SQRT_PI * r2);
+            }
+        }
+    }
+}
+
+/// EEF1 solvation energy + forces.
+fn eef1_energy_and_forces(
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &impl ForceField,
+    solvation: &mut f64,
+    forces: &mut [[f64; 3]],
+) {
+    let n = coords.len();
+    let cutoff_sq = 9.0 * 9.0;
+
+    // Self-solvation (no force contribution — constant per atom)
+    for atom in &topo.atoms {
+        if atom.is_hydrogen { continue; }
+        if let Some(eef) = params.get_eef1(&atom.amber_type) {
+            *solvation += eef.dg_ref;
+        }
+    }
+
+    // Pair exclusion + forces
+    for i in 0..n {
+        if topo.atoms[i].is_hydrogen { continue; }
+        let eef_i = match params.get_eef1(&topo.atoms[i].amber_type) {
+            Some(e) => e,
+            None => continue,
+        };
+
+        for j in (i + 1)..n {
+            if topo.atoms[j].is_hydrogen { continue; }
+            let eef_j = match params.get_eef1(&topo.atoms[j].amber_type) {
+                Some(e) => e,
+                None => continue,
+            };
+
+            let dx = coords[i][0] - coords[j][0];
+            let dy = coords[i][1] - coords[j][1];
+            let dz = coords[i][2] - coords[j][2];
+            let r2 = dx * dx + dy * dy + dz * dz;
+            if r2 > cutoff_sq || r2 < 0.01 { continue; }
+
+            let r = r2.sqrt();
+            let inv_r = 1.0 / r;
+            let mut de_dr_total = 0.0;
+
+            // i's solvation excluded by j
+            if eef_i.dg_free.abs() > 1e-10 && eef_j.volume > 1e-10 {
+                let dr_i = (r - eef_i.r_min) / eef_i.sigma;
+                let exp_i = (-dr_i * dr_i).exp();
+                let norm_i = eef_i.sigma * PI_SQRT_PI;
+                let e_i = -0.5 * eef_j.volume * eef_i.dg_free * exp_i / (norm_i * r2);
+                *solvation += e_i;
+
+                // dE/dr = E * (-2*dr/(σ*r) - 2/r) = E * (-2/(σ*r)) * (dr + σ/1) ...
+                // More carefully: E = C * exp(-dr²) / r²
+                // dE/dr = C * [-2*dr/(σ) * exp(-dr²) / r² + exp(-dr²) * (-2/r³)]
+                //       = E * [-2*dr/σ + (-2/r)] = E * (-2) * (dr/σ + 1/r)
+                // Wait, dr = (r - R_min) / σ, so d(dr)/dr = 1/σ
+                // d(exp(-dr²))/dr = -2*dr * (1/σ) * exp(-dr²)
+                // d(1/r²)/dr = -2/r³
+                // dE/dr = C * [d(exp(-dr²))/dr * 1/r² + exp(-dr²) * d(1/r²)/dr]
+                //       = C * [-2*dr/σ * exp(-dr²)/r² + exp(-dr²) * (-2/r³)]
+                //       = C * exp(-dr²) * [-2*dr/(σ*r²) - 2/r³]
+                //       = E * [-2*dr/σ - 2/r] (simplifying with E = C*exp/r²)
+                // Hmm wait: E = C * exp(-dr²) / r², so E * r² = C * exp(-dr²)
+                // Then: dE/dr = C * exp(-dr²) * [-2dr/(σ*r²) - 2/r³]
+                //             = (E * r²) * [-2dr/(σ*r²) - 2/r³]
+                //             = E * [-2*dr/σ - 2*r²/r³]
+                //             = E * [-2*dr/σ - 2/r]
+                de_dr_total += e_i * (-2.0 * dr_i / eef_i.sigma - 2.0 * inv_r);
+            }
+
+            // j's solvation excluded by i
+            if eef_j.dg_free.abs() > 1e-10 && eef_i.volume > 1e-10 {
+                let dr_j = (r - eef_j.r_min) / eef_j.sigma;
+                let exp_j = (-dr_j * dr_j).exp();
+                let norm_j = eef_j.sigma * PI_SQRT_PI;
+                let e_j = -0.5 * eef_i.volume * eef_j.dg_free * exp_j / (norm_j * r2);
+                *solvation += e_j;
+
+                de_dr_total += e_j * (-2.0 * dr_j / eef_j.sigma - 2.0 * inv_r);
+            }
+
+            // Apply force along r_ij
+            let fx = de_dr_total * dx * inv_r;
+            let fy = de_dr_total * dy * inv_r;
+            let fz = de_dr_total * dz * inv_r;
+
+            forces[i][0] -= fx;
+            forces[i][1] -= fy;
+            forces[i][2] -= fz;
+            forces[j][0] += fx;
+            forces[j][1] += fy;
+            forces[j][2] += fz;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Torsion energy + gradient (shared by proper and improper)
 //
 // Uses the BALL/BiochemicalAlgorithms.jl cross-product formula:
@@ -644,7 +824,7 @@ fn torsion_energy_and_forces(
     torsion_list: &[super::topology::Torsion],
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     energy_accum: &mut f64,
     forces: &mut [[f64; 3]],
     is_improper: bool,

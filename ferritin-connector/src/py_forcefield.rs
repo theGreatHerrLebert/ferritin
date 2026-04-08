@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use rayon::prelude::*;
 
-use crate::forcefield::{energy, md, minimize, params, topology};
+use crate::forcefield::{energy, md, minimize, params, params::ForceField, topology};
 use crate::py_pdb::PyPDB;
 
 fn resolve_threads(n: Option<i32>) -> usize {
@@ -29,12 +29,24 @@ fn build_pool(n_threads: usize) -> rayon::ThreadPool {
 ///   bond_stretch, angle_bend, torsion, vdw, electrostatic, total
 ///   (all in kcal/mol)
 #[pyfunction]
-pub fn compute_energy(py: Python<'_>, pdb: &PyPDB) -> PyResult<PyObject> {
-    let amber = params::amber96();
-    let topo = topology::build_topology(&pdb.inner, &amber);
-    let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
-
-    let result = py.allow_threads(|| energy::compute_energy(&coords, &topo, &amber));
+#[pyo3(signature = (pdb, ff="amber96"))]
+pub fn compute_energy(py: Python<'_>, pdb: &PyPDB, ff: &str) -> PyResult<PyObject> {
+    let (topo, result) = match ff {
+        "charmm" | "charmm19" | "charmm19_eef1" => {
+            let charmm = params::charmm19_eef1();
+            let topo = topology::build_topology(&pdb.inner, &charmm);
+            let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
+            let result = py.allow_threads(|| energy::compute_energy(&coords, &topo, &charmm));
+            (topo, result)
+        }
+        _ => {
+            let amber = params::amber96();
+            let topo = topology::build_topology(&pdb.inner, &amber);
+            let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
+            let result = py.allow_threads(|| energy::compute_energy(&coords, &topo, &amber));
+            (topo, result)
+        }
+    };
 
     let dict = pyo3::types::PyDict::new(py);
     dict.set_item("bond_stretch", result.bond_stretch)?;
@@ -43,6 +55,7 @@ pub fn compute_energy(py: Python<'_>, pdb: &PyPDB) -> PyResult<PyObject> {
     dict.set_item("improper_torsion", result.improper_torsion)?;
     dict.set_item("vdw", result.vdw)?;
     dict.set_item("electrostatic", result.electrostatic)?;
+    dict.set_item("solvation", result.solvation)?;
     dict.set_item("total", result.total)?;
     dict.set_item("n_unassigned_atoms", topo.unassigned_atoms.len())?;
     Ok(dict.into_any().unbind())
@@ -68,7 +81,7 @@ pub fn compute_energy(py: Python<'_>, pdb: &PyPDB) -> PyResult<PyObject> {
 fn run_minimize(
     coords: &[[f64; 3]],
     topo: &topology::Topology,
-    amber: &params::AmberParams,
+    amber: &impl ForceField,
     max_steps: usize,
     gradient_tolerance: f64,
     constrained: &[bool],
@@ -130,6 +143,7 @@ pub fn minimize_hydrogens<'py>(
     components.set_item("improper_torsion", result.energy.improper_torsion)?;
     components.set_item("vdw", result.energy.vdw)?;
     components.set_item("electrostatic", result.energy.electrostatic)?;
+    components.set_item("solvation", result.energy.solvation)?;
     dict.set_item("energy_components", components)?;
 
     Ok(dict.into_any().unbind())
@@ -186,6 +200,7 @@ pub fn minimize_structure<'py>(
     components.set_item("improper_torsion", result.energy.improper_torsion)?;
     components.set_item("vdw", result.energy.vdw)?;
     components.set_item("electrostatic", result.energy.electrostatic)?;
+    components.set_item("solvation", result.energy.solvation)?;
     dict.set_item("energy_components", components)?;
 
     Ok(dict.into_any().unbind())

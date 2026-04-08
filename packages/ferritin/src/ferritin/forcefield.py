@@ -24,22 +24,20 @@ def _get_ptr(structure):
     return structure
 
 
-def compute_energy(structure) -> dict:
-    """Compute AMBER96 force field energy of a structure.
+def compute_energy(structure, ff: str = "amber96") -> dict:
+    """Compute force field energy of a structure.
+
+    Args:
+        structure: Ferritin Structure object.
+        ff: Force field to use. Options:
+            "amber96" — AMBER96 (default, in-vacuo)
+            "charmm19_eef1" — CHARMM19 with EEF1 implicit solvation
 
     Returns dict with energy components (all in kcal/mol):
-        bond_stretch, angle_bend, torsion, vdw, electrostatic, total
-
-    Examples:
-        >>> e = ferritin.compute_energy(structure)
-        >>> print(f"Total: {e['total']:.1f} kcal/mol")
-
-    Agent Notes:
-        WATCH: Absolute values not comparable across different structures.
-            vdw > 1e6 = steric clashes (normal for raw X-ray, not a bug).
-        COST: O(N^2) for nonbonded terms. Slow above 5000 atoms.
+        bond_stretch, angle_bend, torsion, improper_torsion,
+        vdw, electrostatic, solvation, total
     """
-    return _ff.compute_energy(_get_ptr(structure))
+    return _ff.compute_energy(_get_ptr(structure), ff)
 
 
 def minimize_hydrogens(

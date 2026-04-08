@@ -4,7 +4,7 @@
 //! for hydrogen position optimization.
 
 use super::energy::{compute_energy, compute_energy_and_forces, EnergyResult};
-use super::params::AmberParams;
+use super::params::ForceField;
 use super::topology::Topology;
 
 /// Result of energy minimization.
@@ -34,7 +34,7 @@ pub struct MinimizeResult {
 pub fn steepest_descent(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     max_steps: usize,
     gradient_tolerance: f64,
     constrained: &[bool],
@@ -164,7 +164,7 @@ fn line_search(
     grad_dot_dir: f64,
     current_energy: f64,
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     constrained: &[bool],
 ) -> (f64, f64, Vec<[f64; 3]>) {
     let c1 = 1e-4; // Armijo parameter
@@ -209,7 +209,7 @@ fn line_search(
 pub fn conjugate_gradient(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     max_steps: usize,
     gradient_tolerance: f64,
     constrained: &[bool],
@@ -344,7 +344,7 @@ pub fn conjugate_gradient(
 pub fn lbfgs(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     max_steps: usize,
     gradient_tolerance: f64,
     constrained: &[bool],
@@ -570,7 +570,7 @@ fn dot3n_raw(a: &[[f64; 3]], b: &[[f64; 3]], constrained: &[bool]) -> f64 {
 pub fn minimize_hydrogens(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     max_steps: usize,
     gradient_tolerance: f64,
 ) -> MinimizeResult {
@@ -587,7 +587,7 @@ pub fn minimize_hydrogens(
 pub fn minimize_hydrogens_cg(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     max_steps: usize,
     gradient_tolerance: f64,
 ) -> MinimizeResult {
@@ -604,7 +604,7 @@ pub fn minimize_hydrogens_cg(
 pub fn minimize_hydrogens_lbfgs(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     max_steps: usize,
     gradient_tolerance: f64,
 ) -> MinimizeResult {

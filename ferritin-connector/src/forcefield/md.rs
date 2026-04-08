@@ -5,7 +5,7 @@
 //! Reference: BALL MolecularDynamics / CanonicalMD (Hildebrandt et al.)
 
 use super::energy::{compute_energy_and_forces, EnergyResult};
-use super::params::AmberParams;
+use super::params::ForceField;
 use super::topology::Topology;
 
 // ---------------------------------------------------------------------------
@@ -177,7 +177,7 @@ pub struct BondConstraint {
 /// Target distances come from the force field equilibrium bond lengths.
 pub fn build_h_constraints(
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
 ) -> Vec<BondConstraint> {
     let mut constraints = Vec::new();
     for bond in &topo.bonds {
@@ -350,7 +350,7 @@ fn rattle(
 pub fn velocity_verlet(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     n_steps: usize,
     dt: f64,
     temperature: f64,
@@ -372,7 +372,7 @@ pub fn velocity_verlet(
 pub fn velocity_verlet_constrained(
     coords: &[[f64; 3]],
     topo: &Topology,
-    params: &AmberParams,
+    params: &impl ForceField,
     n_steps: usize,
     dt: f64,
     temperature: f64,
