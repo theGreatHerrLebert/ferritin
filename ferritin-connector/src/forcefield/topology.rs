@@ -3,9 +3,10 @@
 //! Infers bonds from interatomic distances, then builds the lists
 //! of bond/angle/torsion interactions needed for energy computation.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::params::ForceField;
+use crate::fragment_templates;
 
 /// Per-atom data for force field computation.
 #[derive(Clone, Debug)]
@@ -124,29 +125,145 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
         }
     }
 
-    // Step 2: Infer bonds from distances
+    // Step 2: Build bonds from fragment templates + peptide/disulfide connections.
+    //
+    // Phase A: Intra-residue bonds from templates (chemical knowledge).
+    // Phase B: Inter-residue peptide bonds (C-N within 1.8 Å between adjacent residues).
+    // Phase C: Disulfide bonds (SG-SG within 2.5 Å).
+    // Phase D: Distance fallback for residues without templates.
     let n = atoms.len();
     let mut bonds = Vec::new();
     let mut neighbors: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut bonded_set: HashSet<(usize, usize)> = HashSet::new();
 
-    for i in 0..n {
-        for j in (i + 1)..n {
-            // Only bond within same or adjacent residues
-            let res_diff = (atoms[i].residue_idx as isize - atoms[j].residue_idx as isize).unsigned_abs();
-            if res_diff > 1 {
-                continue;
+    // Build an index: (residue_idx, atom_name) → global atom index
+    let mut res_atom_index: HashMap<(usize, &str), usize> = HashMap::new();
+    for (i, atom) in atoms.iter().enumerate() {
+        res_atom_index.insert((atom.residue_idx, &atom.atom_name), i);
+    }
+
+    // Build a template lookup
+    let templates: HashMap<&str, &fragment_templates::FragmentTemplate> = fragment_templates::TEMPLATES
+        .iter()
+        .map(|t| (t.0, t))
+        .collect();
+
+    // Group atoms by residue_idx
+    let mut residue_atoms: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (i, atom) in atoms.iter().enumerate() {
+        residue_atoms.entry(atom.residue_idx).or_default().push(i);
+    }
+
+    // Phase A: Intra-residue bonds from templates
+    let mut residues_with_templates: HashSet<usize> = HashSet::new();
+    for (&res_idx, atom_indices) in &residue_atoms {
+        let res_name = &atoms[atom_indices[0]].residue_name;
+        if let Some(template) = templates.get(res_name.as_str()) {
+            residues_with_templates.insert(res_idx);
+            let tpl_bonds = template.2;
+            for &(a1_name, a2_name) in tpl_bonds {
+                if let (Some(&i), Some(&j)) = (
+                    res_atom_index.get(&(res_idx, a1_name)),
+                    res_atom_index.get(&(res_idx, a2_name)),
+                ) {
+                    let pair = (i.min(j), i.max(j));
+                    if bonded_set.insert(pair) {
+                        bonds.push(Bond { i: pair.0, j: pair.1 });
+                        neighbors[pair.0].push(pair.1);
+                        neighbors[pair.1].push(pair.0);
+                    }
+                }
             }
+        }
+    }
 
+    // Phase B: Inter-residue peptide bonds (C of res i → N of res i+1)
+    let max_res_idx = atoms.iter().map(|a| a.residue_idx).max().unwrap_or(0);
+    for res_idx in 0..max_res_idx {
+        if let (Some(&c_idx), Some(&n_idx)) = (
+            res_atom_index.get(&(res_idx, "C")),
+            res_atom_index.get(&(res_idx + 1, "N")),
+        ) {
+            let dx = atoms[c_idx].pos[0] - atoms[n_idx].pos[0];
+            let dy = atoms[c_idx].pos[1] - atoms[n_idx].pos[1];
+            let dz = atoms[c_idx].pos[2] - atoms[n_idx].pos[2];
+            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            if dist < 1.8 && dist > 0.5 {
+                let pair = (c_idx.min(n_idx), c_idx.max(n_idx));
+                if bonded_set.insert(pair) {
+                    bonds.push(Bond { i: pair.0, j: pair.1 });
+                    neighbors[pair.0].push(pair.1);
+                    neighbors[pair.1].push(pair.0);
+                }
+            }
+        }
+    }
+
+    // Phase B2: Terminal bonds (OXT-C for C-terminal, H1/H2/H3 for N-terminal)
+    for i in 0..n {
+        let name = atoms[i].atom_name.as_str();
+        let res_idx = atoms[i].residue_idx;
+        let parent = match name {
+            "OXT" => Some("C"),
+            "H1" | "H2" | "H3" => Some("N"),
+            _ => None,
+        };
+        if let Some(parent_name) = parent {
+            if let Some(&p_idx) = res_atom_index.get(&(res_idx, parent_name)) {
+                let pair = (i.min(p_idx), i.max(p_idx));
+                if bonded_set.insert(pair) {
+                    bonds.push(Bond { i: pair.0, j: pair.1 });
+                    neighbors[pair.0].push(pair.1);
+                    neighbors[pair.1].push(pair.0);
+                }
+            }
+        }
+    }
+
+    // Phase C: Disulfide bonds (SG-SG within 2.5 Å)
+    let sg_atoms: Vec<usize> = atoms.iter().enumerate()
+        .filter(|(_, a)| a.atom_name == "SG" && (a.residue_name == "CYS" || a.residue_name == "CYX"))
+        .map(|(i, _)| i)
+        .collect();
+    for ai in 0..sg_atoms.len() {
+        for aj in (ai + 1)..sg_atoms.len() {
+            let (i, j) = (sg_atoms[ai], sg_atoms[aj]);
             let dx = atoms[i].pos[0] - atoms[j].pos[0];
             let dy = atoms[i].pos[1] - atoms[j].pos[1];
             let dz = atoms[i].pos[2] - atoms[j].pos[2];
             let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            if dist < 2.5 {
+                let pair = (i.min(j), i.max(j));
+                if bonded_set.insert(pair) {
+                    bonds.push(Bond { i: pair.0, j: pair.1 });
+                    neighbors[pair.0].push(pair.1);
+                    neighbors[pair.1].push(pair.0);
+                }
+            }
+        }
+    }
 
-            let max_dist = max_bond_distance(&atoms[i].element, &atoms[j].element);
-            if dist < max_dist && dist > 0.4 {
-                bonds.push(Bond { i, j });
-                neighbors[i].push(j);
-                neighbors[j].push(i);
+    // Phase D: Distance fallback for residues without templates (ligands, non-standard)
+    for (&res_idx, atom_indices) in &residue_atoms {
+        if residues_with_templates.contains(&res_idx) {
+            continue;
+        }
+        for ai in 0..atom_indices.len() {
+            for aj in (ai + 1)..atom_indices.len() {
+                let (i, j) = (atom_indices[ai], atom_indices[aj]);
+                let dx = atoms[i].pos[0] - atoms[j].pos[0];
+                let dy = atoms[i].pos[1] - atoms[j].pos[1];
+                let dz = atoms[i].pos[2] - atoms[j].pos[2];
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                let max_dist = max_bond_distance(&atoms[i].element, &atoms[j].element);
+                if dist < max_dist && dist > 0.4 {
+                    let pair = (i.min(j), i.max(j));
+                    if bonded_set.insert(pair) {
+                        bonds.push(Bond { i: pair.0, j: pair.1 });
+                        neighbors[pair.0].push(pair.1);
+                        neighbors[pair.1].push(pair.0);
+                    }
+                }
             }
         }
     }
@@ -236,5 +353,131 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
         excluded_pairs,
         pairs_14,
         unassigned_atoms,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::forcefield::params;
+
+    #[test]
+    fn test_crambin_disulfides() {
+        let (pdb, _) = pdbtbx::ReadOptions::default()
+            .set_level(pdbtbx::StrictnessLevel::Loose)
+            .read("../test-pdbs/1crn.pdb")
+            .expect("read");
+        let amber = params::amber96();
+        let topo = build_topology(&pdb, &amber);
+
+        // Find SG atoms
+        let sg: Vec<(usize, &str, usize)> = topo.atoms.iter().enumerate()
+            .filter(|(_, a)| a.atom_name == "SG")
+            .map(|(i, a)| (i, a.residue_name.as_str(), a.residue_idx))
+            .collect();
+        println!("SG atoms: {:?}", sg);
+
+        // Check which SG-SG pairs are bonded
+        for i in 0..sg.len() {
+            for j in (i+1)..sg.len() {
+                let (ai, _, _) = sg[i];
+                let (aj, _, _) = sg[j];
+                let pair = (ai.min(aj), ai.max(aj));
+                let is_bonded = topo.excluded_pairs.contains(&pair) ||
+                    topo.bonds.iter().any(|b| (b.i == pair.0 && b.j == pair.1));
+                let dx = topo.atoms[ai].pos[0] - topo.atoms[aj].pos[0];
+                let dy = topo.atoms[ai].pos[1] - topo.atoms[aj].pos[1];
+                let dz = topo.atoms[ai].pos[2] - topo.atoms[aj].pos[2];
+                let dist = (dx*dx + dy*dy + dz*dz).sqrt();
+                println!("SG[{}]-SG[{}] dist={:.3} bonded={} excluded={}",
+                    ai, aj, dist, is_bonded, topo.excluded_pairs.contains(&pair));
+            }
+        }
+
+        // Crambin should have 3 disulfides
+        let ss_bonds: Vec<_> = topo.bonds.iter()
+            .filter(|b| topo.atoms[b.i].atom_name == "SG" && topo.atoms[b.j].atom_name == "SG")
+            .collect();
+        println!("SS bonds found: {}", ss_bonds.len());
+        assert_eq!(ss_bonds.len(), 3, "Crambin should have 3 disulfide bonds");
+    }
+
+    #[test]
+    fn test_crambin_bond_count() {
+        let (pdb, _) = pdbtbx::ReadOptions::default()
+            .set_level(pdbtbx::StrictnessLevel::Loose)
+            .read("../test-pdbs/1crn.pdb")
+            .expect("read");
+        let amber = params::amber96();
+        let topo = build_topology(&pdb, &amber);
+
+        println!("Atoms: {}", topo.atoms.len());
+        println!("Bonds: {}", topo.bonds.len());
+        println!("Angles: {}", topo.angles.len());
+        println!("Torsions: {}", topo.torsions.len());
+        println!("Excluded pairs: {}", topo.excluded_pairs.len());
+        println!("1-4 pairs: {}", topo.pairs_14.len());
+
+        // BALL finds 337 bonds on 327-atom crambin
+        // We expect ~333 template + ~45 peptide + ~3 disulfide = ~381 candidates
+        // (but deduplication reduces this)
+        assert!(topo.bonds.len() > 300, "Should have > 300 bonds, got {}", topo.bonds.len());
+        assert!(topo.bonds.len() < 400, "Should have < 400 bonds, got {}", topo.bonds.len());
+    }
+
+    #[test]
+    fn test_crambin_vdw_debug() {
+        let (pdb, _) = pdbtbx::ReadOptions::default()
+            .set_level(pdbtbx::StrictnessLevel::Loose)
+            .read("../test-pdbs/1crn.pdb")
+            .expect("read");
+        let amber = super::super::params::amber96();
+        let topo = build_topology(&pdb, &amber);
+        let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
+
+        // Compute VdW pair by pair, find top contributors
+        let n = coords.len();
+        let mut pairs: Vec<(f64, usize, usize, f64)> = Vec::new(); // (energy, i, j, dist)
+
+        for i in 0..n {
+            for j in (i+1)..n {
+                let pair = (i, j);
+                if topo.excluded_pairs.contains(&pair) { continue; }
+
+                let dx = coords[i][0] - coords[j][0];
+                let dy = coords[i][1] - coords[j][1];
+                let dz = coords[i][2] - coords[j][2];
+                let r2 = dx*dx + dy*dy + dz*dz;
+                if r2 > 225.0 || r2 < 0.01 { continue; } // 15 Å cutoff
+
+                let r = r2.sqrt();
+                let ti = &topo.atoms[i].amber_type;
+                let tj = &topo.atoms[j].amber_type;
+                if let (Some(lj_i), Some(lj_j)) = (amber.get_lj(ti), amber.get_lj(tj)) {
+                    let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
+                    let rmin = lj_i.r + lj_j.r;
+                    if eps > 1e-10 && rmin > 1e-10 {
+                        let is_14 = topo.pairs_14.contains(&pair);
+                        let scale = if is_14 { 0.5 } else { 1.0 };
+                        let sr = rmin / r;
+                        let sr6 = sr.powi(6);
+                        let e = scale * eps * (sr6 * sr6 - 2.0 * sr6);
+                        pairs.push((e, i, j, r));
+                    }
+                }
+            }
+        }
+
+        pairs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap()); // descending
+        println!("Top 10 VdW contributors:");
+        let total: f64 = pairs.iter().map(|p| p.0).sum();
+        println!("Total VdW: {:.1} kcal/mol", total);
+        for (e, i, j, r) in pairs.iter().take(10) {
+            let is14 = topo.pairs_14.contains(&(*i, *j));
+            println!("  E={:+10.1} i={} {}:{} j={} {}:{} r={:.3} 1-4={}",
+                e, i, topo.atoms[*i].residue_name, topo.atoms[*i].atom_name,
+                j, topo.atoms[*j].residue_name, topo.atoms[*j].atom_name,
+                r, is14);
+        }
     }
 }
