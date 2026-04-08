@@ -330,6 +330,239 @@ pub fn conjugate_gradient(
 }
 
 // ---------------------------------------------------------------------------
+// L-BFGS (Limited-memory BFGS)
+// ---------------------------------------------------------------------------
+
+/// Minimize energy using L-BFGS (limited-memory BFGS).
+///
+/// Quasi-Newton method that approximates the inverse Hessian using the last
+/// `m` gradient/position updates. Much faster convergence than CG for large
+/// systems. Uses the two-loop recursion algorithm (Nocedal, 1980).
+///
+/// Reference: Jorge Nocedal, "Updating Quasi-Newton Matrices with Limited
+/// Storage", Mathematics of Computation 35, 773-782 (1980).
+pub fn lbfgs(
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &AmberParams,
+    max_steps: usize,
+    gradient_tolerance: f64,
+    constrained: &[bool],
+) -> MinimizeResult {
+    let n = coords.len();
+    let m = 10; // number of stored correction pairs (typical: 5-20)
+    let mut pos = coords.to_vec();
+
+    let initial_e = compute_energy(&pos, topo, params);
+    let initial_energy = initial_e.total;
+
+    let (_, forces) = compute_energy_and_forces(&pos, topo, params);
+    // Gradient = -force
+    let mut grad = negate_forces(&forces, constrained);
+
+    // Storage for correction pairs: s_k = x_{k+1} - x_k, y_k = g_{k+1} - g_k
+    let mut s_hist: Vec<Vec<[f64; 3]>> = Vec::with_capacity(m);
+    let mut y_hist: Vec<Vec<[f64; 3]>> = Vec::with_capacity(m);
+    let mut rho_hist: Vec<f64> = Vec::with_capacity(m);
+
+    let mut energy = initial_energy;
+    let mut converged = false;
+    let mut steps = 0;
+
+    for step in 0..max_steps {
+        steps = step + 1;
+
+        // Check convergence: max gradient magnitude
+        let mut max_grad = 0.0f64;
+        for i in 0..n {
+            if constrained[i] { continue; }
+            let g2 = grad[i][0].powi(2) + grad[i][1].powi(2) + grad[i][2].powi(2);
+            max_grad = max_grad.max(g2.sqrt());
+        }
+        if max_grad < gradient_tolerance {
+            converged = true;
+            break;
+        }
+
+        // Two-loop recursion to compute search direction: d = -H_k * g_k
+        let direction = lbfgs_two_loop(&grad, &s_hist, &y_hist, &rho_hist, constrained);
+
+        // Line search
+        let grad_dot_dir = dot3n_raw(&grad, &direction, constrained);
+        if grad_dot_dir >= 0.0 {
+            // Not a descent direction — restart (use steepest descent step)
+            s_hist.clear();
+            y_hist.clear();
+            rho_hist.clear();
+            // Take a small steepest descent step
+            let sd_step = 0.01;
+            for i in 0..n {
+                if constrained[i] { continue; }
+                let g_mag = (grad[i][0].powi(2) + grad[i][1].powi(2) + grad[i][2].powi(2)).sqrt();
+                if g_mag > 1e-12 {
+                    let scale = sd_step / g_mag;
+                    pos[i][0] -= grad[i][0] * scale;
+                    pos[i][1] -= grad[i][1] * scale;
+                    pos[i][2] -= grad[i][2] * scale;
+                }
+            }
+            let (_, new_forces) = compute_energy_and_forces(&pos, topo, params);
+            grad = negate_forces(&new_forces, constrained);
+            energy = compute_energy(&pos, topo, params).total;
+            continue;
+        }
+
+        let (alpha, new_energy, new_pos) = line_search(
+            &pos, &direction, grad_dot_dir, energy, topo, params, constrained,
+        );
+
+        if alpha == 0.0 {
+            break; // line search failed
+        }
+
+        // Compute s_k = x_{k+1} - x_k
+        let mut s_k = vec![[0.0; 3]; n];
+        for i in 0..n {
+            s_k[i][0] = new_pos[i][0] - pos[i][0];
+            s_k[i][1] = new_pos[i][1] - pos[i][1];
+            s_k[i][2] = new_pos[i][2] - pos[i][2];
+        }
+
+        pos = new_pos;
+        energy = new_energy;
+
+        // New gradient
+        let (_, new_forces) = compute_energy_and_forces(&pos, topo, params);
+        let new_grad = negate_forces(&new_forces, constrained);
+
+        // y_k = g_{k+1} - g_k
+        let mut y_k = vec![[0.0; 3]; n];
+        for i in 0..n {
+            y_k[i][0] = new_grad[i][0] - grad[i][0];
+            y_k[i][1] = new_grad[i][1] - grad[i][1];
+            y_k[i][2] = new_grad[i][2] - grad[i][2];
+        }
+
+        let sy = dot3n_raw(&s_k, &y_k, constrained);
+        if sy > 1e-10 {
+            // Store correction pair
+            if s_hist.len() >= m {
+                s_hist.remove(0);
+                y_hist.remove(0);
+                rho_hist.remove(0);
+            }
+            rho_hist.push(1.0 / sy);
+            s_hist.push(s_k);
+            y_hist.push(y_k);
+        }
+
+        grad = new_grad;
+    }
+
+    let final_energy = compute_energy(&pos, topo, params);
+
+    MinimizeResult {
+        coords: pos,
+        energy: final_energy,
+        initial_energy,
+        steps,
+        converged,
+    }
+}
+
+/// Two-loop recursion for L-BFGS search direction.
+///
+/// Returns d = -H_k * g where H_k is the L-BFGS approximation to the inverse Hessian.
+fn lbfgs_two_loop(
+    grad: &[[f64; 3]],
+    s_hist: &[Vec<[f64; 3]>],
+    y_hist: &[Vec<[f64; 3]>],
+    rho_hist: &[f64],
+    constrained: &[bool],
+) -> Vec<[f64; 3]> {
+    let n = grad.len();
+    let k = s_hist.len();
+
+    // q = g_k
+    let mut q = grad.to_vec();
+
+    // First loop (backward)
+    let mut alpha_hist = vec![0.0; k];
+    for i in (0..k).rev() {
+        let alpha_i = rho_hist[i] * dot3n_raw(&s_hist[i], &q, constrained);
+        alpha_hist[i] = alpha_i;
+        // q = q - alpha_i * y_i
+        for j in 0..n {
+            if constrained[j] { continue; }
+            q[j][0] -= alpha_i * y_hist[i][j][0];
+            q[j][1] -= alpha_i * y_hist[i][j][1];
+            q[j][2] -= alpha_i * y_hist[i][j][2];
+        }
+    }
+
+    // Scale by initial Hessian approximation: H0 = (s_k · y_k) / (y_k · y_k) * I
+    if k > 0 {
+        let last = k - 1;
+        let yy = dot3n_raw(&y_hist[last], &y_hist[last], constrained);
+        let sy = dot3n_raw(&s_hist[last], &y_hist[last], constrained);
+        if yy > 1e-30 {
+            let gamma = sy / yy;
+            for j in 0..n {
+                if constrained[j] { continue; }
+                q[j][0] *= gamma;
+                q[j][1] *= gamma;
+                q[j][2] *= gamma;
+            }
+        }
+    }
+
+    // Second loop (forward)
+    for i in 0..k {
+        let beta = rho_hist[i] * dot3n_raw(&y_hist[i], &q, constrained);
+        let diff = alpha_hist[i] - beta;
+        for j in 0..n {
+            if constrained[j] { continue; }
+            q[j][0] += diff * s_hist[i][j][0];
+            q[j][1] += diff * s_hist[i][j][1];
+            q[j][2] += diff * s_hist[i][j][2];
+        }
+    }
+
+    // Return -H*g (descent direction)
+    for j in 0..n {
+        q[j][0] = -q[j][0];
+        q[j][1] = -q[j][1];
+        q[j][2] = -q[j][2];
+    }
+    q
+}
+
+/// Negate forces to get gradient, zeroing constrained atoms.
+fn negate_forces(forces: &[[f64; 3]], constrained: &[bool]) -> Vec<[f64; 3]> {
+    forces
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            if constrained[i] {
+                [0.0; 3]
+            } else {
+                [-f[0], -f[1], -f[2]]
+            }
+        })
+        .collect()
+}
+
+/// Raw dot product (no force negation).
+fn dot3n_raw(a: &[[f64; 3]], b: &[[f64; 3]], constrained: &[bool]) -> f64 {
+    let mut sum = 0.0;
+    for i in 0..a.len() {
+        if constrained[i] { continue; }
+        sum += a[i][0] * b[i][0] + a[i][1] * b[i][1] + a[i][2] * b[i][2];
+    }
+    sum
+}
+
+// ---------------------------------------------------------------------------
 // Convenience wrappers
 // ---------------------------------------------------------------------------
 
@@ -365,4 +598,21 @@ pub fn minimize_hydrogens_cg(
         .collect();
 
     conjugate_gradient(coords, topo, params, max_steps, gradient_tolerance, &constrained)
+}
+
+/// Minimize hydrogen positions using L-BFGS.
+pub fn minimize_hydrogens_lbfgs(
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &AmberParams,
+    max_steps: usize,
+    gradient_tolerance: f64,
+) -> MinimizeResult {
+    let constrained: Vec<bool> = topo
+        .atoms
+        .iter()
+        .map(|a| !a.is_hydrogen)
+        .collect();
+
+    lbfgs(coords, topo, params, max_steps, gradient_tolerance, &constrained)
 }

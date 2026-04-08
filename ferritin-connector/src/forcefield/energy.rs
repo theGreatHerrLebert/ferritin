@@ -4,6 +4,7 @@
 //! for bond stretching, angle bending, torsions, improper torsions,
 //! and nonbonded interactions with cubic switching functions.
 
+use super::neighbor_list::NeighborList;
 use super::params::AmberParams;
 use super::topology::Topology;
 
@@ -438,6 +439,193 @@ fn compute_energy_and_forces_impl(
         + result.vdw
         + result.electrostatic;
     (result, forces)
+}
+
+// ---------------------------------------------------------------------------
+// Neighbor-list accelerated energy + forces
+// ---------------------------------------------------------------------------
+
+/// Compute energy and forces using a prebuilt neighbor list for O(N) nonbonded.
+///
+/// The bonded terms (bonds, angles, torsions) are the same as the O(N²) version.
+/// Only the nonbonded loop uses the neighbor list.
+pub fn compute_energy_and_forces_nbl(
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &AmberParams,
+    nbl: &NeighborList,
+) -> (EnergyResult, Vec<[f64; 3]>) {
+    let n = coords.len();
+    let mut forces = vec![[0.0f64; 3]; n];
+    let mut result = EnergyResult::default();
+
+    // --- Bonded terms (same as full version) ---
+    bonded_energy_and_forces(coords, topo, params, &mut result, &mut forces);
+
+    // --- Torsions ---
+    torsion_energy_and_forces(
+        &topo.torsions, coords, topo, params, &mut result.torsion, &mut forces, false,
+    );
+    torsion_energy_and_forces(
+        &topo.improper_torsions, coords, topo, params, &mut result.improper_torsion, &mut forces, true,
+    );
+
+    // --- Nonbonded via neighbor list ---
+    let cutoff = 15.0;
+    let cuton = 13.0;
+    let sw = CubicSwitch::new(cutoff, cuton);
+    let coulomb_factor = 332.0;
+
+    for pair in &nbl.pairs {
+        let (i, j) = (pair.i, pair.j);
+        let dx = coords[i][0] - coords[j][0];
+        let dy = coords[i][1] - coords[j][1];
+        let dz = coords[i][2] - coords[j][2];
+        let r2 = dx * dx + dy * dy + dz * dz;
+
+        if r2 > sw.sq_cutoff || r2 < 0.01 {
+            continue;
+        }
+
+        let (switch_val, dsw_dr2) = sw.eval(r2);
+        let scale_vdw = if pair.is_14 { 1.0 / params.scnb } else { 1.0 };
+        let scale_es = if pair.is_14 { 1.0 / params.scee } else { 1.0 };
+
+        let r = r2.sqrt();
+        let inv_r = 1.0 / r;
+
+        // LJ
+        let ti = &topo.atoms[i].amber_type;
+        let tj = &topo.atoms[j].amber_type;
+        if let (Some(lj_i), Some(lj_j)) = (params.get_lj(ti), params.get_lj(tj)) {
+            let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
+            let rmin = lj_i.r + lj_j.r;
+            if eps > 1e-10 && rmin > 1e-10 {
+                let sr = rmin * inv_r;
+                let sr6 = sr.powi(6);
+                let sr12 = sr6 * sr6;
+                let e_lj = scale_vdw * eps * (sr12 - 2.0 * sr6);
+                result.vdw += switch_val * e_lj;
+
+                let de_dr = scale_vdw * eps * (-12.0 * sr12 + 12.0 * sr6) * inv_r;
+                let total_de_dr = switch_val * de_dr + e_lj * dsw_dr2 * 2.0 * r;
+                let fx = total_de_dr * dx * inv_r;
+                let fy = total_de_dr * dy * inv_r;
+                let fz = total_de_dr * dz * inv_r;
+
+                forces[i][0] -= fx;
+                forces[i][1] -= fy;
+                forces[i][2] -= fz;
+                forces[j][0] += fx;
+                forces[j][1] += fy;
+                forces[j][2] += fz;
+            }
+        }
+
+        // Coulomb
+        let qi = topo.atoms[i].charge;
+        let qj = topo.atoms[j].charge;
+        if qi.abs() > 1e-10 && qj.abs() > 1e-10 {
+            let e_es = scale_es * coulomb_factor * qi * qj * inv_r;
+            result.electrostatic += switch_val * e_es;
+
+            let de_dr = -e_es * inv_r;
+            let total_de_dr = switch_val * de_dr + e_es * dsw_dr2 * 2.0 * r;
+            let fx = total_de_dr * dx * inv_r;
+            let fy = total_de_dr * dy * inv_r;
+            let fz = total_de_dr * dz * inv_r;
+
+            forces[i][0] -= fx;
+            forces[i][1] -= fy;
+            forces[i][2] -= fz;
+            forces[j][0] += fx;
+            forces[j][1] += fy;
+            forces[j][2] += fz;
+        }
+    }
+
+    result.total = result.bond_stretch
+        + result.angle_bend
+        + result.torsion
+        + result.improper_torsion
+        + result.vdw
+        + result.electrostatic;
+    (result, forces)
+}
+
+/// Compute only bonded energy terms + forces (bonds, angles).
+/// Used internally to avoid code duplication between full and neighbor-list paths.
+fn bonded_energy_and_forces(
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &AmberParams,
+    result: &mut EnergyResult,
+    forces: &mut [[f64; 3]],
+) {
+    // Bond stretching
+    for bond in &topo.bonds {
+        let ti = &topo.atoms[bond.i].amber_type;
+        let tj = &topo.atoms[bond.j].amber_type;
+        if let Some(bp) = params.get_bond(ti, tj) {
+            let (i, j) = (bond.i, bond.j);
+            let dx = coords[j][0] - coords[i][0];
+            let dy = coords[j][1] - coords[i][1];
+            let dz = coords[j][2] - coords[i][2];
+            let r = (dx * dx + dy * dy + dz * dz).sqrt();
+            if r < 1e-10 { continue; }
+            let dr = r - bp.r0;
+            result.bond_stretch += bp.k * dr * dr;
+            let f_mag = -2.0 * bp.k * dr / r;
+            let fx = f_mag * dx;
+            let fy = f_mag * dy;
+            let fz = f_mag * dz;
+            forces[i][0] -= fx;
+            forces[i][1] -= fy;
+            forces[i][2] -= fz;
+            forces[j][0] += fx;
+            forces[j][1] += fy;
+            forces[j][2] += fz;
+        }
+    }
+
+    // Angle bending
+    for angle in &topo.angles {
+        let ti = &topo.atoms[angle.i].amber_type;
+        let tj = &topo.atoms[angle.j].amber_type;
+        let tk = &topo.atoms[angle.k].amber_type;
+        if let Some(ap) = params.get_angle(ti, tj, tk) {
+            let (i, j, k) = (angle.i, angle.j, angle.k);
+            let theta = compute_angle(&coords[i], &coords[j], &coords[k]);
+            let dtheta = theta - ap.theta0;
+            result.angle_bend += ap.k * dtheta * dtheta;
+
+            let rji = sub(&coords[i], &coords[j]);
+            let rjk = sub(&coords[k], &coords[j]);
+            let rji_len = norm(&rji);
+            let rjk_len = norm(&rjk);
+            if rji_len < 1e-10 || rjk_len < 1e-10 { continue; }
+
+            let cos_theta = dot(&rji, &rjk) / (rji_len * rjk_len);
+            let sin_theta = (1.0 - cos_theta * cos_theta).max(1e-12).sqrt();
+            let dv = -2.0 * ap.k * dtheta / sin_theta;
+
+            let fi = [
+                dv * (rjk[0] / (rji_len * rjk_len) - cos_theta * rji[0] / (rji_len * rji_len)),
+                dv * (rjk[1] / (rji_len * rjk_len) - cos_theta * rji[1] / (rji_len * rji_len)),
+                dv * (rjk[2] / (rji_len * rjk_len) - cos_theta * rji[2] / (rji_len * rji_len)),
+            ];
+            let fk = [
+                dv * (rji[0] / (rji_len * rjk_len) - cos_theta * rjk[0] / (rjk_len * rjk_len)),
+                dv * (rji[1] / (rji_len * rjk_len) - cos_theta * rjk[1] / (rjk_len * rjk_len)),
+                dv * (rji[2] / (rji_len * rjk_len) - cos_theta * rjk[2] / (rjk_len * rjk_len)),
+            ];
+            for d in 0..3 {
+                forces[i][d] += fi[d];
+                forces[k][d] += fk[d];
+                forces[j][d] -= fi[d] + fk[d];
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

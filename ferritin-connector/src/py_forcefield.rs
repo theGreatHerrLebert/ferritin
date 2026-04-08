@@ -78,6 +78,9 @@ fn run_minimize(
         "cg" | "conjugate_gradient" => {
             minimize::conjugate_gradient(coords, topo, amber, max_steps, gradient_tolerance, constrained)
         }
+        "lbfgs" | "l-bfgs" => {
+            minimize::lbfgs(coords, topo, amber, max_steps, gradient_tolerance, constrained)
+        }
         _ => {
             minimize::steepest_descent(coords, topo, amber, max_steps, gradient_tolerance, constrained)
         }
