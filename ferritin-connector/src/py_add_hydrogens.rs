@@ -123,6 +123,17 @@ pub fn place_general_hydrogens(py: Python<'_>, pdb: &mut PyPDB, include_water: b
     (result.added, result.skipped)
 }
 
+/// Reconstruct missing atoms from fragment templates.
+///
+/// Adds missing heavy atoms and hydrogens to standard amino acid residues
+/// by comparing against template structures from the BALL fragment database.
+/// Returns the number of atoms added.
+#[pyfunction]
+pub fn reconstruct_fragments(py: Python<'_>, pdb: &mut PyPDB) -> usize {
+    let result = py.allow_threads(|| crate::reconstruct::reconstruct_fragments(&mut pdb.inner));
+    result.added
+}
+
 /// Batch place peptide hydrogens on multiple structures in parallel.
 ///
 /// Returns list of (n_added, n_skipped) tuples.
@@ -176,6 +187,7 @@ pub fn py_add_hydrogens(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(place_sidechain_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(place_all_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(place_general_hydrogens, m)?)?;
+    m.add_function(wrap_pyfunction!(reconstruct_fragments, m)?)?;
     m.add_function(wrap_pyfunction!(batch_place_peptide_hydrogens, m)?)?;
     Ok(())
 }

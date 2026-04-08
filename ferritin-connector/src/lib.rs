@@ -4,6 +4,8 @@ use pyo3::wrap_pymodule;
 mod add_hydrogens;
 mod bond_order;
 mod dssp;
+mod fragment_templates;
+mod reconstruct;
 mod forcefield;
 mod hbond;
 mod py_add_hydrogens;
