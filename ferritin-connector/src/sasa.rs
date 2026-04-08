@@ -188,6 +188,14 @@ impl CellList {
         let ny = ((max_y - min_y) / cell_size).ceil() as usize + 2;
         let nz = ((max_z - min_z) / cell_size).ceil() as usize + 2;
 
+        // Cap grid to avoid OOM on structures with huge bounding boxes
+        // (e.g., multi-model NMR, symmetry mates, or bogus coordinates).
+        // 500³ cells = 125M entries, ~3GB — reasonable upper bound.
+        let max_cells: usize = 500;
+        let nx = nx.min(max_cells);
+        let ny = ny.min(max_cells);
+        let nz = nz.min(max_cells);
+
         let total = nx * ny * nz;
         let mut cells = vec![Vec::new(); total];
 
