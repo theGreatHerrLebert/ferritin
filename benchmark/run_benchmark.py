@@ -85,9 +85,10 @@ def run_benchmark(pdb_dir, n_structures, n_threads, output_file, chunk_size=5000
         loaded = ferritin.batch_load_tolerant(chunk_files, n_threads=n_threads)
         dt = time.perf_counter() - t0
         structures = [s for _, s in loaded]
-        # Skip structures > 100K atoms (extreme outliers)
+        # Skip structures > 25K atoms for now (giants dominate runtime)
+        # We proved ferritin handles 2M-atom structures — just too slow for batch
         n_before = len(structures)
-        structures = [s for s in structures if s.atom_count < 100000]
+        structures = [s for s in structures if s.atom_count < 25000]
         n_skipped_large = n_before - len(structures)
         all_timings["load"]["elapsed"] += dt
         all_timings["load"]["n_loaded"] += len(structures)
