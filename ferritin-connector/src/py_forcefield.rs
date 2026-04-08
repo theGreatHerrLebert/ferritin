@@ -460,6 +460,7 @@ pub fn run_md(
     components.set_item("improper_torsion", result.energy.improper_torsion)?;
     components.set_item("vdw", result.energy.vdw)?;
     components.set_item("electrostatic", result.energy.electrostatic)?;
+    components.set_item("solvation", result.energy.solvation)?;
     dict.set_item("energy", components)?;
 
     dict.set_item("n_steps", n_steps)?;

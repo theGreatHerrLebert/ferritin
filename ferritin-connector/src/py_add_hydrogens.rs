@@ -12,18 +12,28 @@ use crate::py_pdb::PyPDB;
 ///
 /// Iterates chains → residues → atoms in the same order as topology building,
 /// and sets each atom's position from the flat coordinate array.
+/// Panics if the coordinate array doesn't match the atom count.
 fn apply_coords_to_pdb(pdb: &mut pdbtbx::PDB, coords: &[[f64; 3]]) {
     let mut idx = 0;
     for chain in pdb.chains_mut() {
         for residue in chain.residues_mut() {
             for atom in residue.atoms_mut() {
-                if idx < coords.len() {
-                    atom.set_pos((coords[idx][0], coords[idx][1], coords[idx][2]));
-                    idx += 1;
-                }
+                assert!(
+                    idx < coords.len(),
+                    "apply_coords_to_pdb: coord array too short ({} coords, atom index {})",
+                    coords.len(), idx,
+                );
+                atom.set_pos((coords[idx][0], coords[idx][1], coords[idx][2]))
+                    .expect("apply_coords_to_pdb: invalid coordinates (NaN/Inf)");
+                idx += 1;
             }
         }
     }
+    assert_eq!(
+        idx, coords.len(),
+        "apply_coords_to_pdb: coord array length ({}) != atom count ({})",
+        coords.len(), idx,
+    );
 }
 
 fn resolve_threads(n: Option<i32>) -> usize {
