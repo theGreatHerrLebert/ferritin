@@ -1,6 +1,6 @@
 # Ferritin Roadmap
 
-**Last updated: 2026-04-08**
+**Last updated: 2026-04-09**
 
 Ferritin is a pipeline-native, high-performance compute layer for structural bioinformatics. Rust core, Python bindings, batch-first design.
 
@@ -35,11 +35,23 @@ Ferritin is a pipeline-native, high-performance compute layer for structural bio
 - [x] reconstruct_fragments() adds missing heavy atoms + H
 
 ### Force Field & Simulation
-- [x] AMBER96 energy: bond stretch, angle bend, torsion, LJ 12-6, Coulomb
+- [x] ForceField trait: common interface for AMBER96 and CHARMM19
+- [x] AMBER96 energy: bond stretch, angle bend, torsion, improper torsion, LJ 12-6, Coulomb
+- [x] CHARMM19 force field (BALL param19_eef1.ini, full bonded + nonbonded params)
+- [x] EEF1 implicit solvation (Lazaridis & Karplus 1999, energy + analytical gradient)
+- [x] Torsion gradient (BALL cross-product formula for dihedral forces)
+- [x] Improper torsions (493 ResidueImproperTorsion entries, peptide/aromatic planarity)
+- [x] Switching functions (Brooks et al. cubic, cuton=13Å cutoff=15Å)
+- [x] Distance-dependent dielectric (ε=r implicit solvation surrogate)
 - [x] Steepest descent minimizer with adaptive step size
 - [x] Conjugate gradient minimizer (Polak-Ribiere + Armijo line search)
+- [x] L-BFGS minimizer (Nocedal 1980 two-loop recursion, m=10)
 - [x] Velocity Verlet MD integrator (NVE)
 - [x] Berendsen thermostat (NVT)
+- [x] SHAKE/RATTLE constraints (X-H bond lengths, enables 2fs timestep)
+- [x] Cell-list neighbor list for O(N) nonbonded pair enumeration
+- [x] MD Python API: ferritin.run_md() with trajectory output
+- [x] Missing atom type warnings (n_unassigned_atoms in Python API)
 - [x] Bond order estimation from distances
 - [x] Ring atom detection (BFS cycle finding)
 
@@ -70,17 +82,20 @@ Ferritin is a pipeline-native, high-performance compute layer for structural bio
 - [ ] Non-standard residue templates (MSE, PTR, HYP, etc.)
 
 ### Force Field Improvements
-- [ ] Torsion gradient (currently energy-only, no forces for torsions)
-- [ ] L-BFGS minimizer (faster convergence than CG for large systems)
-- [ ] CHARMM22 force field (second FF, enables cross-validation)
-- [ ] EEF1 implicit solvation (makes in-vacuo MD physically meaningful)
+- [x] Torsion gradient (BALL cross-product formula)
+- [x] L-BFGS minimizer (Nocedal two-loop recursion)
+- [x] CHARMM19 force field (ForceField trait, second FF)
+- [x] EEF1 implicit solvation (energy + gradient, 9Å cutoff)
+- [x] Nonbonded neighbor list (cell list, O(N) scaling)
 - [ ] MMFF94 force field (for small molecules/ligands)
-- [ ] Nonbonded cutoff with neighbor lists (O(N) instead of O(N²))
+- [ ] GBSA implicit solvation (force-field agnostic, works with AMBER)
+- [ ] Wire neighbor list into minimizer/MD loops (currently available but not default)
 
 ### MD Extensions
+- [x] SHAKE/RATTLE constraints (X-H bonds, enables 2fs timestep)
+- [x] Trajectory output (in-memory frames via Python API)
 - [ ] NPT ensemble (Berendsen or Parrinello-Rahman barostat)
-- [ ] Constraint algorithms (SHAKE/LINCS for H-bond constraints, larger timestep)
-- [ ] Trajectory output (DCD/XTC format)
+- [ ] Trajectory file output (DCD/XTC format)
 - [ ] Replica exchange / parallel tempering
 
 ### Pipeline & Data
@@ -91,7 +106,8 @@ Ferritin is a pipeline-native, high-performance compute layer for structural bio
 - [ ] Interface residue detection (SASA in complex vs monomer)
 
 ### Performance
-- [ ] Nonbonded neighbor list (cell list or Verlet list) for O(N) scaling
+- [x] Cell-list neighbor list for O(N) nonbonded scaling
+- [ ] Wire neighbor list into default energy/MD paths
 - [ ] SIMD vectorization for distance/energy computation
 - [ ] GPU acceleration (CUDA/Metal) for nonbonded interactions — only when profiling proves need
 
@@ -117,6 +133,7 @@ Ferritin is a pipeline-native, high-performance compute layer for structural bio
 |--------|------|--------|
 | FreeSASA (C) | SASA | 0.01% match with ProtOr |
 | BALL / BiochemicalAlgorithms.jl | H placement, energy, reconstruction | Julia 1.11.5 installed, working |
+| BALL C++ | Force field params, EEF1 reference | param19_eef1.ini integrated |
 | Gemmi (C++) | Atom counts, H placement (needs full CCD) | CLI working |
 | PDBFixer (OpenMM) | Full structure preparation | Python, working |
 | GROMACS | DSSP, H-bonds, MD | Compiled, needs format conversion |
