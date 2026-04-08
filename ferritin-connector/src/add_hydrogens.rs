@@ -694,6 +694,16 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
     }
 
     for (chain_idx, chain) in first_model.chains().enumerate() {
+        // Find first and last AA residue indices in this chain
+        let aa_indices: Vec<usize> = chain
+            .residues()
+            .enumerate()
+            .filter(|(_, r)| r.conformers().next().map_or(false, |c| c.is_amino_acid()))
+            .map(|(i, _)| i)
+            .collect();
+        let first_aa = aa_indices.first().copied();
+        let last_aa = aa_indices.last().copied();
+
         for (residue_idx, residue) in chain.residues().enumerate() {
             let is_aa = residue
                 .conformers()
@@ -711,14 +721,47 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
             let (positions, existing_h) = collect_atom_positions(residue);
             let new_hs = compute_sidechain_h(&resname, &positions, &existing_h, &all_sg_positions);
 
-            if new_hs.is_empty() {
-                skipped += 1;
-                continue;
+            for (h_name, pos) in &new_hs {
+                max_serial += 1;
+                placements.push((chain_idx, residue_idx, h_name.clone(), *pos, max_serial));
             }
 
-            for (h_name, pos) in new_hs {
-                max_serial += 1;
-                placements.push((chain_idx, residue_idx, h_name, pos, max_serial));
+            // N-terminal: add 3 H on N for NH3+ group (H1, H2, H3)
+            // Phase 1 skips N-terminal, so all 3 go here
+            if first_aa == Some(residue_idx) {
+                if let Some(&n_pos) = positions.get("N") {
+                    if let Some(&ca_pos) = positions.get("CA") {
+                        let has_any = existing_h.contains("H1") || existing_h.contains("1H")
+                            || existing_h.contains("H2") || existing_h.contains("2H")
+                            || existing_h.contains("H") ;
+                        if !has_any {
+                            let hs = place_methyl3h(n_pos, ca_pos, NH_BOND_LENGTH);
+                            max_serial += 1;
+                            placements.push((chain_idx, residue_idx, "H1".to_string(), hs[0], max_serial));
+                            max_serial += 1;
+                            placements.push((chain_idx, residue_idx, "H2".to_string(), hs[1], max_serial));
+                            max_serial += 1;
+                            placements.push((chain_idx, residue_idx, "H3".to_string(), hs[2], max_serial));
+                        }
+                    }
+                }
+            }
+
+            // C-terminal: add OXT hydrogen
+            if last_aa == Some(residue_idx) {
+                if let Some(&oxt_pos) = positions.get("OXT") {
+                    if !existing_h.contains("HXT") && !existing_h.contains("HOXT") {
+                        if let Some(&c_pos) = positions.get("C") {
+                            let h = place_oh1h(oxt_pos, c_pos, OH_BOND_LENGTH);
+                            max_serial += 1;
+                            placements.push((chain_idx, residue_idx, "HXT".to_string(), h, max_serial));
+                        }
+                    }
+                }
+            }
+
+            if new_hs.is_empty() && first_aa != Some(residue_idx) && last_aa != Some(residue_idx) {
+                skipped += 1;
             }
         }
     }
