@@ -106,6 +106,17 @@ pub fn place_all_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize) {
     (result.added, result.skipped)
 }
 
+/// Place hydrogens on all atoms including non-standard residues and ligands.
+///
+/// Runs Phase 1 (backbone) + Phase 2 (sidechain templates) + Phase 3
+/// (general BALL algorithm for ligands/non-standard residues).
+/// Returns (n_added, n_skipped).
+#[pyfunction]
+pub fn place_general_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize) {
+    let result = py.allow_threads(|| add_hydrogens::place_general_hydrogens(&mut pdb.inner));
+    (result.added, result.skipped)
+}
+
 /// Batch place peptide hydrogens on multiple structures in parallel.
 ///
 /// Returns list of (n_added, n_skipped) tuples.
@@ -158,6 +169,7 @@ pub fn py_add_hydrogens(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(place_peptide_hydrogens_with_coords, m)?)?;
     m.add_function(wrap_pyfunction!(place_sidechain_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(place_all_hydrogens, m)?)?;
+    m.add_function(wrap_pyfunction!(place_general_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(batch_place_peptide_hydrogens, m)?)?;
     Ok(())
 }

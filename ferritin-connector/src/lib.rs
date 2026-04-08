@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use pyo3::wrap_pymodule;
 
 mod add_hydrogens;
+mod bond_order;
 mod dssp;
 mod forcefield;
 mod hbond;
