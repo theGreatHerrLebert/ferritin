@@ -73,10 +73,11 @@ def run_benchmark(pdb_dir, n_structures, n_threads, output_file, chunk_size=5000
         cn = len(chunk_files)
         print(f"\n--- Chunk {ci+1}/{n_chunks} ({cn} files) ---")
 
-        # Load
+        # Load (batch_load_tolerant returns (index, structure) tuples)
         t0 = time.perf_counter()
-        structures = ferritin.batch_load_tolerant(chunk_files, n_threads=n_threads)
+        loaded = ferritin.batch_load_tolerant(chunk_files, n_threads=n_threads)
         dt = time.perf_counter() - t0
+        structures = [s for _, s in loaded]
         all_timings["load"]["elapsed"] += dt
         all_timings["load"]["n_loaded"] += len(structures)
         all_timings["load"]["n_failed"] += cn - len(structures)
