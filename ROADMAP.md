@@ -45,7 +45,7 @@ Ferritin is a pipeline-native, high-performance compute layer for structural bio
 
 ### Infrastructure
 - [x] Parallel validation runner (batch-first, FreeSASA + Gemmi + PDBFixer oracles)
-- [x] 5K structure validation (100% load, 99.6% DSSP, 100% H-bonds)
+- [x] 5K structure validation (100% load/H-bonds/select, 99.6% DSSP, 100% dihedrals, 0 failures)
 - [x] Agent notes: condensed PREFER/COST/WATCH style
 
 ---
@@ -53,7 +53,7 @@ Ferritin is a pipeline-native, high-performance compute layer for structural bio
 ## Next Up
 
 ### Validation & Testing (highest priority)
-- [ ] Re-run 5K validation with bond length fix + disulfide fix + ProtOr radii
+- [x] Re-run 5K validation with bond length fix + backbone gap detection + ProtOr radii
 - [ ] BALL oracle comparison on 50+ structures for Phase 3 general H placement
 - [ ] DSSP oracle: wire GROMACS `gmx dssp` or install mkdssp
 - [ ] CG minimizer convergence comparison vs steepest descent
@@ -116,7 +116,7 @@ Ferritin is a pipeline-native, high-performance compute layer for structural bio
 | Oracle | What | Status |
 |--------|------|--------|
 | FreeSASA (C) | SASA | 0.01% match with ProtOr |
-| BALL / BiochemicalAlgorithms.jl | H placement, energy, reconstruction | Julia 1.11, working |
+| BALL / BiochemicalAlgorithms.jl | H placement, energy, reconstruction | Julia 1.11.5 installed, working |
 | Gemmi (C++) | Atom counts, H placement (needs full CCD) | CLI working |
 | PDBFixer (OpenMM) | Full structure preparation | Python, working |
 | GROMACS | DSSP, H-bonds, MD | Compiled, needs format conversion |
