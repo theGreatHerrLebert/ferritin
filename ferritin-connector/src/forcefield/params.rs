@@ -2,7 +2,7 @@
 //!
 //! Atom types, charges, bond/angle/torsion/LJ parameters parsed from amber96.ini.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Atom type assignment: residue_name:atom_name → (amber_type, charge)
 #[derive(Clone, Debug)]
@@ -54,6 +54,10 @@ pub struct AmberParams {
     pub angles: HashMap<(String, String, String), AngleParam>,
     /// (type_i, type_j, type_k, type_l) → Vec<TorsionTerm>
     pub torsions: HashMap<(String, String, String, String), Vec<TorsionTerm>>,
+    /// Improper torsion parameters (separate from proper)
+    pub improper_torsions: HashMap<(String, String, String, String), Vec<TorsionTerm>>,
+    /// Atoms that should have improper torsions (e.g., "ALA:N", "ALA:C")
+    pub residue_impropers: HashSet<String>,
     /// type → LJParam
     pub lj: HashMap<String, LJParam>,
     /// 1-4 electrostatic scaling factor
@@ -87,6 +91,8 @@ impl AmberParams {
             bonds: HashMap::new(),
             angles: HashMap::new(),
             torsions: HashMap::new(),
+            improper_torsions: HashMap::new(),
+            residue_impropers: HashSet::new(),
             lj: HashMap::new(),
             scee: 1.2,
             scnb: 2.0,
@@ -159,7 +165,7 @@ impl AmberParams {
                         }
                     }
                 }
-                "Torsions" | "ImproperTorsions" => {
+                "Torsions" => {
                     // ver I J K L N div V phi0 f comment
                     if fields.len() >= 10 {
                         let key = (
@@ -185,6 +191,44 @@ impl AmberParams {
                                 .entry(key)
                                 .or_insert_with(Vec::new)
                                 .push(term);
+                        }
+                    }
+                }
+                "ImproperTorsions" => {
+                    // Same format as Torsions but stored separately
+                    if fields.len() >= 10 {
+                        let key = (
+                            fields[1].to_string(),
+                            fields[2].to_string(),
+                            fields[3].to_string(),
+                            fields[4].to_string(),
+                        );
+                        if let (Ok(div), Ok(v), Ok(phi0_deg), Ok(f)) = (
+                            fields[6].parse::<f64>(),
+                            fields[7].parse::<f64>(),
+                            fields[8].parse::<f64>(),
+                            fields[9].parse::<f64>(),
+                        ) {
+                            let term = TorsionTerm {
+                                v,
+                                phi0: phi0_deg.to_radians(),
+                                f,
+                                div: div.max(1.0),
+                            };
+                            params
+                                .improper_torsions
+                                .entry(key)
+                                .or_insert_with(Vec::new)
+                                .push(term);
+                        }
+                    }
+                }
+                "ResidueImproperTorsions" => {
+                    // Single column: residue:atom names
+                    if fields.len() >= 1 {
+                        let name = fields[0].trim().to_string();
+                        if name.contains(':') {
+                            params.residue_impropers.insert(name);
                         }
                     }
                 }
@@ -273,6 +317,48 @@ impl AmberParams {
             "*".to_string(),
         );
         self.torsions.get(&key)
+    }
+
+    /// Look up improper torsion parameters (tries specific then wildcard).
+    pub fn get_improper_torsion(
+        &self,
+        type_a: &str,
+        type_b: &str,
+        type_c: &str,
+        type_d: &str,
+    ) -> Option<&Vec<TorsionTerm>> {
+        let key = (
+            type_a.to_string(),
+            type_b.to_string(),
+            type_c.to_string(),
+            type_d.to_string(),
+        );
+        if let Some(terms) = self.improper_torsions.get(&key) {
+            return Some(terms);
+        }
+        // Wildcard on outer atoms
+        let key = (
+            "*".to_string(),
+            type_b.to_string(),
+            type_c.to_string(),
+            type_d.to_string(),
+        );
+        if let Some(terms) = self.improper_torsions.get(&key) {
+            return Some(terms);
+        }
+        let key = (
+            "*".to_string(),
+            "*".to_string(),
+            type_c.to_string(),
+            type_d.to_string(),
+        );
+        self.improper_torsions.get(&key)
+    }
+
+    /// Check if an atom should have improper torsions.
+    pub fn is_improper_center(&self, residue: &str, atom: &str) -> bool {
+        let key = format!("{residue}:{atom}");
+        self.residue_impropers.contains(&key)
     }
 
     /// Look up LJ parameters for an atom type.

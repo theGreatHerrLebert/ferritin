@@ -35,6 +35,7 @@ class TestComputeEnergy:
             e["bond_stretch"]
             + e["angle_bend"]
             + e["torsion"]
+            + e["improper_torsion"]
             + e["vdw"]
             + e["electrostatic"]
         )

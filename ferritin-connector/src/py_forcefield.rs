@@ -40,9 +40,11 @@ pub fn compute_energy(py: Python<'_>, pdb: &PyPDB) -> PyResult<PyObject> {
     dict.set_item("bond_stretch", result.bond_stretch)?;
     dict.set_item("angle_bend", result.angle_bend)?;
     dict.set_item("torsion", result.torsion)?;
+    dict.set_item("improper_torsion", result.improper_torsion)?;
     dict.set_item("vdw", result.vdw)?;
     dict.set_item("electrostatic", result.electrostatic)?;
     dict.set_item("total", result.total)?;
+    dict.set_item("n_unassigned_atoms", topo.unassigned_atoms.len())?;
     Ok(dict.into_any().unbind())
 }
 
@@ -122,6 +124,7 @@ pub fn minimize_hydrogens<'py>(
     components.set_item("bond_stretch", result.energy.bond_stretch)?;
     components.set_item("angle_bend", result.energy.angle_bend)?;
     components.set_item("torsion", result.energy.torsion)?;
+    components.set_item("improper_torsion", result.energy.improper_torsion)?;
     components.set_item("vdw", result.energy.vdw)?;
     components.set_item("electrostatic", result.energy.electrostatic)?;
     dict.set_item("energy_components", components)?;
@@ -177,6 +180,7 @@ pub fn minimize_structure<'py>(
     components.set_item("bond_stretch", result.energy.bond_stretch)?;
     components.set_item("angle_bend", result.energy.angle_bend)?;
     components.set_item("torsion", result.energy.torsion)?;
+    components.set_item("improper_torsion", result.energy.improper_torsion)?;
     components.set_item("vdw", result.energy.vdw)?;
     components.set_item("electrostatic", result.energy.electrostatic)?;
     dict.set_item("energy_components", components)?;
@@ -263,6 +267,7 @@ pub fn batch_minimize_hydrogens<'py>(
             components.set_item("bond_stretch", result.energy.bond_stretch).unwrap();
             components.set_item("angle_bend", result.energy.angle_bend).unwrap();
             components.set_item("torsion", result.energy.torsion).unwrap();
+            components.set_item("improper_torsion", result.energy.improper_torsion).unwrap();
             components.set_item("vdw", result.energy.vdw).unwrap();
             components.set_item("electrostatic", result.energy.electrostatic).unwrap();
             dict.set_item("energy_components", components).unwrap();

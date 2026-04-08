@@ -1,7 +1,8 @@
 //! Energy and gradient computation for the AMBER force field.
 //!
 //! Computes total energy and per-atom forces (negative gradients)
-//! for bond stretching, angle bending, torsions, and nonbonded interactions.
+//! for bond stretching, angle bending, torsions, improper torsions,
+//! and nonbonded interactions with cubic switching functions.
 
 use super::params::AmberParams;
 use super::topology::Topology;
@@ -12,9 +13,52 @@ pub struct EnergyResult {
     pub bond_stretch: f64,
     pub angle_bend: f64,
     pub torsion: f64,
+    pub improper_torsion: f64,
     pub vdw: f64,
     pub electrostatic: f64,
     pub total: f64,
+}
+
+// ---------------------------------------------------------------------------
+// Cubic switching function (Brooks et al., J. Comput. Chem., 4:191, 1983)
+// ---------------------------------------------------------------------------
+
+/// Precomputed switching function parameters.
+struct CubicSwitch {
+    sq_cutoff: f64,
+    sq_cuton: f64,
+    inv_range_cubed: f64, // 1 / (sq_cutoff - sq_cuton)^3
+}
+
+impl CubicSwitch {
+    fn new(cutoff: f64, cuton: f64) -> Self {
+        let sq_cutoff = cutoff * cutoff;
+        let sq_cuton = cuton * cuton;
+        let range = sq_cutoff - sq_cuton;
+        let inv_range_cubed = if range > 0.0 { 1.0 / (range * range * range) } else { 0.0 };
+        Self { sq_cutoff, sq_cuton, inv_range_cubed }
+    }
+
+    /// Returns (switch_value, d_switch / d_r2) for a given squared distance.
+    #[inline]
+    fn eval(&self, r2: f64) -> (f64, f64) {
+        if r2 >= self.sq_cutoff {
+            return (0.0, 0.0);
+        }
+        if r2 <= self.sq_cuton {
+            return (1.0, 0.0);
+        }
+        let diff_off = self.sq_cutoff - r2;
+        let diff_on = self.sq_cuton - r2;
+        let sw = diff_off * diff_off
+            * (self.sq_cutoff + 2.0 * r2 - 3.0 * self.sq_cuton)
+            * self.inv_range_cubed;
+        // d(sw)/d(r²) = 12 * (sq_cutoff - r²)(sq_cuton - r²) / (sq_cutoff - sq_cuton)³
+        // But we need the sign: derivative of sw w.r.t. r², which is negative in the transition.
+        // Full derivative: 12 * diff_off * diff_on * inv_range_cubed (this is negative since diff_on < 0)
+        let dsw = 12.0 * diff_off * diff_on * self.inv_range_cubed;
+        (sw, dsw)
+    }
 }
 
 /// Compute total energy of the system.
@@ -48,7 +92,7 @@ pub fn compute_energy(
         }
     }
 
-    // --- Torsions: E = (V/div) * (1 + cos(f*φ - φ0)) ---
+    // --- Proper torsions: E = (V/div) * (1 + cos(f*φ - φ0)) ---
     for torsion in &topo.torsions {
         let ti = &topo.atoms[torsion.i].amber_type;
         let tj = &topo.atoms[torsion.j].amber_type;
@@ -67,9 +111,31 @@ pub fn compute_energy(
         }
     }
 
-    // --- Nonbonded: LJ 12-6 + Coulomb ---
+    // --- Improper torsions ---
+    for torsion in &topo.improper_torsions {
+        let ti = &topo.atoms[torsion.i].amber_type;
+        let tj = &topo.atoms[torsion.j].amber_type;
+        let tk = &topo.atoms[torsion.k].amber_type;
+        let tl = &topo.atoms[torsion.l].amber_type;
+        if let Some(terms) = params.get_improper_torsion(ti, tj, tk, tl) {
+            let phi = compute_dihedral(
+                &coords[torsion.i],
+                &coords[torsion.j],
+                &coords[torsion.k],
+                &coords[torsion.l],
+            );
+            for term in terms {
+                result.improper_torsion +=
+                    (term.v / term.div) * (1.0 + (term.f * phi - term.phi0).cos());
+            }
+        }
+    }
+
+    // --- Nonbonded: LJ 12-6 + Coulomb with switching ---
     let n = coords.len();
-    let cutoff_sq = 15.0 * 15.0; // 15 Å cutoff
+    let cutoff = 15.0;
+    let cuton = 13.0;
+    let sw = CubicSwitch::new(cutoff, cuton);
     let coulomb_factor = 332.0; // kcal/mol * Å / e²
 
     for i in 0..n {
@@ -84,10 +150,11 @@ pub fn compute_energy(
             let dz = coords[i][2] - coords[j][2];
             let r2 = dx * dx + dy * dy + dz * dz;
 
-            if r2 > cutoff_sq || r2 < 0.01 {
+            if r2 > sw.sq_cutoff || r2 < 0.01 {
                 continue;
             }
 
+            let (switch_val, _) = sw.eval(r2);
             let is_14 = topo.pairs_14.contains(&pair);
             let scale_vdw = if is_14 { 1.0 / params.scnb } else { 1.0 };
             let scale_es = if is_14 { 1.0 / params.scee } else { 1.0 };
@@ -102,7 +169,7 @@ pub fn compute_energy(
                 let rmin = lj_i.r + lj_j.r;
                 if eps > 1e-10 && rmin > 1e-10 {
                     let sr6 = (rmin / r).powi(6);
-                    result.vdw += scale_vdw * eps * (sr6 * sr6 - 2.0 * sr6);
+                    result.vdw += switch_val * scale_vdw * eps * (sr6 * sr6 - 2.0 * sr6);
                 }
             }
 
@@ -110,13 +177,17 @@ pub fn compute_energy(
             let qi = topo.atoms[i].charge;
             let qj = topo.atoms[j].charge;
             if qi.abs() > 1e-10 && qj.abs() > 1e-10 {
-                result.electrostatic += scale_es * coulomb_factor * qi * qj / r;
+                result.electrostatic += switch_val * scale_es * coulomb_factor * qi * qj / r;
             }
         }
     }
 
-    result.total =
-        result.bond_stretch + result.angle_bend + result.torsion + result.vdw + result.electrostatic;
+    result.total = result.bond_stretch
+        + result.angle_bend
+        + result.torsion
+        + result.improper_torsion
+        + result.vdw
+        + result.electrostatic;
     result
 }
 
@@ -206,8 +277,32 @@ pub fn compute_energy_and_forces(
         }
     }
 
-    // --- Nonbonded: LJ 12-6 + Coulomb with gradients ---
-    let cutoff_sq = 15.0 * 15.0;
+    // --- Proper torsion energy + gradient ---
+    torsion_energy_and_forces(
+        &topo.torsions,
+        coords,
+        topo,
+        params,
+        &mut result.torsion,
+        &mut forces,
+        false,
+    );
+
+    // --- Improper torsion energy + gradient ---
+    torsion_energy_and_forces(
+        &topo.improper_torsions,
+        coords,
+        topo,
+        params,
+        &mut result.improper_torsion,
+        &mut forces,
+        true,
+    );
+
+    // --- Nonbonded: LJ 12-6 + Coulomb with switching + gradients ---
+    let cutoff = 15.0;
+    let cuton = 13.0;
+    let sw = CubicSwitch::new(cutoff, cuton);
     let coulomb_factor = 332.0;
 
     for i in 0..n {
@@ -222,10 +317,11 @@ pub fn compute_energy_and_forces(
             let dz = coords[i][2] - coords[j][2];
             let r2 = dx * dx + dy * dy + dz * dz;
 
-            if r2 > cutoff_sq || r2 < 0.01 {
+            if r2 > sw.sq_cutoff || r2 < 0.01 {
                 continue;
             }
 
+            let (switch_val, dsw_dr2) = sw.eval(r2);
             let is_14 = topo.pairs_14.contains(&pair);
             let scale_vdw = if is_14 { 1.0 / params.scnb } else { 1.0 };
             let scale_es = if is_14 { 1.0 / params.scee } else { 1.0 };
@@ -234,7 +330,6 @@ pub fn compute_energy_and_forces(
             let inv_r = 1.0 / r;
 
             // LJ 12-6: E = eps * [(rmin/r)^12 - 2*(rmin/r)^6]
-            // dE/dr = eps * [-12*rmin^12/r^13 + 12*rmin^6/r^7]
             let ti = &topo.atoms[i].amber_type;
             let tj = &topo.atoms[j].amber_type;
             if let (Some(lj_i), Some(lj_j)) = (params.get_lj(ti), params.get_lj(tj)) {
@@ -244,13 +339,16 @@ pub fn compute_energy_and_forces(
                     let sr = rmin * inv_r;
                     let sr6 = sr.powi(6);
                     let sr12 = sr6 * sr6;
-                    result.vdw += scale_vdw * eps * (sr12 - 2.0 * sr6);
+                    let e_lj = scale_vdw * eps * (sr12 - 2.0 * sr6);
+                    result.vdw += switch_val * e_lj;
 
-                    // Force: F = -dE/dr * (r_vec / r)
+                    // d(sw*E)/dr = sw * dE/dr + E * dsw/dr
+                    // dsw/dr = dsw/d(r²) * d(r²)/dr = dsw_dr2 * 2r
                     let de_dr = scale_vdw * eps * (-12.0 * sr12 + 12.0 * sr6) * inv_r;
-                    let fx = de_dr * dx * inv_r;
-                    let fy = de_dr * dy * inv_r;
-                    let fz = de_dr * dz * inv_r;
+                    let total_de_dr = switch_val * de_dr + e_lj * dsw_dr2 * 2.0 * r;
+                    let fx = total_de_dr * dx * inv_r;
+                    let fy = total_de_dr * dy * inv_r;
+                    let fz = total_de_dr * dz * inv_r;
 
                     forces[i][0] -= fx;
                     forces[i][1] -= fy;
@@ -261,17 +359,18 @@ pub fn compute_energy_and_forces(
                 }
             }
 
-            // Coulomb: E = k*q1*q2/r, dE/dr = -k*q1*q2/r²
+            // Coulomb: E = k*q1*q2/r
             let qi = topo.atoms[i].charge;
             let qj = topo.atoms[j].charge;
             if qi.abs() > 1e-10 && qj.abs() > 1e-10 {
                 let e_es = scale_es * coulomb_factor * qi * qj * inv_r;
-                result.electrostatic += e_es;
+                result.electrostatic += switch_val * e_es;
 
-                let de_dr = -e_es * inv_r; // -k*q1*q2/r²
-                let fx = de_dr * dx * inv_r;
-                let fy = de_dr * dy * inv_r;
-                let fz = de_dr * dz * inv_r;
+                let de_dr = -e_es * inv_r;
+                let total_de_dr = switch_val * de_dr + e_es * dsw_dr2 * 2.0 * r;
+                let fx = total_de_dr * dx * inv_r;
+                let fy = total_de_dr * dy * inv_r;
+                let fz = total_de_dr * dz * inv_r;
 
                 forces[i][0] -= fx;
                 forces[i][1] -= fy;
@@ -283,28 +382,135 @@ pub fn compute_energy_and_forces(
         }
     }
 
-    // --- Torsion energy (energy only, gradient is complex) ---
-    for torsion in &topo.torsions {
+    result.total = result.bond_stretch
+        + result.angle_bend
+        + result.torsion
+        + result.improper_torsion
+        + result.vdw
+        + result.electrostatic;
+    (result, forces)
+}
+
+// ---------------------------------------------------------------------------
+// Torsion energy + gradient (shared by proper and improper)
+//
+// Uses the BALL/BiochemicalAlgorithms.jl cross-product formula:
+//   dEdt =  (dE/dϕ / (|n1|² * |b2|)) * cross(n1, b2)
+//   dEdu = -(dE/dϕ / (|n2|² * |b2|)) * cross(n2, b2)
+//   F1 = cross(dEdt, b2)
+//   F2 = cross(r13, dEdt) + cross(dEdu, r34)
+//   F3 = cross(r21, dEdt) + cross(r24, dEdu)
+//   F4 = cross(dEdu, b2)
+// ---------------------------------------------------------------------------
+
+fn torsion_energy_and_forces(
+    torsion_list: &[super::topology::Torsion],
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &AmberParams,
+    energy_accum: &mut f64,
+    forces: &mut [[f64; 3]],
+    is_improper: bool,
+) {
+    for torsion in torsion_list {
         let ti = &topo.atoms[torsion.i].amber_type;
         let tj = &topo.atoms[torsion.j].amber_type;
         let tk = &topo.atoms[torsion.k].amber_type;
         let tl = &topo.atoms[torsion.l].amber_type;
-        if let Some(terms) = params.get_torsion(ti, tj, tk, tl) {
-            let phi = compute_dihedral(
-                &coords[torsion.i],
-                &coords[torsion.j],
-                &coords[torsion.k],
-                &coords[torsion.l],
-            );
-            for term in terms {
-                result.torsion += (term.v / term.div) * (1.0 + (term.f * phi - term.phi0).cos());
-            }
+
+        let terms = if is_improper {
+            params.get_improper_torsion(ti, tj, tk, tl)
+        } else {
+            params.get_torsion(ti, tj, tk, tl)
+        };
+        let terms = match terms {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let (ai, aj, ak, al) = (torsion.i, torsion.j, torsion.k, torsion.l);
+        let p0 = &coords[ai];
+        let p1 = &coords[aj];
+        let p2 = &coords[ak];
+        let p3 = &coords[al];
+
+        // Vectors along the torsion
+        let a21 = sub(p0, p1); // p0 - p1
+        let a23 = sub(p2, p1); // p2 - p1
+        let a34 = sub(p3, p2); // p3 - p2
+
+        let n1 = cross(&a23, &a21); // cross(b2, b1)
+        let n2 = cross(&a23, &a34); // cross(b2, b3)
+
+        let len_n1 = norm(&n1);
+        let len_n2 = norm(&n2);
+        if len_n1 < 1e-10 || len_n2 < 1e-10 {
+            continue;
+        }
+
+        let cos_phi = (dot(&n1, &n2) / (len_n1 * len_n2)).clamp(-1.0, 1.0);
+        let phi = cos_phi.acos();
+
+        // Compute energy
+        let mut e_torsion = 0.0;
+        let mut de_dphi = 0.0;
+        for term in terms {
+            e_torsion += (term.v / term.div) * (1.0 + (term.f * phi - term.phi0).cos());
+            de_dphi += -(term.v / term.div) * term.f * (term.f * phi - term.phi0).sin();
+        }
+        *energy_accum += e_torsion;
+
+        // Determine sign of phi using direction = dot(cross(n1, n2), a23)
+        let n1xn2 = cross(&n1, &n2);
+        let direction = dot(&n1xn2, &a23);
+        if direction > 0.0 {
+            de_dphi = -de_dphi;
+        }
+
+        // Force distribution (BALL formula)
+        let len_a23 = norm(&a23);
+        if len_a23 < 1e-10 { continue; }
+
+        let n1_cross_a23 = cross(&n1, &a23);
+        let n2_cross_a23 = cross(&n2, &a23);
+
+        let scale_t = de_dphi / (len_n1 * len_n1 * len_a23);
+        let scale_u = -de_dphi / (len_n2 * len_n2 * len_a23);
+
+        let dedt = [
+            scale_t * n1_cross_a23[0],
+            scale_t * n1_cross_a23[1],
+            scale_t * n1_cross_a23[2],
+        ];
+        let dedu = [
+            scale_u * n2_cross_a23[0],
+            scale_u * n2_cross_a23[1],
+            scale_u * n2_cross_a23[2],
+        ];
+
+        // F1 = cross(dEdt, a23)
+        let f1 = cross(&dedt, &a23);
+        // F4 = cross(dEdu, a23)
+        let f4 = cross(&dedu, &a23);
+
+        let a13 = sub(p2, p0); // p2 - p0
+        let a24 = sub(p3, p1); // p3 - p1
+
+        // F2 = cross(a13, dEdt) + cross(dEdu, a34)
+        let f2a = cross(&a13, &dedt);
+        let f2b = cross(&dedu, &a34);
+
+        // F3 = cross(a21, dEdt) + cross(a24, dEdu)
+        let f3a = cross(&a21, &dedt);
+        let f3b = cross(&a24, &dedu);
+
+        for d in 0..3 {
+            forces[ai][d] += f1[d];
+            forces[aj][d] += f2a[d] + f2b[d];
+            forces[ak][d] += f3a[d] + f3b[d];
+            forces[al][d] += f4[d];
         }
     }
-
-    result.total =
-        result.bond_stretch + result.angle_bend + result.torsion + result.vdw + result.electrostatic;
-    (result, forces)
 }
 
 // ---------------------------------------------------------------------------
