@@ -415,6 +415,7 @@ mod tests {
         println!("Bonds: {}", topo.bonds.len());
         println!("Angles: {}", topo.angles.len());
         println!("Torsions: {}", topo.torsions.len());
+        println!("Improper torsions: {}", topo.improper_torsions.len());
         println!("Excluded pairs: {}", topo.excluded_pairs.len());
         println!("1-4 pairs: {}", topo.pairs_14.len());
 

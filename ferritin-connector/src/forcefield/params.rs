@@ -322,7 +322,11 @@ impl AmberParams {
         self.angles.get(&key)
     }
 
-    /// Look up torsion parameters (tries specific then wildcard).
+    /// Look up torsion parameters using BALL's 9-pattern fallback order.
+    ///
+    /// Tries: exact, reverse, single-wildcard ends, double-wildcard, then
+    /// double-wildcard on inner atoms. Matches BiochemicalAlgorithms.jl
+    /// `_try_assign_torsion!` pattern.
     pub fn get_torsion(
         &self,
         type_a: &str,
@@ -330,28 +334,44 @@ impl AmberParams {
         type_c: &str,
         type_d: &str,
     ) -> Option<&Vec<TorsionTerm>> {
-        // Try exact match first
-        let key = (
-            type_a.to_string(),
-            type_b.to_string(),
-            type_c.to_string(),
-            type_d.to_string(),
-        );
-        if let Some(terms) = self.torsions.get(&key) {
-            return Some(terms);
-        }
-        // Try wildcard on outer atoms
-        let key = (
-            "*".to_string(),
-            type_b.to_string(),
-            type_c.to_string(),
-            "*".to_string(),
-        );
-        self.torsions.get(&key)
+        let (a, b, c, d) = (type_a.to_string(), type_b.to_string(), type_c.to_string(), type_d.to_string());
+        let w = "*".to_string();
+        // BALL fallback order (9 patterns):
+        self.torsions.get(&(a.clone(), b.clone(), c.clone(), d.clone()))  // exact
+            .or_else(|| self.torsions.get(&(d.clone(), c.clone(), b.clone(), a.clone())))  // reverse
+            .or_else(|| self.torsions.get(&(w.clone(), b.clone(), c.clone(), d.clone())))  // *-b-c-d
+            .or_else(|| self.torsions.get(&(w.clone(), c.clone(), b.clone(), a.clone())))  // *-c-b-a
+            .or_else(|| self.torsions.get(&(a.clone(), b.clone(), c.clone(), w.clone())))  // a-b-c-*
+            .or_else(|| self.torsions.get(&(d.clone(), c.clone(), b.clone(), w.clone())))  // d-c-b-*
+            .or_else(|| self.torsions.get(&(w.clone(), b.clone(), c.clone(), w.clone())))  // *-b-c-*
+            .or_else(|| self.torsions.get(&(w.clone(), c.clone(), b.clone(), w.clone())))  // *-c-b-*
     }
 
-    /// Look up improper torsion parameters (tries specific then wildcard).
+    /// Look up improper torsion parameters.
+    ///
+    /// More restrictive than proper torsions — requires at least one non-wildcard
+    /// outer atom to avoid over-matching (e.g., *-*-C-O matching every backbone C).
     pub fn get_improper_torsion(
+        &self,
+        type_a: &str,
+        type_b: &str,
+        type_c: &str,
+        type_d: &str,
+    ) -> Option<&Vec<TorsionTerm>> {
+        let (a, b, c, d) = (type_a.to_string(), type_b.to_string(), type_c.to_string(), type_d.to_string());
+        let w = "*".to_string();
+        // Exact match
+        self.improper_torsions.get(&(a.clone(), b.clone(), c.clone(), d.clone()))
+            // Reverse
+            .or_else(|| self.improper_torsions.get(&(d.clone(), c.clone(), b.clone(), a.clone())))
+            // One wildcard on outer (specific inner)
+            .or_else(|| self.improper_torsions.get(&(w.clone(), b.clone(), c.clone(), d.clone())))
+            .or_else(|| self.improper_torsions.get(&(a.clone(), b.clone(), c.clone(), w.clone())))
+    }
+
+    // kept for backward compatibility — old 3-pattern version removed
+    #[allow(dead_code)]
+    fn _get_improper_torsion_old(
         &self,
         type_a: &str,
         type_b: &str,
@@ -367,7 +387,6 @@ impl AmberParams {
         if let Some(terms) = self.improper_torsions.get(&key) {
             return Some(terms);
         }
-        // Wildcard on outer atoms
         let key = (
             "*".to_string(),
             type_b.to_string(),
@@ -526,22 +545,25 @@ impl ForceField for CharmmParams {
         let key = sorted_triple(type_a, type_b, type_c);
         self.angles.get(&key)
     }
-    fn get_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>> {
-        let key = (a.to_string(), b.to_string(), c.to_string(), d.to_string());
-        self.torsions.get(&key).or_else(|| {
-            let wk = ("*".to_string(), b.to_string(), c.to_string(), "*".to_string());
-            self.torsions.get(&wk)
-        })
+    fn get_torsion(&self, type_a: &str, type_b: &str, type_c: &str, type_d: &str) -> Option<&Vec<TorsionTerm>> {
+        let (a, b, c, d) = (type_a.to_string(), type_b.to_string(), type_c.to_string(), type_d.to_string());
+        let w = "*".to_string();
+        self.torsions.get(&(a.clone(), b.clone(), c.clone(), d.clone()))
+            .or_else(|| self.torsions.get(&(d.clone(), c.clone(), b.clone(), a.clone())))
+            .or_else(|| self.torsions.get(&(w.clone(), b.clone(), c.clone(), d.clone())))
+            .or_else(|| self.torsions.get(&(w.clone(), c.clone(), b.clone(), a.clone())))
+            .or_else(|| self.torsions.get(&(a.clone(), b.clone(), c.clone(), w.clone())))
+            .or_else(|| self.torsions.get(&(d.clone(), c.clone(), b.clone(), w.clone())))
+            .or_else(|| self.torsions.get(&(w.clone(), b.clone(), c.clone(), w.clone())))
+            .or_else(|| self.torsions.get(&(w.clone(), c.clone(), b.clone(), w.clone())))
     }
-    fn get_improper_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>> {
-        let key = (a.to_string(), b.to_string(), c.to_string(), d.to_string());
-        self.improper_torsions.get(&key).or_else(|| {
-            let wk = ("*".to_string(), b.to_string(), c.to_string(), d.to_string());
-            self.improper_torsions.get(&wk).or_else(|| {
-                let wk2 = ("*".to_string(), "*".to_string(), c.to_string(), d.to_string());
-                self.improper_torsions.get(&wk2)
-            })
-        })
+    fn get_improper_torsion(&self, type_a: &str, type_b: &str, type_c: &str, type_d: &str) -> Option<&Vec<TorsionTerm>> {
+        let (a, b, c, d) = (type_a.to_string(), type_b.to_string(), type_c.to_string(), type_d.to_string());
+        let w = "*".to_string();
+        self.improper_torsions.get(&(a.clone(), b.clone(), c.clone(), d.clone()))
+            .or_else(|| self.improper_torsions.get(&(d.clone(), c.clone(), b.clone(), a.clone())))
+            .or_else(|| self.improper_torsions.get(&(w.clone(), b.clone(), c.clone(), d.clone())))
+            .or_else(|| self.improper_torsions.get(&(a.clone(), b.clone(), c.clone(), w.clone())))
     }
     fn is_improper_center(&self, residue: &str, atom: &str) -> bool {
         let key = format!("{residue}:{atom}");
