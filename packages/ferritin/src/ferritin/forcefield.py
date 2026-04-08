@@ -169,6 +169,7 @@ def run_md(
     temperature: float = 300.0,
     thermostat_tau: float = 0.2,
     snapshot_freq: int = 10,
+    shake: bool = False,
 ) -> dict:
     """Run molecular dynamics simulation using Velocity Verlet integration.
 
@@ -179,6 +180,8 @@ def run_md(
         temperature: Initial/target temperature in Kelvin (default 300).
         thermostat_tau: Berendsen coupling time in ps. 0 = NVE (default 0.2 = NVT).
         snapshot_freq: Record trajectory frame every N steps (default 10).
+        shake: Constrain X-H bond lengths via SHAKE/RATTLE (default False).
+            Enables 2 fs timestep (dt=0.002) without H-bond instability.
 
     Returns:
         Dict with keys:
@@ -189,4 +192,4 @@ def run_md(
             energy: final energy components dict.
             n_steps, dt, temperature_target, thermostat_tau: simulation parameters.
     """
-    return _ff.run_md(_get_ptr(structure), n_steps, dt, temperature, thermostat_tau, snapshot_freq)
+    return _ff.run_md(_get_ptr(structure), n_steps, dt, temperature, thermostat_tau, snapshot_freq, shake)

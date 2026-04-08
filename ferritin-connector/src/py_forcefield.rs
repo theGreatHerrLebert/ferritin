@@ -370,7 +370,7 @@ pub fn load_and_minimize_hydrogens<'py>(
 ///     trajectory_coords: list of (N, 3) coordinate arrays at each snapshot.
 ///     energy: final energy components dict.
 #[pyfunction]
-#[pyo3(signature = (pdb, n_steps=1000, dt=0.001, temperature=300.0, thermostat_tau=0.2, snapshot_freq=10))]
+#[pyo3(signature = (pdb, n_steps=1000, dt=0.001, temperature=300.0, thermostat_tau=0.2, snapshot_freq=10, shake=false))]
 pub fn run_md(
     py: Python<'_>,
     pdb: &PyPDB,
@@ -379,20 +379,30 @@ pub fn run_md(
     temperature: f64,
     thermostat_tau: f64,
     snapshot_freq: usize,
+    shake: bool,
 ) -> PyResult<PyObject> {
     let amber = params::amber96();
     let topo = topology::build_topology(&pdb.inner, &amber);
     let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
     let n = coords.len();
 
-    // Collect trajectory coords at each snapshot
     let snap_freq = snapshot_freq.max(1);
     let topo_clone = topo.clone();
     let amber_clone = amber.clone();
 
+    // Build H-bond constraints if SHAKE enabled
+    let constraints = if shake {
+        md::build_h_constraints(&topo, &amber)
+    } else {
+        Vec::new()
+    };
+
     // Run MD (release GIL)
     let result = py.allow_threads(move || {
-        md::velocity_verlet(&coords, &topo_clone, &amber_clone, n_steps, dt, temperature, thermostat_tau, snap_freq)
+        md::velocity_verlet_constrained(
+            &coords, &topo_clone, &amber_clone, n_steps, dt, temperature,
+            thermostat_tau, snap_freq, &constraints,
+        )
     });
 
     // Build result dict

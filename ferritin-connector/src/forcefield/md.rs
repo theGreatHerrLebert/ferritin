@@ -160,6 +160,179 @@ fn kinetic_energy_and_temperature(
 }
 
 // ---------------------------------------------------------------------------
+// SHAKE/RATTLE bond length constraints
+// ---------------------------------------------------------------------------
+
+/// A bond constraint (typically X-H bonds).
+#[derive(Clone, Debug)]
+pub struct BondConstraint {
+    pub i: usize,     // heavy atom index
+    pub j: usize,     // hydrogen index
+    pub d_sq: f64,    // target distance squared (Å²)
+}
+
+/// Build list of X-H bond constraints from topology.
+///
+/// Constrains all bonds where exactly one atom is hydrogen.
+/// Target distances come from the force field equilibrium bond lengths.
+pub fn build_h_constraints(
+    topo: &Topology,
+    params: &AmberParams,
+) -> Vec<BondConstraint> {
+    let mut constraints = Vec::new();
+    for bond in &topo.bonds {
+        let a_is_h = topo.atoms[bond.i].is_hydrogen;
+        let b_is_h = topo.atoms[bond.j].is_hydrogen;
+        // Constrain if exactly one is hydrogen
+        if a_is_h != b_is_h {
+            let ti = &topo.atoms[bond.i].amber_type;
+            let tj = &topo.atoms[bond.j].amber_type;
+            if let Some(bp) = params.get_bond(ti, tj) {
+                let d = bp.r0;
+                constraints.push(BondConstraint {
+                    i: bond.i,
+                    j: bond.j,
+                    d_sq: d * d,
+                });
+            }
+        }
+    }
+    constraints
+}
+
+/// SHAKE: correct positions to satisfy bond length constraints.
+///
+/// After an unconstrained Verlet position update, iteratively adjusts
+/// atomic positions so all constrained bond lengths match their targets.
+///
+/// Reference: Ryckaert, Ciccotti, Berendsen, J Comp Phys 23, 327 (1977).
+///
+/// Returns the number of iterations used, or `max_iter` if not converged.
+fn shake(
+    pos: &mut [[f64; 3]],
+    old_pos: &[[f64; 3]],
+    inv_mass: &[f64],
+    constraints: &[BondConstraint],
+    tolerance: f64,
+    max_iter: usize,
+) -> usize {
+    for iter in 0..max_iter {
+        let mut max_err = 0.0f64;
+
+        for c in constraints {
+            let (i, j) = (c.i, c.j);
+
+            // Current bond vector (after unconstrained step)
+            let rpx = pos[i][0] - pos[j][0];
+            let rpy = pos[i][1] - pos[j][1];
+            let rpz = pos[i][2] - pos[j][2];
+            let rp_sq = rpx * rpx + rpy * rpy + rpz * rpz;
+
+            // Distance error
+            let diff = c.d_sq - rp_sq;
+            let err = diff.abs() / c.d_sq;
+            max_err = max_err.max(err);
+
+            if err < tolerance {
+                continue;
+            }
+
+            // Old bond vector (reference for constraint direction)
+            let rx = old_pos[i][0] - old_pos[j][0];
+            let ry = old_pos[i][1] - old_pos[j][1];
+            let rz = old_pos[i][2] - old_pos[j][2];
+
+            // r_old · r_prime
+            let r_dot_rp = rx * rpx + ry * rpy + rz * rpz;
+            if r_dot_rp.abs() < c.d_sq * 1e-10 {
+                continue; // vectors nearly perpendicular, skip
+            }
+
+            // Reduced inverse mass: 1/m_i + 1/m_j
+            // Note: inv_mass already has FORCE_TO_ACCEL factor, but for SHAKE
+            // we need plain 1/mass. We divide out FORCE_TO_ACCEL.
+            let inv_mi = inv_mass[i] / FORCE_TO_ACCEL;
+            let inv_mj = inv_mass[j] / FORCE_TO_ACCEL;
+
+            // Lagrange multiplier: λ = diff / (2 * (1/m_i + 1/m_j) * r_old · r')
+            let lambda = diff / (2.0 * (inv_mi + inv_mj) * r_dot_rp);
+
+            // Apply correction
+            pos[i][0] += lambda * rx * inv_mi;
+            pos[i][1] += lambda * ry * inv_mi;
+            pos[i][2] += lambda * rz * inv_mi;
+            pos[j][0] -= lambda * rx * inv_mj;
+            pos[j][1] -= lambda * ry * inv_mj;
+            pos[j][2] -= lambda * rz * inv_mj;
+        }
+
+        if max_err < tolerance {
+            return iter + 1;
+        }
+    }
+    max_iter
+}
+
+/// RATTLE: correct velocities to satisfy constraint on velocity along bond.
+///
+/// After SHAKE corrects positions, RATTLE removes velocity components
+/// parallel to constrained bonds, ensuring dC/dt = 0.
+///
+/// Reference: Andersen, J Comp Phys 52, 24 (1983).
+fn rattle(
+    vel: &mut [[f64; 3]],
+    pos: &[[f64; 3]],
+    inv_mass: &[f64],
+    constraints: &[BondConstraint],
+    tolerance: f64,
+    max_iter: usize,
+) -> usize {
+    for iter in 0..max_iter {
+        let mut max_err = 0.0f64;
+
+        for c in constraints {
+            let (i, j) = (c.i, c.j);
+
+            // Current bond vector
+            let rx = pos[i][0] - pos[j][0];
+            let ry = pos[i][1] - pos[j][1];
+            let rz = pos[i][2] - pos[j][2];
+
+            // Velocity difference projected onto bond
+            let vx = vel[i][0] - vel[j][0];
+            let vy = vel[i][1] - vel[j][1];
+            let vz = vel[i][2] - vel[j][2];
+            let v_dot_r = vx * rx + vy * ry + vz * rz;
+
+            let err = v_dot_r.abs() / c.d_sq.sqrt();
+            max_err = max_err.max(err);
+
+            if err < tolerance {
+                continue;
+            }
+
+            let inv_mi = inv_mass[i] / FORCE_TO_ACCEL;
+            let inv_mj = inv_mass[j] / FORCE_TO_ACCEL;
+
+            // Correction: κ = -v·r / ((1/m_i + 1/m_j) * d²)
+            let kappa = -v_dot_r / ((inv_mi + inv_mj) * c.d_sq);
+
+            vel[i][0] += kappa * rx * inv_mi;
+            vel[i][1] += kappa * ry * inv_mi;
+            vel[i][2] += kappa * rz * inv_mi;
+            vel[j][0] -= kappa * rx * inv_mj;
+            vel[j][1] -= kappa * ry * inv_mj;
+            vel[j][2] -= kappa * rz * inv_mj;
+        }
+
+        if max_err < tolerance {
+            return iter + 1;
+        }
+    }
+    max_iter
+}
+
+// ---------------------------------------------------------------------------
 // Velocity Verlet integrator
 // ---------------------------------------------------------------------------
 
@@ -184,9 +357,33 @@ pub fn velocity_verlet(
     thermostat_tau: f64,
     snapshot_freq: usize,
 ) -> MDResult {
+    // No constraints — delegate to constrained version with empty list
+    velocity_verlet_constrained(
+        coords, topo, params, n_steps, dt, temperature, thermostat_tau, snapshot_freq, &[],
+    )
+}
+
+/// Run MD with SHAKE/RATTLE constraints on specified bonds.
+///
+/// Constrains X-H bond lengths to their equilibrium values, allowing
+/// a larger timestep (2 fs instead of 0.5 fs).
+///
+/// Use `build_h_constraints()` to generate the constraint list.
+pub fn velocity_verlet_constrained(
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &AmberParams,
+    n_steps: usize,
+    dt: f64,
+    temperature: f64,
+    thermostat_tau: f64,
+    snapshot_freq: usize,
+    constraints: &[BondConstraint],
+) -> MDResult {
     let n = coords.len();
     let mut pos = coords.to_vec();
     let mut frames = Vec::new();
+    let use_constraints = !constraints.is_empty();
 
     // Compute masses
     let masses: Vec<f64> = topo.atoms.iter().map(|a| atomic_mass(&a.element)).collect();
@@ -199,6 +396,11 @@ pub fn velocity_verlet(
 
     // Pre-compute mass factors: 1/m * FORCE_TO_ACCEL
     let inv_mass: Vec<f64> = masses.iter().map(|&m| FORCE_TO_ACCEL / m).collect();
+
+    // Apply RATTLE to initial velocities if constrained
+    if use_constraints {
+        rattle(&mut vel, &pos, &inv_mass, constraints, 1e-6, 100);
+    }
 
     let (ke, temp) = kinetic_energy_and_temperature(&vel, &masses);
     frames.push(MDFrame {
@@ -214,6 +416,9 @@ pub fn velocity_verlet(
     let dt_sq_half = 0.5 * dt * dt;
 
     for step in 1..=n_steps {
+        // Save old positions for SHAKE reference
+        let old_pos = if use_constraints { pos.clone() } else { Vec::new() };
+
         // Velocity Verlet step 1: update positions
         // r(t+dt) = r(t) + v(t)*dt + 0.5*a(t)*dt²
         for i in 0..n {
@@ -222,11 +427,25 @@ pub fn velocity_verlet(
             pos[i][2] += vel[i][2] * dt + forces[i][2] * inv_mass[i] * dt_sq_half;
         }
 
-        // Half-step velocity update: v(t+dt/2) = v(t) + 0.5*a(t)*dt
-        for i in 0..n {
-            vel[i][0] += forces[i][0] * inv_mass[i] * half_dt;
-            vel[i][1] += forces[i][1] * inv_mass[i] * half_dt;
-            vel[i][2] += forces[i][2] * inv_mass[i] * half_dt;
+        // SHAKE: correct positions to satisfy bond constraints
+        if use_constraints {
+            shake(&mut pos, &old_pos, &inv_mass, constraints, 1e-6, 1000);
+
+            // Update velocities to reflect position correction:
+            // v(t+dt/2) = (r(t+dt) - r(t)) / dt
+            // Then add half-step acceleration from forces
+            for i in 0..n {
+                vel[i][0] = (pos[i][0] - old_pos[i][0]) / dt;
+                vel[i][1] = (pos[i][1] - old_pos[i][1]) / dt;
+                vel[i][2] = (pos[i][2] - old_pos[i][2]) / dt;
+            }
+        } else {
+            // Half-step velocity update: v(t+dt/2) = v(t) + 0.5*a(t)*dt
+            for i in 0..n {
+                vel[i][0] += forces[i][0] * inv_mass[i] * half_dt;
+                vel[i][1] += forces[i][1] * inv_mass[i] * half_dt;
+                vel[i][2] += forces[i][2] * inv_mass[i] * half_dt;
+            }
         }
 
         // Compute new forces at r(t+dt)
@@ -238,6 +457,11 @@ pub fn velocity_verlet(
             vel[i][0] += forces[i][0] * inv_mass[i] * half_dt;
             vel[i][1] += forces[i][1] * inv_mass[i] * half_dt;
             vel[i][2] += forces[i][2] * inv_mass[i] * half_dt;
+        }
+
+        // RATTLE: correct velocities along constrained bonds
+        if use_constraints {
+            rattle(&mut vel, &pos, &inv_mass, constraints, 1e-6, 100);
         }
 
         // Berendsen thermostat: rescale velocities
