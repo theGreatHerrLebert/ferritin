@@ -86,6 +86,26 @@ pub fn place_peptide_hydrogens_with_coords<'py>(
     ((result.added, result.skipped), arr)
 }
 
+/// Place sidechain hydrogen atoms on all standard amino acid residues.
+///
+/// Template-based placement for the 20 standard amino acids.
+/// Modifies the structure in place and returns (n_added, n_skipped).
+#[pyfunction]
+pub fn place_sidechain_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize) {
+    let result = py.allow_threads(|| add_hydrogens::place_sidechain_hydrogens(&mut pdb.inner));
+    (result.added, result.skipped)
+}
+
+/// Place all hydrogens: backbone amide H + sidechain H.
+///
+/// Equivalent to calling place_peptide_hydrogens then place_sidechain_hydrogens.
+/// Returns (n_added, n_skipped).
+#[pyfunction]
+pub fn place_all_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize) {
+    let result = py.allow_threads(|| add_hydrogens::place_all_hydrogens(&mut pdb.inner));
+    (result.added, result.skipped)
+}
+
 /// Batch place peptide hydrogens on multiple structures in parallel.
 ///
 /// Returns list of (n_added, n_skipped) tuples.
@@ -136,6 +156,8 @@ pub fn batch_place_peptide_hydrogens(
 pub fn py_add_hydrogens(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(place_peptide_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(place_peptide_hydrogens_with_coords, m)?)?;
+    m.add_function(wrap_pyfunction!(place_sidechain_hydrogens, m)?)?;
+    m.add_function(wrap_pyfunction!(place_all_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(batch_place_peptide_hydrogens, m)?)?;
     Ok(())
 }
