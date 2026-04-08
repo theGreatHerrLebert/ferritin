@@ -70,6 +70,8 @@ def run_benchmark(pdb_dir, n_structures, n_threads, output_file, chunk_size=5000
     n_chunks = (n + chunk_size - 1) // chunk_size
     for ci in range(n_chunks):
         chunk_files = files[ci * chunk_size : (ci + 1) * chunk_size]
+        # Filter out huge files (> 20MB) to avoid OOM on batch operations
+        chunk_files = [f for f in chunk_files if os.path.getsize(f) < 20_000_000]
         cn = len(chunk_files)
         print(f"\n--- Chunk {ci+1}/{n_chunks} ({cn} files) ---")
 
@@ -78,10 +80,14 @@ def run_benchmark(pdb_dir, n_structures, n_threads, output_file, chunk_size=5000
         loaded = ferritin.batch_load_tolerant(chunk_files, n_threads=n_threads)
         dt = time.perf_counter() - t0
         structures = [s for _, s in loaded]
+        # Skip structures > 50K atoms (huge complexes would OOM on SASA)
+        n_before = len(structures)
+        structures = [s for s in structures if s.atom_count < 50000]
+        n_skipped_large = n_before - len(structures)
         all_timings["load"]["elapsed"] += dt
         all_timings["load"]["n_loaded"] += len(structures)
-        all_timings["load"]["n_failed"] += cn - len(structures)
-        print(f"  Load: {len(structures)}/{cn} in {dt:.1f}s")
+        all_timings["load"]["n_failed"] += cn - n_before + n_skipped_large
+        print(f"  Load: {len(structures)}/{cn} in {dt:.1f}s (skipped {n_skipped_large} large)")
 
         if not structures:
             continue
