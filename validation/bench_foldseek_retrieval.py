@@ -301,6 +301,14 @@ def ferritin_hits_to_rows(hits) -> list[dict]:
     return rows
 
 
+def load_query_or_none(query_path: Path):
+    try:
+        return ferritin.load(query_path)
+    except Exception as exc:
+        print(f"Skipping ferritin query {query_path.name}: {exc}", flush=True)
+        return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark Foldseek retrieval quality against ferritin TM-align truth")
     parser.add_argument("--pdb-dir", default="/scratch/TMAlign/ferritin/validation/pdbs_10k")
@@ -404,6 +412,7 @@ def main() -> None:
     ferritin_compile_s = 0.0
     ferritin_warm_s = 0.0
     ferritin_search_s = 0.0
+    skipped_ferritin_queries: dict[str, str] = {}
     if args.compare_ferritin:
         db_path = Path(args.ferritin_db_path) if args.ferritin_db_path else Path(str(Path(args.output).with_suffix("")) + ".ferritin_db")
         print(f"Ferritin DB: {db_path}", flush=True)
@@ -423,7 +432,11 @@ def main() -> None:
             ferritin_compile_s = time.time() - t0
         for query_idx, query_path in enumerate(query_paths, start=1):
             print(f"Ferritin search {query_idx}/{len(query_paths)} {query_path.name}...", flush=True)
-            query_structure = ferritin.load(query_path)
+            query_structure = load_query_or_none(query_path)
+            if query_structure is None:
+                ferritin_hits_by_query[str(query_path)] = []
+                skipped_ferritin_queries[str(query_path)] = "load_failed"
+                continue
             t0 = time.time()
             hits = ferritin.search(
                 query_structure,
@@ -479,13 +492,18 @@ def main() -> None:
             print(f"Truth {query_idx}/{len(query_paths)} cache hit: {query_path.name}", flush=True)
             continue
         if args.truth_mode == "exhaustive":
+            query_structure = load_query_or_none(query_path)
+            if query_structure is None:
+                skipped_ferritin_queries[str(query_path)] = "load_failed"
+                truth_cache[query_key] = []
+                continue
             print(
                 f"Truth {query_idx}/{len(query_paths)} exhaustive {query_path.name} vs {len(target_paths)} targets...",
                 flush=True,
             )
             t0 = time.time()
             truth_cache[query_key] = build_truth_for_query(
-                ferritin.load(query_path),
+                query_structure,
                 target_paths,
                 target_structures,
             )
@@ -519,6 +537,8 @@ def main() -> None:
             )
             t0 = time.time()
             truth_cache[query_key] = build_candidate_truth_for_query(query_path, candidate_paths)
+            if not truth_cache[query_key]:
+                skipped_ferritin_queries[str(query_path)] = "truth_load_failed"
         query_truth_s = time.time() - t0
         brute_force_s += query_truth_s
         print(
@@ -661,6 +681,7 @@ def main() -> None:
         },
         "per_query": per_query,
         "skipped_truth_candidates": skipped_truth_candidates_by_query,
+        "skipped_ferritin_queries": skipped_ferritin_queries,
     }
 
     output_path = Path(args.output)
