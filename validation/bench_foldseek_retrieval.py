@@ -265,8 +265,15 @@ def main() -> None:
     target_paths = sample_targets(all_paths, args.n_targets, args.seed)
     query_paths = sample_queries(target_paths, args.n_queries, args.seed)
     assert_unique_stems(target_paths)
+    print(
+        f"Sampled {len(target_paths)} targets and {len(query_paths)} queries from {pdb_dir}",
+        flush=True,
+    )
 
+    t0 = time.time()
+    print("Loading sampled target structures...", flush=True)
     loaded_targets = ferritin.batch_load_tolerant(target_paths, n_threads=-1)
+    load_s = time.time() - t0
     if not loaded_targets:
         raise SystemExit("No target structures could be loaded for brute-force evaluation")
     loaded_target_map = {
@@ -278,6 +285,10 @@ def main() -> None:
     target_structures = [loaded_target_map[str(path)] for path in target_paths]
     if not query_paths:
         raise SystemExit("No query structures remain after filtering to loadable targets")
+    print(
+        f"Loaded {len(target_paths)} targets and retained {len(query_paths)} queries in {load_s:.3f}s",
+        flush=True,
+    )
 
     cache_key = truth_cache_key(
         pdb_dir=pdb_dir,
@@ -292,17 +303,27 @@ def main() -> None:
         truth_cache = {}
 
     brute_force_s = 0.0
-    for query_path in query_paths:
+    for query_idx, query_path in enumerate(query_paths, start=1):
         query_key = str(query_path)
         if query_key in truth_cache:
+            print(f"Truth {query_idx}/{len(query_paths)} cache hit: {query_path.name}", flush=True)
             continue
+        print(
+            f"Truth {query_idx}/{len(query_paths)} computing {query_path.name} vs {len(target_paths)} targets...",
+            flush=True,
+        )
         t0 = time.time()
         truth_cache[query_key] = build_truth_for_query(
             ferritin.load(query_path),
             target_paths,
             target_structures,
         )
-        brute_force_s += time.time() - t0
+        query_truth_s = time.time() - t0
+        brute_force_s += query_truth_s
+        print(
+            f"Truth {query_idx}/{len(query_paths)} done in {query_truth_s:.3f}s",
+            flush=True,
+        )
     if not truth_cache_hit:
         save_truth_cache(truth_cache_path, cache_key=cache_key, truth=truth_cache)
 
@@ -332,6 +353,7 @@ def main() -> None:
     print(f"Corpus sample: {len(target_paths)} targets from {pdb_dir}")
     print(f"Queries: {len(query_paths)}")
     print(f"Work dir: {work_root}")
+    print("Running Foldseek easy-search...", flush=True)
 
     foldseek_s = run_foldseek(
         foldseek=foldseek,
