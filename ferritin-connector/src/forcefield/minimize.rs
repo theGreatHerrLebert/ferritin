@@ -263,7 +263,12 @@ fn line_search<F: ForceField>(
     }
     let mut alpha = if max_d > 1e-12 { (max_disp / max_d).min(1.0) } else { 1.0 };
 
-    for _ in 0..20 {
+    let debug = std::env::var("FERRITIN_LBFGS_DEBUG").is_ok();
+    if debug {
+        eprintln!("  ls: max|d|={:.4}, initial alpha={:.3e}", max_d, alpha);
+    }
+
+    for iter in 0..20 {
         // trial = pos + alpha * direction
         for i in 0..n {
             if constrained[i] {
@@ -278,9 +283,14 @@ fn line_search<F: ForceField>(
         // Thanks to the alpha cap above, trials stay within the cached NBL's
         // valid region. No refresh needed here.
         let e = nbc.energy(&trial, topo, params);
+        let required = current_energy + c1 * alpha * grad_dot_dir;
+        if debug {
+            eprintln!("    ls[{}] α={:.3e} E={:.6} req<={:.6} dE={:.3e}",
+                iter, alpha, e.total, required, e.total - current_energy);
+        }
 
         // Armijo sufficient decrease condition
-        if e.total <= current_energy + c1 * alpha * grad_dot_dir {
+        if e.total <= required {
             return (alpha, e.total, trial);
         }
 
@@ -470,6 +480,7 @@ pub fn lbfgs(
     let mut energy = initial_energy;
     let mut converged = false;
     let mut steps = 0;
+    let debug = std::env::var("FERRITIN_LBFGS_DEBUG").is_ok();
 
     for step in 0..max_steps {
         steps = step + 1;
@@ -481,6 +492,10 @@ pub fn lbfgs(
             let g2 = grad[i][0].powi(2) + grad[i][1].powi(2) + grad[i][2].powi(2);
             max_grad = max_grad.max(g2.sqrt());
         }
+        if debug {
+            eprintln!("LBFGS step {}: E={:.4}, max_grad={:.4}, hist={}",
+                step, energy, max_grad, s_hist.len());
+        }
         if max_grad < gradient_tolerance {
             converged = true;
             break;
@@ -489,15 +504,37 @@ pub fn lbfgs(
         // Two-loop recursion to compute search direction: d = -H_k * g_k
         let direction = lbfgs_two_loop(&grad, &s_hist, &y_hist, &rho_hist, constrained);
 
-        // Line search
+        // Line search (only if the direction is actually descent)
         let grad_dot_dir = dot3n_raw(&grad, &direction, constrained);
-        if grad_dot_dir >= 0.0 {
-            // Not a descent direction — restart (use steepest descent step)
+        let (alpha, new_energy, new_pos) = if grad_dot_dir < 0.0 {
+            line_search(
+                &pos, &direction, grad_dot_dir, energy, topo, params, constrained, &nbc,
+            )
+        } else {
+            (0.0, energy, pos.clone())
+        };
+        if debug {
+            eprintln!("  line_search: alpha={:.3e}, E={:.4} -> {:.4}, g·d={:.4}",
+                alpha, energy, new_energy, grad_dot_dir);
+        }
+
+        // Either the direction wasn't descent, or the line search couldn't find
+        // an Armijo-acceptable step. In both cases the LBFGS Hessian approximation
+        // has become unreliable. Clear the history and take a small steepest-descent
+        // step to recover. If even that doesn't make progress, we're stuck — stop.
+        if alpha == 0.0 {
+            if debug {
+                if grad_dot_dir >= 0.0 {
+                    eprintln!("  NOT DESCENT (g·d={:.4}), restarting with SD", grad_dot_dir);
+                } else {
+                    eprintln!("  LINE SEARCH FAILED, restarting with SD");
+                }
+            }
             s_hist.clear();
             y_hist.clear();
             rho_hist.clear();
-            // Take a small steepest descent step
             let sd_step = 0.01;
+            let prev_energy = energy;
             for i in 0..n {
                 if constrained[i] { continue; }
                 let g_mag = (grad[i][0].powi(2) + grad[i][1].powi(2) + grad[i][2].powi(2)).sqrt();
@@ -509,18 +546,16 @@ pub fn lbfgs(
                 }
             }
             nbc.refresh(&pos, topo);
-            let (_, new_forces) = nbc.energy_and_forces(&pos, topo, params);
+            let (new_e_res, new_forces) = nbc.energy_and_forces(&pos, topo, params);
+            // If the SD recovery couldn't even reduce the energy, we're genuinely
+            // stuck (saddle point / noisy region) — stop.
+            if new_e_res.total >= prev_energy {
+                if debug { eprintln!("  SD recovery no-op (E unchanged), stopping"); }
+                break;
+            }
             grad = negate_forces(&new_forces, constrained);
-            energy = nbc.energy(&pos, topo, params).total;
+            energy = new_e_res.total;
             continue;
-        }
-
-        let (alpha, new_energy, new_pos) = line_search(
-            &pos, &direction, grad_dot_dir, energy, topo, params, constrained, &nbc,
-        );
-
-        if alpha == 0.0 {
-            break; // line search failed
         }
 
         // Compute s_k = x_{k+1} - x_k

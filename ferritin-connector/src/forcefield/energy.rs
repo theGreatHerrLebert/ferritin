@@ -672,7 +672,9 @@ fn bonded_energy_and_forces(
 
             let cos_theta = dot(&rji, &rjk) / (rji_len * rjk_len);
             let sin_theta = (1.0 - cos_theta * cos_theta).max(1e-12).sqrt();
-            let dv = -2.0 * ap.k * dtheta / sin_theta;
+            // F_i = -dE/dr_i = +2k(θ-θ₀)/sin(θ) × [bracket]
+            // (See the matching comment in compute_energy_and_forces_impl.)
+            let dv = 2.0 * ap.k * dtheta / sin_theta;
 
             let fi = [
                 dv * (rjk[0] / (rji_len * rjk_len) - cos_theta * rji[0] / (rji_len * rji_len)),
@@ -1150,6 +1152,94 @@ mod gradient_tests {
         // Check a few heavy atoms too — these exercise different force terms
         // (bonds, more angles, more torsions involving backbone/sidechain).
         check_gradient_on_atoms(&[0, 4, 10, 25, 50]);
+    }
+
+    /// Same gradient check but going through the neighbor-list (NBL) code path.
+    /// The minimizer uses this path for structures above NBL_AUTO_THRESHOLD,
+    /// and it has its own independent implementation of the nonbonded loop
+    /// (see `compute_energy_and_forces_nbl`). A sign or derivative bug in the
+    /// NBL variant that doesn't exist in the O(N²) variant would not be
+    /// caught by the other gradient tests above.
+    fn check_nbl_gradient_on_atoms(indices: &[usize]) {
+        let pdb = crambin_with_h();
+        let ff = amber96();
+        let topo = build_topology(pdb, &ff);
+        let coords = collect_coords(pdb);
+        let nbl = NeighborList::build(&coords, 15.0, &topo.excluded_pairs, &topo.pairs_14);
+        let (_, forces) = compute_energy_and_forces_nbl(&coords, &topo, &ff, &nbl);
+
+        let eps = 1e-5;
+        for &idx in indices {
+            for d in 0..3 {
+                let mut shifted = coords.clone();
+                shifted[idx][d] += eps;
+                let ep = compute_energy_nbl(&shifted, &topo, &ff, &nbl).total;
+                shifted[idx][d] -= 2.0 * eps;
+                let em = compute_energy_nbl(&shifted, &topo, &ff, &nbl).total;
+                let num_grad = (ep - em) / (2.0 * eps);
+                let ana_grad = -forces[idx][d];
+
+                let axis = ['x', 'y', 'z'][d];
+                let tol = 1e-3 + 1e-3 * ana_grad.abs();
+                let diff = (num_grad - ana_grad).abs();
+                assert!(
+                    diff < tol,
+                    "NBL gradient mismatch on atom {} axis {}: analytical={:.6}, numerical={:.6}, diff={:.2e}, tol={:.2e}",
+                    idx, axis, ana_grad, num_grad, diff, tol
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nbl_gradient_matches_numerical_on_hydrogens() {
+        let pdb = crambin_with_h();
+        let ff = amber96();
+        let topo = build_topology(pdb, &ff);
+        let h_indices: Vec<usize> = topo
+            .atoms
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| if a.is_hydrogen { Some(i) } else { None })
+            .take(5)
+            .collect();
+        assert!(!h_indices.is_empty(), "no hydrogens found in topology");
+        check_nbl_gradient_on_atoms(&h_indices);
+    }
+
+    #[test]
+    fn nbl_gradient_matches_numerical_on_heavy_atoms() {
+        check_nbl_gradient_on_atoms(&[0, 4, 10, 25, 50]);
+    }
+
+    #[test]
+    fn nbl_energy_matches_exact_energy() {
+        // compute_energy_impl and compute_energy_nbl should produce the same
+        // total energy for a structure where the neighbor list covers all
+        // real interactions (which is true for crambin with cutoff 15 Å).
+        let pdb = crambin_with_h();
+        let ff = amber96();
+        let topo = build_topology(pdb, &ff);
+        let coords = collect_coords(pdb);
+        let nbl = NeighborList::build(&coords, 15.0, &topo.excluded_pairs, &topo.pairs_14);
+
+        let e_exact = compute_energy_impl(&coords, &topo, &ff, false);
+        let e_nbl = compute_energy_nbl(&coords, &topo, &ff, &nbl);
+
+        // Component-by-component comparison — if any one drifts, we want to know.
+        let tol = 1e-6;
+        assert!((e_exact.bond_stretch - e_nbl.bond_stretch).abs() < tol,
+            "bond_stretch: exact={:.6} nbl={:.6}", e_exact.bond_stretch, e_nbl.bond_stretch);
+        assert!((e_exact.angle_bend - e_nbl.angle_bend).abs() < tol,
+            "angle_bend: exact={:.6} nbl={:.6}", e_exact.angle_bend, e_nbl.angle_bend);
+        assert!((e_exact.torsion - e_nbl.torsion).abs() < tol,
+            "torsion: exact={:.6} nbl={:.6}", e_exact.torsion, e_nbl.torsion);
+        assert!((e_exact.improper_torsion - e_nbl.improper_torsion).abs() < tol,
+            "improper: exact={:.6} nbl={:.6}", e_exact.improper_torsion, e_nbl.improper_torsion);
+        assert!((e_exact.vdw - e_nbl.vdw).abs() < tol,
+            "vdw: exact={:.6} nbl={:.6}", e_exact.vdw, e_nbl.vdw);
+        assert!((e_exact.electrostatic - e_nbl.electrostatic).abs() < tol,
+            "electrostatic: exact={:.6} nbl={:.6}", e_exact.electrostatic, e_nbl.electrostatic);
     }
 
     #[test]
