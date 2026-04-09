@@ -55,10 +55,10 @@ impl CubicSwitch {
         let sw = diff_off * diff_off
             * (self.sq_cutoff + 2.0 * r2 - 3.0 * self.sq_cuton)
             * self.inv_range_cubed;
-        // d(sw)/d(r²) = 12 * (sq_cutoff - r²)(sq_cuton - r²) / (sq_cutoff - sq_cuton)³
-        // But we need the sign: derivative of sw w.r.t. r², which is negative in the transition.
-        // Full derivative: 12 * diff_off * diff_on * inv_range_cubed (this is negative since diff_on < 0)
-        let dsw = 12.0 * diff_off * diff_on * self.inv_range_cubed;
+        // sw(r²) = (a - r²)² (a + 2r² - 3b) / (a - b)³  where a=sq_cutoff, b=sq_cuton
+        // d(sw)/d(r²) = 6 (a - r²)(b - r²) / (a - b)³
+        // (Negative in the transition since b - r² < 0 < a - r².)
+        let dsw = 6.0 * diff_off * diff_on * self.inv_range_cubed;
         (sw, dsw)
     }
 }
@@ -343,7 +343,9 @@ fn compute_energy_and_forces_impl(
             let cos_theta = dot(&rji, &rjk) / (rji_len * rjk_len);
             let sin_theta = (1.0 - cos_theta * cos_theta).max(1e-12).sqrt();
 
-            let dv = -2.0 * ap.k * dtheta / sin_theta;
+            // F_i = -dE/dr_i = +2k(θ-θ₀)/sin(θ) × [rjk/(|rji||rjk|) - cos(θ)·rji/|rji|²]
+            // Positive sign: the code below ADDS fi to forces[i], and fi must BE F_i.
+            let dv = 2.0 * ap.k * dtheta / sin_theta;
 
             // dθ/dr_i
             let fi = [
@@ -1043,4 +1045,131 @@ fn compute_dihedral(p0: &[f64; 3], p1: &[f64; 3], p2: &[f64; 3], p3: &[f64; 3]) 
     let y = dot(&m1, &n2) / (norm(&m1).max(1e-10) * n2_len);
 
     y.atan2(x)
+}
+
+#[cfg(test)]
+mod gradient_tests {
+    //! Regression tests that verify analytical forces match numerical gradients.
+    //!
+    //! These tests would have caught the angle sign-flip and CubicSwitch factor-of-2
+    //! bugs that silently broke the minimizer. Any future refactor of the force
+    //! computation should keep these passing.
+    use super::*;
+    use crate::forcefield::params::amber96;
+    use crate::forcefield::topology::build_topology;
+    use crate::add_hydrogens;
+    use pdbtbx;
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+
+    fn crambin_path() -> PathBuf {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../test-pdbs/1crn.pdb");
+        p
+    }
+
+    /// Load crambin with backbone H added once per test process.
+    fn crambin_with_h() -> &'static pdbtbx::PDB {
+        static CACHE: OnceLock<pdbtbx::PDB> = OnceLock::new();
+        CACHE.get_or_init(|| {
+            let (mut pdb, _) = pdbtbx::ReadOptions::default()
+                .set_level(pdbtbx::StrictnessLevel::Loose)
+                .read(crambin_path().to_str().unwrap())
+                .expect("failed to read 1crn.pdb");
+            add_hydrogens::place_peptide_hydrogens(&mut pdb);
+            pdb
+        })
+    }
+
+    fn collect_coords(pdb: &pdbtbx::PDB) -> Vec<[f64; 3]> {
+        let mut coords = Vec::new();
+        let first_model = pdb.models().next().expect("crambin has no models");
+        for chain in first_model.chains() {
+            for residue in chain.residues() {
+                for atom in residue.atoms() {
+                    let (x, y, z) = atom.pos();
+                    coords.push([x, y, z]);
+                }
+            }
+        }
+        coords
+    }
+
+    /// For a set of atom indices, verify analytical gradient (= -force) matches
+    /// the finite-difference gradient of the energy on every Cartesian component.
+    fn check_gradient_on_atoms(indices: &[usize]) {
+        let pdb = crambin_with_h();
+        let ff = amber96();
+        let topo = build_topology(pdb, &ff);
+        let coords = collect_coords(pdb);
+        let (_, forces) = compute_energy_and_forces_impl(&coords, &topo, &ff, false);
+
+        let eps = 1e-5;
+        for &idx in indices {
+            for d in 0..3 {
+                let mut shifted = coords.clone();
+                shifted[idx][d] += eps;
+                let ep = compute_energy_impl(&shifted, &topo, &ff, false).total;
+                shifted[idx][d] -= 2.0 * eps;
+                let em = compute_energy_impl(&shifted, &topo, &ff, false).total;
+                let num_grad = (ep - em) / (2.0 * eps);
+                let ana_grad = -forces[idx][d]; // force = -gradient
+
+                let axis = ['x', 'y', 'z'][d];
+                let tol = 1e-3 + 1e-3 * ana_grad.abs();
+                let diff = (num_grad - ana_grad).abs();
+                assert!(
+                    diff < tol,
+                    "Gradient mismatch on atom {} axis {}: analytical={:.6}, numerical={:.6}, diff={:.2e}, tol={:.2e}",
+                    idx, axis, ana_grad, num_grad, diff, tol
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gradient_matches_numerical_on_hydrogens() {
+        // Check the first 5 backbone hydrogen atoms — this is what the minimizer
+        // actually moves during prepare(). Catches angle sign-flip and switch bugs.
+        let pdb = crambin_with_h();
+        let ff = amber96();
+        let topo = build_topology(pdb, &ff);
+        let h_indices: Vec<usize> = topo
+            .atoms
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| if a.is_hydrogen { Some(i) } else { None })
+            .take(5)
+            .collect();
+        assert!(!h_indices.is_empty(), "no hydrogens found in topology");
+        check_gradient_on_atoms(&h_indices);
+    }
+
+    #[test]
+    fn gradient_matches_numerical_on_heavy_atoms() {
+        // Check a few heavy atoms too — these exercise different force terms
+        // (bonds, more angles, more torsions involving backbone/sidechain).
+        check_gradient_on_atoms(&[0, 4, 10, 25, 50]);
+    }
+
+    #[test]
+    fn cubic_switch_derivative_matches_numerical() {
+        // The derivative of the cubic switching function must match a numerical
+        // finite-difference — this is where the factor-of-2 bug lived.
+        let sw = CubicSwitch::new(15.0, 13.0);
+        let eps = 1e-7;
+        // Test points across the switching region (sq_cuton=169 to sq_cutoff=225).
+        for &r2 in &[170.0_f64, 180.0, 195.0, 210.0, 220.0] {
+            let (_, dsw_analytical) = sw.eval(r2);
+            let (sw_plus, _) = sw.eval(r2 + eps);
+            let (sw_minus, _) = sw.eval(r2 - eps);
+            let dsw_numerical = (sw_plus - sw_minus) / (2.0 * eps);
+            let diff = (dsw_analytical - dsw_numerical).abs();
+            assert!(
+                diff < 1e-5,
+                "CubicSwitch dsw/dr² mismatch at r²={}: analytical={:.6e}, numerical={:.6e}",
+                r2, dsw_analytical, dsw_numerical
+            );
+        }
+    }
 }
