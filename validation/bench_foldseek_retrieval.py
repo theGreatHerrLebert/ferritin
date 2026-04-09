@@ -289,6 +289,18 @@ def best_nonself_row(rows: list[dict], *, query_path: Path) -> dict | None:
     return None
 
 
+def ferritin_hits_to_rows(hits) -> list[dict]:
+    rows = []
+    for hit in hits:
+        rows.append({
+            "source_path": hit.source_path,
+            "score": float(hit.score),
+            "prefilter_score": float(hit.prefilter_score),
+            "diagonal_score": None if hit.diagonal_score is None else float(hit.diagonal_score),
+        })
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark Foldseek retrieval quality against ferritin TM-align truth")
     parser.add_argument("--pdb-dir", default="/scratch/TMAlign/ferritin/validation/pdbs_10k")
@@ -303,6 +315,14 @@ def main() -> None:
     parser.add_argument("--truth-mode", choices=["candidates", "exhaustive"], default="candidates")
     parser.add_argument("--truth-candidate-top-k", type=int, default=100)
     parser.add_argument("--truth-max-file-size-mb", type=float, default=20.0)
+    parser.add_argument("--compare-ferritin", action="store_true")
+    parser.add_argument("--ferritin-db-path", default=None)
+    parser.add_argument("--reuse-ferritin-db", action="store_true")
+    parser.add_argument("--compile-ferritin-db", action="store_true")
+    parser.add_argument("--warm-ferritin-db", action="store_true")
+    parser.add_argument("--ferritin-k", type=int, default=6)
+    parser.add_argument("--ferritin-candidate-top-k", type=int, default=100)
+    parser.add_argument("--ferritin-diagonal-top-k", type=int, default=200)
     parser.add_argument("--truth-cache", default=None)
     parser.add_argument("--reuse-truth", action="store_true")
     parser.add_argument("--thresholds", nargs="*", type=float, default=[0.5, 0.7, 0.9])
@@ -328,6 +348,8 @@ def main() -> None:
     assert_unique_stems(target_paths)
     if args.truth_candidate_top_k < args.top_k:
         raise SystemExit("--truth-candidate-top-k must be >= --top-k")
+    if args.compare_ferritin and args.ferritin_candidate_top_k < args.top_k:
+        raise SystemExit("--ferritin-candidate-top-k must be >= --top-k")
     print(
         f"Sampled {len(target_paths)} targets and {len(query_paths)} queries from {pdb_dir}",
         flush=True,
@@ -375,6 +397,44 @@ def main() -> None:
 
     stem_to_path = {path.stem: path for path in target_paths}
     hits_by_query = parse_foldseek_hits(foldseek_out, stem_to_path)
+
+    ferritin_db = None
+    ferritin_hits_by_query: dict[str, list[dict]] = {}
+    ferritin_build_s = 0.0
+    ferritin_compile_s = 0.0
+    ferritin_warm_s = 0.0
+    ferritin_search_s = 0.0
+    if args.compare_ferritin:
+        db_path = Path(args.ferritin_db_path) if args.ferritin_db_path else Path(str(Path(args.output).with_suffix("")) + ".ferritin_db")
+        print(f"Ferritin DB: {db_path}", flush=True)
+        t0 = time.time()
+        if args.reuse_ferritin_db and db_path.exists():
+            ferritin_db = ferritin.load_search_db(db_path)
+        else:
+            ferritin_db = ferritin.build_search_db(target_paths, out=db_path, k=args.ferritin_k, n_threads=-1)
+        ferritin_build_s = time.time() - t0
+        if args.warm_ferritin_db:
+            t0 = time.time()
+            ferritin.warm_search_db(ferritin_db, posting_cache_max_size=128)
+            ferritin_warm_s = time.time() - t0
+        if args.compile_ferritin_db:
+            t0 = time.time()
+            ferritin_db = ferritin.compile_search_db(ferritin_db)
+            ferritin_compile_s = time.time() - t0
+        for query_idx, query_path in enumerate(query_paths, start=1):
+            print(f"Ferritin search {query_idx}/{len(query_paths)} {query_path.name}...", flush=True)
+            query_structure = ferritin.load(query_path)
+            t0 = time.time()
+            hits = ferritin.search(
+                query_structure,
+                ferritin_db,
+                top_k=args.ferritin_candidate_top_k,
+                rerank=False,
+                diagonal_rescore=True,
+                diagonal_top_k=args.ferritin_diagonal_top_k,
+            )
+            ferritin_search_s += time.time() - t0
+            ferritin_hits_by_query[str(query_path)] = ferritin_hits_to_rows(hits)
 
     if args.truth_mode == "exhaustive":
         t0 = time.time()
@@ -432,10 +492,16 @@ def main() -> None:
         else:
             candidate_paths = []
             seen_candidates = set()
-            for path in [query_path] + [
+            union_paths = [query_path] + [
                 Path(hit["source_path"])
                 for hit in hits_by_query.get(str(query_path), [])[:args.truth_candidate_top_k]
-            ]:
+            ]
+            if args.compare_ferritin:
+                union_paths.extend(
+                    Path(hit["source_path"])
+                    for hit in ferritin_hits_by_query.get(str(query_path), [])[:args.ferritin_candidate_top_k]
+                )
+            for path in union_paths:
                 key = str(path)
                 if key in seen_candidates:
                     continue
@@ -467,18 +533,26 @@ def main() -> None:
         for threshold in args.thresholds
     }
     top1_exact = []
+    ferritin_top1_exact = []
     per_query = []
     for query_path in query_paths:
         truth_rows = truth_cache[str(query_path)]
         hits = hits_by_query.get(str(query_path), [])
+        ferritin_hits = ferritin_hits_by_query.get(str(query_path), [])
         best_truth = best_nonself_row(truth_rows, query_path=query_path)
         top_nonself = best_nonself_row(hits, query_path=query_path)
+        ferritin_top_nonself = best_nonself_row(ferritin_hits, query_path=query_path)
         top1_exact.append(
             int(best_truth is not None and top_nonself is not None and top_nonself["source_path"] == best_truth["source_path"])
         )
+        if args.compare_ferritin:
+            ferritin_top1_exact.append(
+                int(best_truth is not None and ferritin_top_nonself is not None and ferritin_top_nonself["source_path"] == best_truth["source_path"])
+            )
         row = {
             "query": query_path.name,
             "n_hits": len(hits),
+            "n_ferritin_hits": len(ferritin_hits),
             "best_truth_nonself": None if best_truth is None else {
                 "source_path": Path(best_truth["source_path"]).name,
                 "tm_score": round(best_truth["tm_score"], 4),
@@ -488,6 +562,12 @@ def main() -> None:
                 "tm_score": round(top_nonself["tm_score"], 4),
                 "bits": round(top_nonself["bits"], 4),
                 "evalue": top_nonself["evalue"],
+            },
+            "ferritin_top_nonself": None if ferritin_top_nonself is None else {
+                "source_path": Path(ferritin_top_nonself["source_path"]).name,
+                "score": round(ferritin_top_nonself["score"], 4),
+                "prefilter_score": round(ferritin_top_nonself["prefilter_score"], 4),
+                "diagonal_score": ferritin_top_nonself["diagonal_score"],
             },
             "thresholds": {},
         }
@@ -503,12 +583,35 @@ def main() -> None:
             row["thresholds"][str(threshold)] = {
                 "recall_at_k": round(recall, 4),
             }
+            if args.compare_ferritin:
+                ferritin_recall = recall_at_k(
+                    ferritin_hits,
+                    truth_rows,
+                    k=args.top_k,
+                    tm_threshold=threshold,
+                    exclude_self_path=query_path,
+                )
+                row["thresholds"][str(threshold)]["ferritin_recall_at_k"] = round(ferritin_recall, 4)
         per_query.append(row)
         print(
             f"{query_path.name}: truth {row['best_truth_nonself']} "
-            f"foldseek {row['foldseek_top_nonself']} hits {len(hits)}",
+            f"foldseek {row['foldseek_top_nonself']} hits {len(hits)} "
+            f"ferritin {row['ferritin_top_nonself']}",
             flush=True,
         )
+
+    foldseek_recall_at_k = {
+        threshold: round(mean(values), 4) if values else 0.0
+        for threshold, values in threshold_metrics.items()
+    }
+    ferritin_recall_at_k = {}
+    if args.compare_ferritin:
+        for threshold in args.thresholds:
+            values = [
+                row["thresholds"][str(threshold)]["ferritin_recall_at_k"]
+                for row in per_query
+            ]
+            ferritin_recall_at_k[str(threshold)] = round(mean(values), 4) if values else 0.0
 
     summary = {
         "corpus": {
@@ -522,6 +625,8 @@ def main() -> None:
             "truth_mode": args.truth_mode,
             "truth_candidate_top_k": args.truth_candidate_top_k,
             "truth_max_file_size_mb": args.truth_max_file_size_mb,
+            "compare_ferritin": args.compare_ferritin,
+            "ferritin_candidate_top_k": args.ferritin_candidate_top_k,
         },
         "foldseek": {
             "executable": str(foldseek),
@@ -530,17 +635,29 @@ def main() -> None:
             "max_seqs": args.max_seqs,
             "extra_args": args.foldseek_args,
         },
+        "ferritin": None if not args.compare_ferritin else {
+            "db_path": str(Path(args.ferritin_db_path) if args.ferritin_db_path else Path(str(Path(args.output).with_suffix("")) + ".ferritin_db")),
+            "k": args.ferritin_k,
+            "candidate_top_k": args.ferritin_candidate_top_k,
+            "diagonal_top_k": args.ferritin_diagonal_top_k,
+            "reuse_db": args.reuse_ferritin_db,
+            "compile_db": args.compile_ferritin_db,
+            "warm_db": args.warm_ferritin_db,
+        },
         "timing": {
             "load_s": round(load_s, 3),
             "brute_force_s": round(brute_force_s, 3),
             "foldseek_s": round(foldseek_s, 3),
+            "ferritin_build_s": round(ferritin_build_s, 3),
+            "ferritin_compile_s": round(ferritin_compile_s, 3),
+            "ferritin_warm_s": round(ferritin_warm_s, 3),
+            "ferritin_search_s": round(ferritin_search_s, 3),
         },
         "metrics": {
-            "top1_exact_nonself": round(mean(top1_exact), 4) if top1_exact else 0.0,
-            "recall_at_k": {
-                threshold: round(mean(values), 4) if values else 0.0
-                for threshold, values in threshold_metrics.items()
-            },
+            "foldseek_top1_exact_nonself": round(mean(top1_exact), 4) if top1_exact else 0.0,
+            "foldseek_recall_at_k": foldseek_recall_at_k,
+            "ferritin_top1_exact_nonself": round(mean(ferritin_top1_exact), 4) if ferritin_top1_exact else None,
+            "ferritin_recall_at_k": ferritin_recall_at_k if args.compare_ferritin else None,
         },
         "per_query": per_query,
         "skipped_truth_candidates": skipped_truth_candidates_by_query,
