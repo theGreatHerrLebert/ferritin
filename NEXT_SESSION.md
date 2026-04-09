@@ -1,0 +1,220 @@
+# Next Session — Handoff Notes (2026-04-09)
+
+## Today's Session: The 50K Benchmark Battle Test
+
+**Goal:** Run `benchmark/run_benchmark.py --n 50000` on monster3 (120 cores, 250 GB RAM)
+end-to-end without crashes, and fix whatever breaks.
+
+**Started:** `memory allocation of 1,306,087,848,000 bytes failed` at chunk 1.
+**Ended:** 50K benchmark completes in 15-18 min with 76% minimizer convergence on a
+200-structure prepare sample.
+
+### 10 Bugs Found and Fixed
+
+#### OOM layer (caught by running out of RAM)
+1. **NMR multi-model inflation** — `pdb.chains()` iterates all models but `atom_count()`
+   counts model 0 only. NMR ensembles with 20+ models slipped past size filters and
+   inflated data 20× during batch ops. Fix: use `pdb.models().next().chains()` in
+   seven extraction functions.
+2. **PDB cloning at batch scale** — `batch_backbone_hbonds`, `batch_place_peptide_hydrogens`,
+   `batch_prepare`, `batch_minimize_hydrogens` cloned **all** `pdbtbx::PDB` objects into
+   a single `Vec` before processing. Fix: chunked cloning (500 per chunk) + extract just
+   the residue data (not full PDBs) where possible.
+3. **`apply_coords_to_pdb` model mismatch** — wrote back coords via `pdb.chains_mut()` (all
+   models) while `build_topology` read via first model only. Assertion failure:
+   `coord array too short (564 coords, atom index 564)`. Fix: both use first model.
+4. **CellList grid cap too loose** — SASA's cell list was capped at 500³ = 3 GB per
+   instance. With 120 threads each holding one, peak 360 GB > 250 GB available. Fix:
+   tightened to 150³ (~80 MB) — covers 900 Å bboxes, more than any real protein.
+5. **NeighborList grid uncapped** — the real 1.3 TB culprit. `forcefield::neighbor_list::
+   NeighborList::build` had no cap at all. A structure with bogus coordinates
+   (bbox ~64 000 Å) produced a 3790³ grid. Fix: same 150³ cap as CellList.
+
+#### Force layer (caught by FD gradient checks)
+6. **Angle force sign flip** in `compute_energy_and_forces_impl` — `dv = -2k(θ-θ₀)/sin(θ)`
+   should be `+2k(θ-θ₀)/sin(θ)`. Code was adding +gradient instead of -gradient. Silently
+   killed the minimizer (stalled at step 3). Diagnosed by numerical FD gradient check
+   disagreeing with analytical force by 20-30% on a test H atom.
+7. **`CubicSwitch` derivative factor of 2** — `d/dr²[(a-r²)²(a+2r²-3b)] = 6(a-r²)(b-r²)`,
+   but code used 12. Barely affected vdW (energy ≈ 0 in the 13-15 Å switching region)
+   but made electrostatic forces ~44 % too large. Found by comparing per-atom force
+   components against FD — VdW matched, Elec didn't.
+10. **Angle force sign flip in `bonded_energy_and_forces`** — the twin of bug #6, in
+    the helper used by the neighbor-list accelerated code path. The regression tests
+    from bug #6 only exercised the O(N²) path, so this sat undetected. Structures above
+    `NBL_AUTO_THRESHOLD=2000` kept terminating at LBFGS step 4-5. Fix: same sign flip.
+    **Caught the moment we added NBL-specific regression tests.**
+
+#### Performance layer
+8. **AMBER96-in-vacuum as the default `prepare()` force field** — raw AMBER96 electrostatic
+    on a bare protein gives ~80 000 kJ/mol on crambin (unscreened charges). CHARMM19-EEF1's
+    implicit solvation term gives ~1 400 kJ/mol instead. Scientifically better default
+    for "prepare a loaded PDB". `compute_energy(s, ff="amber96")` still works for
+    BALL oracle comparisons.
+9. **Neighbor list rebuilt on every force call** — the minimizer called
+    `compute_energy_and_forces` per LBFGS step × 20 line search trials, and each call
+    rebuilt the neighbor list from scratch. Fix: `NbCache` struct in `minimize.rs` that
+    builds the list once and calls `needs_rebuild` between iterations. Line search caps
+    the initial alpha at `max_disp = 0.8 Å` so trials stay inside the 2 Å NBL buffer —
+    no mid-line-search rebuilds needed. **3-5× per-step speedup on 5K-10K atom
+    structures.**
+
+**Plus the meta-bug:** `cargo clean` on monster3 kept failing silently because
+`validation/alphabet_vqvae_rust.txt` was missing from the ferritin-align `include!` path,
+so every "rebuild" was quietly reusing a stale cached .so. First three "fixes" didn't
+apply because the new binary was never actually built. The 1.3 TB allocation number
+being byte-identical across runs was the tell.
+
+### Test Delta
+
+- **49 → 60 Rust tests** (+ 11)
+- New regression tests that would have caught bugs #6, #7, #10 immediately:
+  - `gradient_matches_numerical_on_hydrogens` / `_on_heavy_atoms` (O(N²) path)
+  - `nbl_gradient_matches_numerical_on_hydrogens` / `_on_heavy_atoms` (NBL path)
+  - `nbl_energy_matches_exact_energy` (cross-check the two implementations)
+  - `cubic_switch_derivative_matches_numerical`
+- BALL energy oracle still passes (8/8)
+- 36 Python `test_prepare.py` tests pass in 3-5 s (were 7 min before the minimizer
+  was actually working)
+
+### 50K Benchmark Progression
+
+| Run | Prepare | Converged | Total time |
+|-----|---------|-----------|-----------|
+| Initial (crashing) | — (OOM) | — | — |
+| After OOM fixes | 121.9 s | **0/200** | 16.8 min |
+| + Angle + CubicSwitch | 107.7 s | 47/200 | 16.2 min |
+| + NBL caching | 66.9 s | 46/200 | 15.6 min |
+| + NBL angle fix | 42.1 s | **140/200** | 15.0 min |
+| Victory lap (200 steps) | 111.3 s | **152/200** | 17.9 min |
+
+45 100 / 50 000 structures loaded (the 4 900 drops are file-size + atom-count filters).
+Median SASA 19 784 Å², median energy 1.6 × 10⁶ kJ/mol (AMBER96 vacuum, no water —
+expected to be huge), 25.2 M hydrogens placed across the whole run.
+
+### Commits (main branch)
+
+- `bb0058b` — Fix analytical force bugs (angle sign + CubicSwitch factor of 2)
+- `73248f7` — Switch `batch_prepare` default to CHARMM19-EEF1
+- `96a16ae` — Cache neighbor list across minimizer iterations
+- `93ceef5` — Fix angle force sign in `bonded_energy_and_forces` (NBL twin)
+- `e9b65d9` — Remove LBFGS debug prints after bug hunt
+- (earlier) `49352c8` — Cap NeighborList grid, tune SASA thread budget
+
+---
+
+## Next Session: Large-Scale Benchmarking + SOTA Comparisons
+
+The 50K run proved correctness at scale. Next we need **characterization** (how fast,
+how much memory, how does it scale) and **validation against state-of-the-art tools**
+(are our numbers actually right).
+
+### Track A: Scaling Characterization
+
+The goal is publication-quality numbers for a paper plus a regression harness that
+detects performance drops.
+
+- [ ] **Core scaling curves** — for each batch op (`batch_total_sasa`, `batch_dssp`,
+  `batch_dihedrals`, `batch_backbone_hbonds`, `batch_place_peptide_hydrogens`,
+  `batch_prepare`), measure throughput at `n_threads ∈ {1, 2, 4, 8, 16, 32, 64, 120}`
+  on monster3. Plot time vs cores and identify the point of diminishing returns. The
+  `auto_threads` heuristic we added during the OOM hunt is based on a per-task memory
+  estimate — measure whether it picks the right number.
+
+- [ ] **Peak RSS vs N structures** — run each batch op on `N ∈ {100, 1 000, 5 000,
+  10 000, 50 000}` and record peak RSS. Is it linear? What's the per-structure
+  memory overhead? Where do the chunked-clone paths (`batch_place_peptide_hydrogens`,
+  `batch_prepare`) win vs lose?
+
+- [ ] **Per-structure timing distribution** — for SASA and prepare, plot wall time per
+  structure vs `atom_count`. Expect O(N) (with NBL) for SASA, O(N·steps) for prepare.
+  Any outliers are either pathological structures (worth filing) or real bugs.
+
+- [ ] **Chunk size sweep** — `--chunk ∈ {1 000, 2 000, 5 000, 10 000}`. Does smaller chunk
+  size reduce peak memory without hurting throughput? Current default is 5 000.
+
+- [ ] **NBL threshold tuning** — `NBL_AUTO_THRESHOLD = 2000` is a guess. Run SASA and
+  minimize on structures of 500/1 000/2 000/3 000/5 000 atoms with NBL on vs off and
+  find the real crossover point.
+
+- [ ] **48 stubborn structures** — the ones that still don't converge in 200 LBFGS steps.
+  Are they genuinely hard (ring strain, disulfide clashes) or is there another bug?
+  Dump the pdb IDs from the victory-lap run and visualize a few of the worst cases.
+
+### Track B: SOTA Comparison Matrix
+
+Scientific validation beyond the BALL oracle. Pick a reference set of ~50 structures
+spanning small (crambin ~300), medium (lysozyme ~1 200), large (3K-10K atoms), and a
+few multimers. For each tool, record runtime + output, then compare against ferritin.
+
+| Ferritin op | Reference tool(s) | What to compare |
+|-------------|------------------|-----------------|
+| `compute_energy(ff="amber96")` | BALL (already set up), OpenMM AMBER99SB | Component-wise energies within 0.1 % |
+| `compute_energy(ff="charmm19_eef1")` | CHARMM/c36b1 if available | Implicit solvent total energy |
+| `batch_total_sasa` | FreeSASA (CLI), NACCESS, MSMS | Per-residue SASA, RMSD of values |
+| `batch_dssp` | `dssp-3` (Kabsch-Sander reference) | Secondary-structure string identity % |
+| `batch_backbone_hbonds` | DSSP's own H-bond list | Pair set Jaccard similarity |
+| `batch_place_peptide_hydrogens` | PDBFixer, Reduce | RMSD of placed H positions |
+| `batch_prepare` (full pipeline) | PDBFixer + OpenMM LocalEnergyMinimizer | Energy drop, wall time, output geometry |
+| `tmalign` (already done via USAlign) | USAlign C++ | TM-score drift (already <5e-4) |
+
+Infrastructure work needed before any comparisons:
+- [ ] Install FreeSASA, dssp-3, Reduce, PDBFixer, OpenMM on monster3 (probably
+  easiest via a conda env alongside the existing venv)
+- [ ] Assemble the reference set — curate 50 PDBs with clean monomers, no metals,
+  no weird ligands; commit the list to `tests/corpus/sota_reference.txt`
+- [ ] Orchestration script in `validation/sota_comparison/` that runs each tool on
+  each structure and writes a per-tool JSON
+- [ ] Aggregator that produces a markdown report + charts from the per-tool JSONs
+
+### Track C: Concrete Deliverables for the Paper
+
+Assuming we want to write this up:
+
+- [ ] Figure 1: architecture diagram (pure Rust → PyO3 → Python layer)
+- [ ] Figure 2: core scaling curves for SASA / DSSP / prepare (from Track A)
+- [ ] Figure 3: SOTA comparison bar chart (wall time + correctness per op)
+- [ ] Table 1: per-op throughput on 45K real PDBs
+- [ ] Table 2: BALL / OpenMM energy agreement table
+- [ ] A clean "from 0/200 to 152/200 converged" narrative for the intro — the 10 bugs
+  we found are honest evidence that the 50K scale is necessary
+
+### Smaller Items Also Worth Doing
+
+- [ ] **Review the 48 stubborn structures.** Might reveal another bug.
+- [ ] **Profile prepare for 5K-10K atom structures.** After the NBL caching fix the
+  minimizer is much faster but `topology::build_topology` might now dominate. Worth a
+  quick flamegraph.
+- [ ] **Propagate CHARMM default to `compute_energy`?** Right now only `batch_prepare`
+  defaulted to CHARMM. `compute_energy` still defaults to AMBER96 because the BALL
+  oracle depends on that. Might be worth discussing whether the Python wrapper default
+  should flip too.
+- [ ] **Dead-code cleanup.** `#[allow(dead_code)]` on `resolve_threads`, 
+  `minimize_hydrogens`, `minimize_hydrogens_cg`, `minimize_hydrogens_lbfgs`,
+  `velocity_verlet`, `compute_energy_dd` — decide whether to keep or remove.
+- [ ] **Investigate OpenMP-style within-structure parallelism** for SASA on very large
+  structures (>10K atoms). Currently we parallelize across structures, but one huge
+  structure still takes a full core for a long time. `shrake_rupley_parallel` exists
+  but isn't wired in.
+
+### Known Gotchas for Next Time
+
+- `cargo clean && maturin develop --release` on monster3 will fail silently if
+  `validation/alphabet_vqvae_rust.txt` isn't present. The build "succeeds" but reuses
+  a stale .so. **Always check compile time >5 s** after a supposed rebuild.
+- Benchmarks on monster3 should run inside tmux (`tmux new-session -d -s ferritin_bench`)
+  so they survive SSH disconnects. `nohup` alone hasn't been reliable.
+- Background processes can get killed by other agents sharing the box. If a run
+  vanishes with no error, check `tmux ls` and process status before assuming a crash.
+- `auto_threads` currently uses a 3 GB per-task budget for SASA. This is tuned for
+  the monster3 case — may need revisiting on different hardware.
+
+### Opening Command for Next Session
+
+```bash
+cd /scratch/TMAlign/ferritin
+cat NEXT_SESSION.md   # this file
+git log --oneline -15   # session context
+cargo test -p ferritin-connector  # should be 60/60 passing
+ssh monster3 "cat /globalscratch/dateschn/ferritin-benchmark/benchmark_results_50k_final.json"
+```
