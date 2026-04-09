@@ -499,7 +499,7 @@ fn compute_energy_and_forces_impl(
 // ---------------------------------------------------------------------------
 
 /// Compute energy (no forces) using a prebuilt neighbor list.
-fn compute_energy_nbl(
+pub fn compute_energy_nbl(
     coords: &[[f64; 3]],
     topo: &Topology,
     params: &impl ForceField,

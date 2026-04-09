@@ -3,9 +3,83 @@
 //! Steepest descent with adaptive step size. Simple but robust
 //! for hydrogen position optimization.
 
-use super::energy::{compute_energy, compute_energy_and_forces, EnergyResult};
+use super::energy::{
+    compute_energy, compute_energy_and_forces, compute_energy_and_forces_nbl, compute_energy_nbl,
+    EnergyResult,
+};
+use super::neighbor_list::NeighborList;
 use super::params::ForceField;
 use super::topology::Topology;
+
+/// Threshold above which the minimizer uses a cached neighbor list for nonbonded
+/// interactions. Matches `energy::NBL_AUTO_THRESHOLD` (2000 atoms). For small
+/// structures the O(N²) loop is faster than building+querying a neighbor list.
+const MIN_NBL_THRESHOLD: usize = 2000;
+
+/// Lightweight cache that dispatches energy/force calls to the neighbor-list
+/// accelerated path when a cached `NeighborList` is available.
+///
+/// The NBL is built once per minimizer call and reused across iterations and
+/// line search trials. Call [`NbCache::refresh`] between iterations to rebuild
+/// the list when atoms have moved beyond the buffer.
+struct NbCache {
+    nbl: Option<NeighborList>,
+}
+
+impl NbCache {
+    fn new(coords: &[[f64; 3]], topo: &Topology) -> Self {
+        let nbl = if coords.len() >= MIN_NBL_THRESHOLD {
+            Some(NeighborList::build(
+                coords,
+                15.0,
+                &topo.excluded_pairs,
+                &topo.pairs_14,
+            ))
+        } else {
+            None
+        };
+        Self { nbl }
+    }
+
+    /// Rebuild the neighbor list if any atom has drifted further than the buffer
+    /// allows. Cheap no-op if not using NBL or if atoms haven't moved much.
+    fn refresh(&mut self, coords: &[[f64; 3]], topo: &Topology) {
+        if let Some(ref nbl) = self.nbl {
+            if nbl.needs_rebuild(coords) {
+                self.nbl = Some(NeighborList::build(
+                    coords,
+                    15.0,
+                    &topo.excluded_pairs,
+                    &topo.pairs_14,
+                ));
+            }
+        }
+    }
+
+    fn energy<F: ForceField>(
+        &self,
+        coords: &[[f64; 3]],
+        topo: &Topology,
+        params: &F,
+    ) -> EnergyResult {
+        match &self.nbl {
+            Some(nbl) => compute_energy_nbl(coords, topo, params, nbl),
+            None => compute_energy(coords, topo, params),
+        }
+    }
+
+    fn energy_and_forces<F: ForceField>(
+        &self,
+        coords: &[[f64; 3]],
+        topo: &Topology,
+        params: &F,
+    ) -> (EnergyResult, Vec<[f64; 3]>) {
+        match &self.nbl {
+            Some(nbl) => compute_energy_and_forces_nbl(coords, topo, params, nbl),
+            None => compute_energy_and_forces(coords, topo, params),
+        }
+    }
+}
 
 /// Result of energy minimization.
 #[derive(Clone, Debug)]
@@ -41,8 +115,9 @@ pub fn steepest_descent(
 ) -> MinimizeResult {
     let n = coords.len();
     let mut pos: Vec<[f64; 3]> = coords.to_vec();
+    let mut nbc = NbCache::new(&pos, topo);
 
-    let initial_e = compute_energy(&pos, topo, params);
+    let initial_e = nbc.energy(&pos, topo, params);
     let initial_energy = initial_e.total;
 
     let mut step_size = 0.01; // initial step size in Å
@@ -53,7 +128,7 @@ pub fn steepest_descent(
     for step in 0..max_steps {
         steps = step + 1;
 
-        let (_energy, forces) = compute_energy_and_forces(&pos, topo, params);
+        let (_energy, forces) = nbc.energy_and_forces(&pos, topo, params);
 
         // Compute max force magnitude
         let mut max_force = 0.0f64;
@@ -93,12 +168,13 @@ pub fn steepest_descent(
             new_pos[i][2] += forces[i][2] * scale;
         }
 
-        let new_energy = compute_energy(&new_pos, topo, params);
+        let new_energy = nbc.energy(&new_pos, topo, params);
 
         // Adaptive step size
         if new_energy.total < prev_energy {
             // Accept step, increase step size
             pos = new_pos;
+            nbc.refresh(&pos, topo);
             prev_energy = new_energy.total;
             step_size *= 1.2;
             step_size = step_size.min(0.1); // cap at 0.1 Å
@@ -111,7 +187,7 @@ pub fn steepest_descent(
         }
     }
 
-    let final_energy = compute_energy(&pos, topo, params);
+    let final_energy = nbc.energy(&pos, topo, params);
 
     MinimizeResult {
         coords: pos,
@@ -158,19 +234,34 @@ fn axpby(
 ///
 /// Finds step size α such that E(pos + α*dir) < E(pos) + c1*α*(grad·dir).
 /// Returns (step_taken, new_energy) or (0.0, old_energy) on failure.
-fn line_search(
+fn line_search<F: ForceField>(
     pos: &[[f64; 3]],
     direction: &[[f64; 3]],
     grad_dot_dir: f64,
     current_energy: f64,
     topo: &Topology,
-    params: &impl ForceField,
+    params: &F,
     constrained: &[bool],
+    nbc: &NbCache,
 ) -> (f64, f64, Vec<[f64; 3]>) {
     let c1 = 1e-4; // Armijo parameter
-    let mut alpha = 1.0;
     let n = pos.len();
     let mut trial = vec![[0.0; 3]; n];
+
+    // Cap the initial alpha so the maximum atom displacement stays inside the
+    // NBL buffer region. Without this, alpha=1.0 with a large direction norm
+    // (first LBFGS step before history accumulates) produces trial positions
+    // many Å away — the cached NBL misses critical close pairs and returns
+    // wrong energies. With the cap, every line search trial lands within the
+    // cached NBL's valid region, so rebuilding mid-trial is unnecessary.
+    let max_disp = 0.8; // Å — well inside the 2 Å NBL buffer
+    let mut max_d = 0.0_f64;
+    for i in 0..n {
+        if constrained[i] { continue; }
+        let d2 = direction[i][0].powi(2) + direction[i][1].powi(2) + direction[i][2].powi(2);
+        max_d = max_d.max(d2.sqrt());
+    }
+    let mut alpha = if max_d > 1e-12 { (max_disp / max_d).min(1.0) } else { 1.0 };
 
     for _ in 0..20 {
         // trial = pos + alpha * direction
@@ -184,7 +275,9 @@ fn line_search(
             }
         }
 
-        let e = compute_energy(&trial, topo, params);
+        // Thanks to the alpha cap above, trials stay within the cached NBL's
+        // valid region. No refresh needed here.
+        let e = nbc.energy(&trial, topo, params);
 
         // Armijo sufficient decrease condition
         if e.total <= current_energy + c1 * alpha * grad_dot_dir {
@@ -216,12 +309,13 @@ pub fn conjugate_gradient(
 ) -> MinimizeResult {
     let n = coords.len();
     let mut pos = coords.to_vec();
+    let mut nbc = NbCache::new(&pos, topo);
 
-    let initial_e = compute_energy(&pos, topo, params);
+    let initial_e = nbc.energy(&pos, topo, params);
     let initial_energy = initial_e.total;
 
     // First force evaluation
-    let (_, forces) = compute_energy_and_forces(&pos, topo, params);
+    let (_, forces) = nbc.energy_and_forces(&pos, topo, params);
 
     // Gradient = -force. We work with forces directly (descent direction).
     let mut old_forces = forces;
@@ -272,7 +366,7 @@ pub fn conjugate_gradient(
         }
 
         let (alpha, new_energy, new_pos) = line_search(
-            &pos, &direction, grad_dot_dir, energy, topo, params, constrained,
+            &pos, &direction, grad_dot_dir, energy, topo, params, constrained, &nbc,
         );
 
         if alpha == 0.0 {
@@ -283,8 +377,11 @@ pub fn conjugate_gradient(
         pos = new_pos;
         energy = new_energy;
 
+        // Refresh the cached neighbor list if atoms drifted past the buffer.
+        nbc.refresh(&pos, topo);
+
         // Compute new forces at the new position
-        let (_, new_forces) = compute_energy_and_forces(&pos, topo, params);
+        let (_, new_forces) = nbc.energy_and_forces(&pos, topo, params);
 
         let new_gtg = dot3n(&new_forces, &new_forces, constrained);
 
@@ -318,7 +415,7 @@ pub fn conjugate_gradient(
         old_gtg = new_gtg;
     }
 
-    let final_energy = compute_energy(&pos, topo, params);
+    let final_energy = nbc.energy(&pos, topo, params);
 
     MinimizeResult {
         coords: pos,
@@ -353,10 +450,15 @@ pub fn lbfgs(
     let m = 10; // number of stored correction pairs (typical: 5-20)
     let mut pos = coords.to_vec();
 
-    let initial_e = compute_energy(&pos, topo, params);
+    // Build a neighbor list once for large structures; reuse across iterations
+    // and line search trials. This avoids rebuilding ~50×20 times per call on
+    // the O(N²) nonbonded loop, which dominates cost above ~2K atoms.
+    let mut nbc = NbCache::new(&pos, topo);
+
+    let initial_e = nbc.energy(&pos, topo, params);
     let initial_energy = initial_e.total;
 
-    let (_, forces) = compute_energy_and_forces(&pos, topo, params);
+    let (_, forces) = nbc.energy_and_forces(&pos, topo, params);
     // Gradient = -force
     let mut grad = negate_forces(&forces, constrained);
 
@@ -406,14 +508,15 @@ pub fn lbfgs(
                     pos[i][2] -= grad[i][2] * scale;
                 }
             }
-            let (_, new_forces) = compute_energy_and_forces(&pos, topo, params);
+            nbc.refresh(&pos, topo);
+            let (_, new_forces) = nbc.energy_and_forces(&pos, topo, params);
             grad = negate_forces(&new_forces, constrained);
-            energy = compute_energy(&pos, topo, params).total;
+            energy = nbc.energy(&pos, topo, params).total;
             continue;
         }
 
         let (alpha, new_energy, new_pos) = line_search(
-            &pos, &direction, grad_dot_dir, energy, topo, params, constrained,
+            &pos, &direction, grad_dot_dir, energy, topo, params, constrained, &nbc,
         );
 
         if alpha == 0.0 {
@@ -431,8 +534,11 @@ pub fn lbfgs(
         pos = new_pos;
         energy = new_energy;
 
+        // Refresh the cached neighbor list if atoms drifted past the buffer.
+        nbc.refresh(&pos, topo);
+
         // New gradient
-        let (_, new_forces) = compute_energy_and_forces(&pos, topo, params);
+        let (_, new_forces) = nbc.energy_and_forces(&pos, topo, params);
         let new_grad = negate_forces(&new_forces, constrained);
 
         // y_k = g_{k+1} - g_k
@@ -459,7 +565,7 @@ pub fn lbfgs(
         grad = new_grad;
     }
 
-    let final_energy = compute_energy(&pos, topo, params);
+    let final_energy = nbc.energy(&pos, topo, params);
 
     MinimizeResult {
         coords: pos,
