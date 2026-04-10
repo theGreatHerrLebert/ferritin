@@ -72,7 +72,7 @@ pub fn extract_dssp_residues(pdb: &pdbtbx::PDB) -> Vec<DsspResidue> {
             let mut h_real = None;
             let is_proline = residue.name() == Some("PRO");
 
-            for atom in residue.atoms() {
+            for atom in crate::altloc::residue_atoms_primary(residue) {
                 let name = atom.name().trim();
                 let (x, y, z) = atom.pos();
                 match name {

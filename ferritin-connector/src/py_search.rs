@@ -137,7 +137,7 @@ fn extract_backbone_records(pdb: &pdbtbx::PDB) -> Vec<ResidueBackboneRecord> {
             let mut c = [f64::NAN; 3];
             let mut cb = [f64::NAN; 3];
 
-            for atom in residue.atoms() {
+            for atom in crate::altloc::residue_atoms_primary(residue) {
                 let (x, y, z) = atom.pos();
                 let pos = [x, y, z];
                 match atom.name().trim() {

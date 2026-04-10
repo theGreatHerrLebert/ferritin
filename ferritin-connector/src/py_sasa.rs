@@ -54,7 +54,7 @@ fn extract_radii(pdb: &pdbtbx::PDB, radii_set: sasa::RadiiSet) -> (Vec<[f64; 3]>
     for chain in first_model.chains() {
         for residue in chain.residues() {
             let res_name = residue.name().unwrap_or("");
-            for atom in residue.atoms() {
+            for atom in crate::altloc::residue_atoms_primary(residue) {
                 let (x, y, z) = atom.pos();
                 coords.push([x, y, z]);
                 let elem = atom.element().map(|e| e.symbol()).unwrap_or("");

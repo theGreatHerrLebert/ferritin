@@ -1088,7 +1088,7 @@ mod gradient_tests {
         let first_model = pdb.models().next().expect("crambin has no models");
         for chain in first_model.chains() {
             for residue in chain.residues() {
-                for atom in residue.atoms() {
+                for atom in crate::altloc::residue_atoms_primary(residue) {
                     let (x, y, z) = atom.pos();
                     coords.push([x, y, z]);
                 }

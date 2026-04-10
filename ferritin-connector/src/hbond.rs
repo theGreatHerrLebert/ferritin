@@ -127,7 +127,7 @@ pub fn geometric_hbonds(
     };
     for chain in first_model.chains() {
         for residue in chain.residues() {
-            for atom in residue.atoms() {
+            for atom in crate::altloc::residue_atoms_primary(residue) {
                 let (x, y, z) = atom.pos();
                 let pos = [x, y, z];
                 let elem = atom.element().map(|e| e.symbol());

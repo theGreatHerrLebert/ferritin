@@ -55,7 +55,7 @@ fn extract_backbone(residue: &pdbtbx::Residue) -> Option<BackboneAtoms> {
     let mut ca = None;
     let mut c = None;
 
-    for atom in residue.atoms() {
+    for atom in crate::altloc::residue_atoms_primary(residue) {
         match atom.name().trim() {
             "N" => n = Some(atom.pos()),
             "CA" => ca = Some(atom.pos()),
@@ -77,7 +77,7 @@ fn extract_backbone(residue: &pdbtbx::Residue) -> Option<BackboneAtoms> {
 
 /// Check if a residue already has a backbone H atom.
 fn has_backbone_h(residue: &pdbtbx::Residue) -> bool {
-    residue.atoms().any(|a| {
+    crate::altloc::residue_atoms_primary(residue).any(|a| {
         let name = a.name().trim();
         name == "H" || name == "HN"
     })
@@ -95,8 +95,11 @@ pub fn place_peptide_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
     let mut placements: Vec<HPlacement> = Vec::new();
     let mut skipped = 0;
 
-    // Find the next available serial number
-    let mut max_serial: usize = pdb.atoms().map(|a| a.serial_number()).max().unwrap_or(0);
+    // Find the next available serial number (primary conformer only).
+    let mut max_serial: usize = crate::altloc::pdb_atoms_primary(pdb)
+        .map(|a| a.serial_number())
+        .max()
+        .unwrap_or(0);
 
     // Only process the first model (consistent with DSSP, H-bonds, etc.)
     let first_model = match pdb.models().next() {
@@ -559,12 +562,12 @@ fn sidechain_templates(resname: &str) -> &'static [SidechainH] {
 // Sidechain H collection logic
 // ---------------------------------------------------------------------------
 
-/// Collect atom positions from a residue into a map.
+/// Collect atom positions from a residue into a map (primary conformer only).
 fn collect_atom_positions(residue: &pdbtbx::Residue) -> (HashMap<String, [f64; 3]>, HashSet<String>) {
     let mut positions = HashMap::new();
     let mut existing_h = HashSet::new();
 
-    for atom in residue.atoms() {
+    for atom in crate::altloc::residue_atoms_primary(residue) {
         let name = atom.name().trim().to_string();
         let (x, y, z) = atom.pos();
         positions.insert(name.clone(), [x, y, z]);
@@ -671,19 +674,22 @@ fn compute_sidechain_h(
 pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
     let mut placements: Vec<(usize, usize, String, [f64; 3], usize)> = Vec::new();
     let mut skipped = 0;
-    let mut max_serial: usize = pdb.atoms().map(|a| a.serial_number()).max().unwrap_or(0);
+    let mut max_serial: usize = crate::altloc::pdb_atoms_primary(pdb)
+        .map(|a| a.serial_number())
+        .max()
+        .unwrap_or(0);
 
     let first_model = match pdb.models().next() {
         Some(m) => m,
         None => return AddHydrogensResult { added: 0, skipped: 0 },
     };
 
-    // Collect all SG positions for disulfide detection
+    // Collect all SG positions for disulfide detection (primary conformer only).
     let mut all_sg_positions: Vec<[f64; 3]> = Vec::new();
     for chain in first_model.chains() {
         for residue in chain.residues() {
             if residue.name() == Some("CYS") {
-                for atom in residue.atoms() {
+                for atom in crate::altloc::residue_atoms_primary(residue) {
                     if atom.name().trim() == "SG" {
                         let (x, y, z) = atom.pos();
                         all_sg_positions.push([x, y, z]);
@@ -980,7 +986,10 @@ pub fn place_general_hydrogens(pdb: &mut pdbtbx::PDB, include_water: bool) -> Ad
 
     // Then: find non-standard residues and apply general algorithm
     let mut placements: Vec<(usize, usize, String, [f64; 3], usize)> = Vec::new();
-    let mut max_serial: usize = pdb.atoms().map(|a| a.serial_number()).max().unwrap_or(0);
+    let mut max_serial: usize = crate::altloc::pdb_atoms_primary(pdb)
+        .map(|a| a.serial_number())
+        .max()
+        .unwrap_or(0);
 
     let first_model = match pdb.models().next() {
         Some(m) => m,
@@ -1006,10 +1015,10 @@ pub fn place_general_hydrogens(pdb: &mut pdbtbx::PDB, include_water: bool) -> Ad
                 if !include_water {
                     continue;
                 }
-                // Find O atom, check no existing H
+                // Find O atom, check no existing H (primary conformer only).
                 let mut o_pos = None;
                 let mut has_h = false;
-                for atom in residue.atoms() {
+                for atom in crate::altloc::residue_atoms_primary(residue) {
                     let elem = atom.element().map(|e| e.symbol()).unwrap_or("");
                     if elem == "O" {
                         let (x, y, z) = atom.pos();
@@ -1031,12 +1040,12 @@ pub fn place_general_hydrogens(pdb: &mut pdbtbx::PDB, include_water: bool) -> Ad
                 continue;
             }
 
-            // Build molecular graph for this residue
+            // Build molecular graph for this residue (primary conformer only).
             let mut positions = Vec::new();
             let mut elements = Vec::new();
             let mut names = Vec::new();
 
-            for atom in residue.atoms() {
+            for atom in crate::altloc::residue_atoms_primary(residue) {
                 let (x, y, z) = atom.pos();
                 positions.push([x, y, z]);
                 elements.push(
@@ -1243,7 +1252,7 @@ mod tests {
                 if !is_aa {
                     continue;
                 }
-                for atom in residue.atoms() {
+                for atom in crate::altloc::residue_atoms_primary(residue) {
                     if atom.name().trim() == "H" {
                         let (x, y, z) = atom.pos();
                         placed_h.push([x, y, z]);
@@ -1379,12 +1388,12 @@ mod tests {
         // Check that every H atom is within reasonable bond length of its nearest heavy atom
         for chain in pdb.chains() {
             for residue in chain.residues() {
-                let heavy: Vec<[f64; 3]> = residue.atoms()
+                let heavy: Vec<[f64; 3]> = crate::altloc::residue_atoms_primary(residue)
                     .filter(|a| a.element().map_or(true, |e| e.symbol() != "H"))
                     .map(|a| { let (x,y,z) = a.pos(); [x,y,z] })
                     .collect();
 
-                for atom in residue.atoms() {
+                for atom in crate::altloc::residue_atoms_primary(residue) {
                     if atom.element().map_or(true, |e| e.symbol() != "H") { continue; }
                     let (hx, hy, hz) = atom.pos();
 

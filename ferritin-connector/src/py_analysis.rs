@@ -266,14 +266,14 @@ pub fn backbone_dihedrals<'py>(
     )
 }
 
-/// Compute centroid of all atom coordinates.
+/// Compute centroid of all atom coordinates (first model, primary conformer).
 #[pyfunction]
 pub fn centroid<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray1<f64>> {
     let mut sx = 0.0f64;
     let mut sy = 0.0f64;
     let mut sz = 0.0f64;
     let mut n = 0usize;
-    for atom in pdb.inner.atoms() {
+    for atom in pdb_atoms_primary(&pdb.inner) {
         let (x, y, z) = atom.pos();
         sx += x;
         sy += y;
@@ -284,14 +284,14 @@ pub fn centroid<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray1<f64>> 
     vec![sx / nf, sy / nf, sz / nf].into_pyarray(py)
 }
 
-/// Compute radius of gyration.
+/// Compute radius of gyration (first model, primary conformer).
 #[pyfunction]
 pub fn radius_of_gyration(_py: Python<'_>, pdb: &PyPDB) -> f64 {
     let mut sx = 0.0f64;
     let mut sy = 0.0f64;
     let mut sz = 0.0f64;
     let mut n = 0usize;
-    for atom in pdb.inner.atoms() {
+    for atom in pdb_atoms_primary(&pdb.inner) {
         let (x, y, z) = atom.pos();
         sx += x;
         sy += y;
@@ -304,7 +304,7 @@ pub fn radius_of_gyration(_py: Python<'_>, pdb: &PyPDB) -> f64 {
     let cz = sz / nf;
 
     let mut sum_sq = 0.0f64;
-    for atom in pdb.inner.atoms() {
+    for atom in pdb_atoms_primary(&pdb.inner) {
         let (x, y, z) = atom.pos();
         let dx = x - cx;
         let dy = y - cy;
@@ -504,9 +504,7 @@ pub fn batch_radius_of_gyration<'py>(
         .iter()
         .map(|item| {
             let pdb = item.extract::<PyRef<'_, PyPDB>>()?;
-            let coords: Vec<[f64; 3]> = pdb
-                .inner
-                .atoms()
+            let coords: Vec<[f64; 3]> = pdb_atoms_primary(&pdb.inner)
                 .map(|a| {
                     let (x, y, z) = a.pos();
                     [x, y, z]

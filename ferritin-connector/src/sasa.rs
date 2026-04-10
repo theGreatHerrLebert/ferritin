@@ -370,7 +370,7 @@ pub fn sasa_from_pdb(
     for chain in first_model.chains() {
         for residue in chain.residues() {
             let res_name = residue.name().unwrap_or("");
-            for atom in residue.atoms() {
+            for atom in crate::altloc::residue_atoms_primary(residue) {
                 let (x, y, z) = atom.pos();
                 coords.push([x, y, z]);
 

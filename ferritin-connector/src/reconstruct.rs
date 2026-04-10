@@ -352,7 +352,10 @@ pub fn reconstruct_residue(
 /// Reconstruct missing atoms in all standard amino acid residues of a PDB.
 pub fn reconstruct_fragments(pdb: &mut pdbtbx::PDB) -> ReconstructResult {
     let mut placements: Vec<(usize, usize, String, String, [f64; 3], usize)> = Vec::new();
-    let mut max_serial: usize = pdb.atoms().map(|a| a.serial_number()).max().unwrap_or(0);
+    let mut max_serial: usize = crate::altloc::pdb_atoms_primary(pdb)
+        .map(|a| a.serial_number())
+        .max()
+        .unwrap_or(0);
 
     let first_model = match pdb.models().next() {
         Some(m) => m,
@@ -379,9 +382,9 @@ pub fn reconstruct_fragments(pdb: &mut pdbtbx::PDB) -> ReconstructResult {
                 None => continue,
             };
 
-            // Collect existing atoms
+            // Collect existing atoms (primary conformer only)
             let mut existing: HashMap<String, [f64; 3]> = HashMap::new();
-            for atom in residue.atoms() {
+            for atom in crate::altloc::residue_atoms_primary(residue) {
                 let (x, y, z) = atom.pos();
                 existing.insert(atom.name().trim().to_string(), [x, y, z]);
             }

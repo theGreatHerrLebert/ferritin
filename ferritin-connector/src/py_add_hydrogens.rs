@@ -117,21 +117,24 @@ pub fn place_peptide_hydrogens_with_coords<'py>(
 ) -> ((usize, usize), Bound<'py, PyArray2<f64>>) {
     let result = py.allow_threads(|| add_hydrogens::place_peptide_hydrogens(&mut pdb.inner));
 
-    // Collect the placed H positions by scanning the structure
+    // Collect the placed H positions by scanning the structure (first model,
+    // primary conformer only — pdb.inner.chains() iterates ALL models).
     let mut h_coords: Vec<f64> = Vec::new();
-    for chain in pdb.inner.chains() {
-        for residue in chain.residues() {
-            let is_aa = residue
-                .conformers()
-                .next()
-                .map_or(false, |c| c.is_amino_acid());
-            if !is_aa {
-                continue;
-            }
-            for atom in residue.atoms() {
-                if atom.name().trim() == "H" {
-                    let (x, y, z) = atom.pos();
-                    h_coords.extend_from_slice(&[x, y, z]);
+    if let Some(first_model) = pdb.inner.models().next() {
+        for chain in first_model.chains() {
+            for residue in chain.residues() {
+                let is_aa = residue
+                    .conformers()
+                    .next()
+                    .map_or(false, |c| c.is_amino_acid());
+                if !is_aa {
+                    continue;
+                }
+                for atom in crate::altloc::residue_atoms_primary(residue) {
+                    if atom.name().trim() == "H" {
+                        let (x, y, z) = atom.pos();
+                        h_coords.extend_from_slice(&[x, y, z]);
+                    }
                 }
             }
         }
@@ -324,7 +327,7 @@ pub fn batch_prepare(
                         };
 
                         // Minimize H positions and apply coords back to PDB
-                        let has_any_h = pdb.atoms().any(|a| {
+                        let has_any_h = crate::altloc::pdb_atoms_primary(pdb).any(|a| {
                             a.element().map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")
                         });
                         let (init_e, final_e, steps, converged) = if minimize && (h_added > 0 || has_any_h) {
