@@ -245,9 +245,170 @@ def compare_energy(ferritin_payload: dict, other_payload: dict) -> Dict[str, dic
     return out
 
 
+# ---------------------------------------------------------------------------
+# Weak (cross-FF) energy comparison
+# ---------------------------------------------------------------------------
+#
+# Used by the `energy_charmm` op (ferritin CHARMM19+EEF1 vs OpenMM
+# CHARMM36+OBC2). The two parameter sets are different (atomtypes,
+# charges, K_b, implicit solvation model), so percent diffs would be
+# 30-100% even on a correct ferritin kernel. Reporting them under the
+# AMBER tolerance scheme would mark every record as FAIL meaninglessly.
+#
+# Instead this comparator reports:
+#   - log10_ratio: log10(|ferritin| / |other|), classified as
+#     PASS ≤ 0.5 (within ~3x), WARN ≤ 1.0 (within 10x), FAIL > 1.0
+#   - sign_agree: 1.0 if signs match (or both ~0), else 0.0
+#     PASS = 1.0, FAIL = 0.0
+# These catch order-of-magnitude bugs and sign errors — the most common
+# kernel-broken regression class. They do NOT validate parameter
+# correctness; that's a Tier-3 oracle job.
+
+
+def _log10_ratio(a: Optional[float], b: Optional[float]) -> float:
+    """log10(|a| / |b|), or NaN if either is None / non-finite / ~zero.
+
+    Returns the *signed* ratio so the renderer can show "ferritin is
+    higher than openmm by Nx" with a single number. The classifier
+    uses |this| against the bands.
+    """
+    if a is None or b is None:
+        return float("nan")
+    if isinstance(a, float) and (math.isnan(a) or math.isinf(a)):
+        return float("nan")
+    if isinstance(b, float) and (math.isnan(b) or math.isinf(b)):
+        return float("nan")
+    if abs(a) < 1e-9 or abs(b) < 1e-9:
+        return float("nan")
+    return math.log10(abs(a) / abs(b))
+
+
+def _sign_agree(a: Optional[float], b: Optional[float]) -> float:
+    """1.0 if a and b have the same sign (or both ~zero), 0.0 otherwise.
+
+    Returns NaN if either side is None or non-finite. We use ±1e-6 as
+    the "near zero" tolerance — anything inside that is treated as
+    "no preferred sign", and only true sign flips on meaningful values
+    are flagged.
+    """
+    if a is None or b is None:
+        return float("nan")
+    if isinstance(a, float) and (math.isnan(a) or math.isinf(a)):
+        return float("nan")
+    if isinstance(b, float) and (math.isnan(b) or math.isinf(b)):
+        return float("nan")
+    if abs(a) < 1e-6 and abs(b) < 1e-6:
+        return 1.0
+    if abs(a) < 1e-6 or abs(b) < 1e-6:
+        # One is ~0 and the other isn't — that's a magnitude issue,
+        # not a sign issue. Return PASS for sign and let log10_ratio
+        # catch the magnitude.
+        return 1.0
+    return 1.0 if (a > 0) == (b > 0) else 0.0
+
+
+def compare_energy_weak(ferritin_payload: dict, other_payload: dict) -> Dict[str, dict]:
+    """Cross-FF weak comparison: log10 ratios + sign agreement.
+
+    Used for `energy_charmm` op (CHARMM19+EEF1 vs CHARMM36+OBC2). The
+    bands are deliberately permissive — this comparator only catches
+    order-of-magnitude bugs (≥10x scaling errors) and sign errors,
+    NOT parameter-level disagreements.
+    """
+    out: Dict[str, dict] = {}
+
+    # Atom-count diff sidecar (INFO only) — same idea as compare_energy.
+    a_atoms = ferritin_payload.get("n_atoms_after_h")
+    b_atoms = other_payload.get("n_atoms_after_h")
+    if a_atoms is not None and b_atoms is not None and a_atoms >= 0 and b_atoms >= 0:
+        out["_n_atoms_diff"] = {"value": a_atoms - b_atoms, "band": "INFO"}
+
+    a_total = ferritin_payload.get("total")
+    b_total = other_payload.get("total")
+
+    # Total log10 ratio (the headline number)
+    lr = _log10_ratio(a_total, b_total)
+    out["total_log10_ratio"] = {
+        "value": lr,
+        "band": _band(abs(lr) if not math.isnan(lr) else float("nan"),
+                       0.5, 1.0, lower_is_better=True),
+    }
+    # Total sign agreement
+    sa = _sign_agree(a_total, b_total)
+    out["total_sign_agree"] = {
+        "value": sa,
+        "band": "PASS" if sa == 1.0 else ("FAIL" if sa == 0.0 else "FAIL"),
+    }
+
+    # Per-component log10 ratios on bond and angle (CHARMM19 vs CHARMM36
+    # both use the same harmonic functional form, so these should be
+    # within an order of magnitude even with different parameters).
+    a_comp = ferritin_payload.get("components", {}) or {}
+    b_comp = other_payload.get("components", {}) or {}
+    for key in ("bond_stretch", "angle_bend"):
+        a = a_comp.get(key)
+        b = b_comp.get(key)
+        if a is None or b is None:
+            continue
+        lr = _log10_ratio(a, b)
+        out[f"{key}_log10_ratio"] = {
+            "value": lr,
+            "band": _band(abs(lr) if not math.isnan(lr) else float("nan"),
+                           0.5, 1.0, lower_is_better=True),
+        }
+
+    # Nonbonded combined: ferritin splits into vdw + electrostatic;
+    # OpenMM lumps them as nonbonded_total. Sum and compare.
+    # Both magnitude (log10) and sign get their own metric — log10
+    # uses |a|/|b| which strips sign, so a sign flip would otherwise
+    # land as a small positive log10 ratio and PASS silently.
+    a_vdw = a_comp.get("vdw")
+    a_elec = a_comp.get("electrostatic")
+    b_nonbonded_total = other_payload.get("nonbonded_total")
+    if b_nonbonded_total is not None and a_vdw is not None and a_elec is not None:
+        a_sum = a_vdw + a_elec
+        lr = _log10_ratio(a_sum, b_nonbonded_total)
+        out["nonbonded_log10_ratio"] = {
+            "value": lr,
+            "band": _band(abs(lr) if not math.isnan(lr) else float("nan"),
+                           0.5, 1.0, lower_is_better=True),
+        }
+        sa_nb = _sign_agree(a_sum, b_nonbonded_total)
+        out["nonbonded_sign_agree"] = {
+            "value": sa_nb,
+            "band": "PASS" if sa_nb == 1.0 else "FAIL",
+        }
+
+    # Solvation: EEF1 vs OBC2 differ functionally so the magnitude
+    # ratio is permissive (PASS ≤ 1.5, WARN ≤ 2.5 — within ~30x and
+    # ~300x respectively). The SIGN, however, MUST match: both EEF1
+    # and OBC2 produce negative solvation free energies for typical
+    # solvated proteins. A positive solvation in either side is the
+    # most distinctive single bug signal we have for an "EEF1 sign
+    # error" or "OBC2 misconfiguration" failure mode, and the previous
+    # version of this comparator missed it because |a|/|b| hides sign.
+    a_solv = a_comp.get("solvation")
+    b_solv = b_comp.get("solvation")
+    if a_solv is not None and b_solv is not None:
+        lr = _log10_ratio(a_solv, b_solv)
+        out["solvation_log10_ratio"] = {
+            "value": lr,
+            "band": _band(abs(lr) if not math.isnan(lr) else float("nan"),
+                           1.5, 2.5, lower_is_better=True),
+        }
+        sa_solv = _sign_agree(a_solv, b_solv)
+        out["solvation_sign_agree"] = {
+            "value": sa_solv,
+            "band": "PASS" if sa_solv == 1.0 else "FAIL",
+        }
+
+    return out
+
+
 COMPARATORS = {
     "sasa": compare_sasa,
     "energy": compare_energy,
+    "energy_charmm": compare_energy_weak,
 }
 
 
@@ -275,14 +436,28 @@ _DEFAULT_AUTO_DISTRIBUTION_THRESHOLD = 20
 def _is_lower_better(metric_name: str) -> bool:
     """Whether 'better' for `metric_name` means smaller values.
 
-    Heuristic: agreement metrics like Pearson r are higher-is-better;
-    everything else (percent diffs, RMSDs) is lower-is-better. Currently
-    only `*pearson*` and `*_r2*` are higher-is-better. If this list grows,
-    consider an explicit registry instead.
+    Heuristic: agreement metrics like Pearson r and sign_agree are
+    higher-is-better; everything else (percent diffs, RMSDs, log10
+    ratios) is lower-is-better. If this list grows beyond a few
+    suffixes, consider an explicit registry instead.
     """
     if "pearson" in metric_name or "_r2" in metric_name:
         return False
+    if "sign_agree" in metric_name:
+        return False
     return True
+
+
+def _is_signed_magnitude_metric(metric_name: str) -> bool:
+    """Whether outlier ranking should sort by |value| rather than value.
+
+    log10 ratios are signed (positive = ferritin higher, negative = lower)
+    but BOTH extremes are "worst". A log10_ratio of -2.5 is just as wrong
+    as +2.5. Sorting by raw value ascending or descending hides one of
+    the two failure directions; sorting by |value| descending captures
+    both.
+    """
+    return "log10_ratio" in metric_name
 
 
 def _percentile(sorted_values: list, p: float) -> float:
@@ -403,8 +578,13 @@ def _collect_outliers(impl_section: dict, top_k: int = _DEFAULT_OUTLIER_TOP_K) -
 
     out: Dict[str, list] = {}
     for k, entries in by_metric.items():
-        reverse = _is_lower_better(k)  # lower-better → biggest values are worst
-        entries.sort(key=lambda e: e["value"], reverse=reverse)
+        if _is_signed_magnitude_metric(k):
+            # Both directions are bad — rank by |value| descending so the
+            # most extreme values land at the top regardless of sign.
+            entries.sort(key=lambda e: abs(e["value"]), reverse=True)
+        else:
+            reverse = _is_lower_better(k)  # lower-better → biggest values worst
+            entries.sort(key=lambda e: e["value"], reverse=reverse)
         out[k] = entries[:top_k]
     return out
 

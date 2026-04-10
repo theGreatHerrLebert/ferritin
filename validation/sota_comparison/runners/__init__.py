@@ -23,7 +23,7 @@ def _safe_import(modname: str) -> None:
         _base.IMPORT_FAILURES[modname] = str(e)
 
 
-for _mod in ("sasa", "energy"):
+for _mod in ("sasa", "energy", "energy_charmm"):
     _safe_import(_mod)
 
 __all__ = [
