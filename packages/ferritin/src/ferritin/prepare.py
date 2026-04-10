@@ -29,6 +29,34 @@ def _get_ptr(structure):
     return structure
 
 
+# Rust batch_prepare returns energies in kcal/mol (the native unit of the
+# AMBER96/CHARMM19 parameters). The rest of the ferritin Python API defaults
+# to kJ/mol via compute_energy / minimize_hydrogens, so the PrepReport
+# dataclass also exposes kJ/mol by default and we convert on the way out.
+_KCAL_TO_KJ = 4.184
+
+
+def _convert_prep_result_to_kj(r: dict) -> dict:
+    """Return a copy of the Rust batch_prepare result dict with energy fields
+    converted from kcal/mol to kJ/mol.
+
+    Touches: initial_energy, final_energy, and every component in
+    ``components`` (bond_stretch, angle_bend, …). Leaves structural counts
+    (minimizer_steps, n_unassigned_atoms, …) unchanged.
+    """
+    out = dict(r)
+    for k in ("initial_energy", "final_energy"):
+        if k in out and isinstance(out[k], (int, float)):
+            out[k] = out[k] * _KCAL_TO_KJ
+    comps = out.get("components")
+    if isinstance(comps, dict):
+        out["components"] = {
+            k: (v * _KCAL_TO_KJ if isinstance(v, (int, float)) else v)
+            for k, v in comps.items()
+        }
+    return out
+
+
 @dataclass
 class PrepReport:
     """Report from structure preparation.
@@ -165,7 +193,7 @@ def prepare(
             ff,
         )
         if results:
-            r = results[0]
+            r = _convert_prep_result_to_kj(results[0])
             report.atoms_reconstructed = r["atoms_reconstructed"]
             report.hydrogens_added = r["hydrogens_added"]
             report.hydrogens_skipped = r["hydrogens_skipped"]
@@ -220,7 +248,7 @@ def prepare(
             ff,
         )
         if results:
-            r = results[0]
+            r = _convert_prep_result_to_kj(results[0])
             report.initial_energy = r["initial_energy"]
             report.final_energy = r["final_energy"]
             report.components = dict(r.get("components", {}))
@@ -291,14 +319,15 @@ def batch_prepare(
         List of PrepReport, one per structure.
     """
     ptrs = [_get_ptr(s) for s in structures]
-    results = _add_h.batch_prepare(
+    raw_results = _add_h.batch_prepare(
         ptrs, reconstruct, hydrogens, include_water,
         minimize, minimize_method, minimize_steps, gradient_tolerance, n_threads,
         strip_hydrogens,
         ff,
     )
     reports = []
-    for r in results:
+    for raw in raw_results:
+        r = _convert_prep_result_to_kj(raw)
         report = PrepReport(
             atoms_reconstructed=r["atoms_reconstructed"],
             hydrogens_added=r["hydrogens_added"],
