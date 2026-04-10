@@ -126,10 +126,13 @@ if _FERRITIN_OK:
         (Modeller.addHydrogens + LocalEnergyMinimizer with heavy atoms frozen).
         """
         t0 = _time_perf()
-        # Strip HETATM to match the OpenMM runner — see _strip_hetatm_to_tempfile
-        # docstring for rationale. Keeps both runners on the same atom set.
-        clean_path = _strip_hetatm_to_tempfile(pdb_path)
-        s = _ferritin.load(clean_path)
+        # Shared prep with the OpenMM runner: HETATM strip + PDBFixer
+        # heavy-atom repair, written to a single tempfile both runners
+        # read. See _prep_input_for_amber96 for the rationale; without
+        # it the openmm side runs PDBFixer while ferritin doesn't,
+        # contaminating the comparison on PDBs with missing heavy atoms.
+        prep_path = _prep_input_for_amber96(pdb_path)
+        s = _ferritin.load(prep_path)
         # Full prepare pipeline in one Rust call, AMBER96 throughout.
         # strip_hydrogens=False because we loaded a heavy-only PDB (no H to
         # strip). reconstruct=False because the test corpus has complete
@@ -192,10 +195,15 @@ if _FERRITIN_OK:
         wall-time attribution is at the batch level).
         """
         t0 = _time_perf()
-        # Strip HETATM once per path (cached tempfiles)
-        clean_paths = [_strip_hetatm_to_tempfile(p) for p in pdb_paths]
-        # Parallel load
-        loaded = _ferritin.batch_load_tolerant(clean_paths, n_threads=-1)
+        # Shared prep (HETATM strip + PDBFixer repair) — same call the
+        # openmm runner uses, so both stacks see identical atom sets.
+        # The serial Python loop here is acceptable: PDBFixer is ~100ms
+        # per structure, so 100 PDBs is ~10s of prep, dwarfed by the
+        # downstream rayon-parallel batch_prepare cost. The cache means
+        # the openmm runner pays nothing on its second pass.
+        prep_paths = [_prep_input_for_amber96(p) for p in pdb_paths]
+        # Parallel load of the prepared files
+        loaded = _ferritin.batch_load_tolerant(prep_paths, n_threads=-1)
         load_index = {i: s for i, s in loaded}
 
         # Collect successful structures for the batch call
@@ -321,6 +329,100 @@ except ImportError:
     _PDBFixer = None  # type: ignore
 
 
+# ---------------------------------------------------------------------------
+# Shared input prep for the AMBER96 energy comparison
+# ---------------------------------------------------------------------------
+#
+# Both energy runners (ferritin + openmm) MUST see identical atom sets,
+# otherwise we are comparing two different structures and any percent
+# diff is meaningless. Before this helper existed, the openmm runner ran
+# PDBFixer (heavy-atom repair) but the ferritin runner did not — on the
+# v1 6-PDB set this was a no-op (clean structures), but on the messy 50K
+# corpus the two stacks would have diverged silently on every dirty PDB.
+#
+# This helper does the prep ONCE per input path and caches the result by
+# absolute path. Both runners call it; the second caller gets a cache hit
+# and pays no PDBFixer cost. The cache is per-process (driver lifetime),
+# which is the right scope: the driver runs both runners in series within
+# one process, so the cache is hot for the second runner and dies when
+# the driver exits.
+
+_PREP_CACHE: dict = {}
+
+
+def _prep_input_for_amber96(pdb_path: str) -> str:
+    """Prepare a PDB for AMBER96 evaluation: HETATM strip + PDBFixer repair.
+
+    Returns the path to a tempfile containing the prepared structure.
+    Both energy runners read the SAME prepared file so they see the same
+    atom set on every structure.
+
+    Pipeline:
+      1. Strip HETATM (water, ions, ligands — no AMBER96 templates).
+      2. PDBFixer.findMissingResidues() then clear missingResidues={}
+         so addMissingAtoms repairs heavy atoms within EXISTING residues
+         only, never models in unresolved disordered loops.
+      3. PDBFixer.findNonstandardResidues + replaceNonstandardResidues
+         (MSE→MET, etc) so AMBER's standard-residue templates apply.
+      4. PDBFixer.findMissingAtoms + addMissingAtoms (the actual repair).
+      5. Write the result via openmm PDBFile.writeFile(keepIds=True).
+
+    Cached by absolute input path. Subsequent calls with the same path
+    return the same prepared tempfile in O(1).
+
+    Graceful degradation: if pdbfixer or openmm is not installed, returns
+    the HETATM-stripped path (no repair). The downstream runners will
+    then handle createSystem failures via their existing skip envelopes.
+    If PDBFixer raises (e.g. unparseable input), same fallback.
+    """
+    cached = _PREP_CACHE.get(pdb_path)
+    if cached is not None:
+        return cached
+
+    # Step 1 — HETATM strip (always)
+    hetatm_tmp = _strip_hetatm_to_tempfile(pdb_path)
+
+    if not (_PDBFIXER_OK and _OPENMM_OK):
+        # No repair available; the HETATM-stripped file IS the prep.
+        _PREP_CACHE[pdb_path] = hetatm_tmp
+        return hetatm_tmp
+
+    # Steps 2-4 — PDBFixer repair
+    try:
+        fixer = _PDBFixer(filename=hetatm_tmp)
+        fixer.findMissingResidues()
+        fixer.missingResidues = {}  # never model in unresolved loops
+        fixer.findNonstandardResidues()
+        fixer.replaceNonstandardResidues()
+        fixer.findMissingAtoms()
+        fixer.addMissingAtoms()
+    except Exception:
+        # Repair failed — fall back to the HETATM-stripped file. The
+        # ferritin and openmm runners will get the same fallback path,
+        # so they still see the same atom set.
+        _PREP_CACHE[pdb_path] = hetatm_tmp
+        return hetatm_tmp
+
+    # Step 5 — write the repaired structure
+    base = _os.path.basename(pdb_path)
+    fd, repaired_tmp = _tempfile.mkstemp(
+        prefix=f"sota_amber_prep_{base}_", suffix=".pdb"
+    )
+    _os.close(fd)
+    try:
+        with open(repaired_tmp, "w") as f:
+            _openmm_app.PDBFile.writeFile(
+                fixer.topology, fixer.positions, f, keepIds=True
+            )
+    except Exception:
+        # Write failed — fall back to the HETATM-stripped file.
+        _PREP_CACHE[pdb_path] = hetatm_tmp
+        return hetatm_tmp
+
+    _PREP_CACHE[pdb_path] = repaired_tmp
+    return repaired_tmp
+
+
 if _OPENMM_OK:
 
     @register("energy", "openmm")
@@ -345,70 +447,30 @@ if _OPENMM_OK:
         import time as _time
         t0 = _time.perf_counter()
 
-        # Strip HETATM before loading into OpenMM. amber96.xml has no
-        # templates for water / ligands, so createSystem fails if they are
-        # present. Matches the ferritin runner's _strip_hetatm step.
-        clean_path = _strip_hetatm_to_tempfile(pdb_path)
+        # Shared prep with the ferritin runner: HETATM strip + PDBFixer
+        # heavy-atom repair, written to a single tempfile both runners
+        # read. See _prep_input_for_amber96 above. The cache means this
+        # call is O(1) when the ferritin runner has already prepped the
+        # same path within the same driver process.
+        prep_path = _prep_input_for_amber96(pdb_path)
 
-        # P1a v2: PDBFixer repairs real PDB imperfections (incomplete
-        # terminal residues, truncated sidechains, nonstandard residues
-        # like MSE) BEFORE OpenMM tries to assign templates. On the 20-PDB
-        # scaling demo without this step, 10/20 structures failed
-        # createSystem with "set of externally bonded atoms is missing
-        # 1 C atom". Those are real PDB format issues, not a ferritin
-        # bug, and addMissingAtoms repairs them in place using AMBER's
-        # template geometry.
-        #
-        # IMPORTANT: we call findMissingResidues() then immediately clear
-        # fixer.missingResidues = {}. PDBFixer normally tries to add gap-
-        # filling residues for unresolved disordered loops, which would
-        # change the structure significantly and bias the energy
-        # comparison. We only want missing ATOMS within existing residues,
-        # not whole missing residues that the experiment couldn't see.
-        #
-        # If pdbfixer is not installed, we fall through to the raw Modeller
-        # path. The createSystem step will then fail on imperfect PDBs and
-        # we record those as skips instead of crashing.
-        if _PDBFIXER_OK:
-            try:
-                fixer = _PDBFixer(filename=clean_path)
-                fixer.findMissingResidues()
-                fixer.missingResidues = {}  # don't model unresolved loops
-                fixer.findNonstandardResidues()
-                fixer.replaceNonstandardResidues()
-                fixer.findMissingAtoms()
-                fixer.addMissingAtoms()
-                topology_in = fixer.topology
-                positions_in = fixer.positions
-            except Exception as e:
-                return RunnerResult(
-                    op="energy", impl="openmm", impl_version=_OPENMM_VERSION,
-                    pdb_id="", pdb_path=pdb_path,
-                    elapsed_s=_time.perf_counter() - t0,
-                    status="skip",
-                    error=f"PDBFixer prep failed: {type(e).__name__}: {e}",
-                    payload={},
-                )
-        else:
-            try:
-                pdb = _openmm_app.PDBFile(clean_path)
-                topology_in = pdb.topology
-                positions_in = pdb.positions
-            except Exception as e:
-                return RunnerResult(
-                    op="energy", impl="openmm", impl_version=_OPENMM_VERSION,
-                    pdb_id="", pdb_path=pdb_path,
-                    elapsed_s=_time.perf_counter() - t0,
-                    status="error",
-                    error=f"OpenMM PDBFile load failed: {type(e).__name__}: {e}",
-                    payload={},
-                )
+        try:
+            pdb = _openmm_app.PDBFile(prep_path)
+        except Exception as e:
+            return RunnerResult(
+                op="energy", impl="openmm", impl_version=_OPENMM_VERSION,
+                pdb_id="", pdb_path=pdb_path,
+                elapsed_s=_time.perf_counter() - t0,
+                status="error",
+                error=f"OpenMM PDBFile load failed: {type(e).__name__}: {e}",
+                payload={},
+            )
 
-        # AMBER96 requires hydrogens on every standard residue. The input
-        # PDBs are heavy-atom only (and PDBFixer doesn't add H by default),
-        # so add H via Modeller.addHydrogens(forcefield) — that uses the
-        # AMBER96 H templates. The ferritin runner does the same via
-        # place_all_hydrogens(): both stacks see the same atom set.
+        # AMBER96 requires hydrogens on every standard residue. PDBFixer
+        # adds heavy atoms but not H, so add H via Modeller.addHydrogens
+        # using the AMBER96 H templates. The ferritin runner does the
+        # same via place_all_hydrogens() inside batch_prepare; both
+        # stacks see the same atom set.
         #
         # We then run LocalEnergyMinimizer with heavy atoms frozen to relax
         # the placed H positions, mirroring ferritin's minimize_hydrogens()
@@ -417,14 +479,14 @@ if _OPENMM_OK:
         # and the FF evaluation is dominated by them rather than the
         # actual interaction energies we want to compare.
         #
-        # If addHydrogens / createSystem still fail after PDBFixer repair,
-        # we record status="skip" (not "error"): these are legitimate
-        # "this structure can't be evaluated under AMBER96" cases —
-        # nucleic acids, exotic ligands, broken topologies — and we want
-        # the aggregator to surface a skip rate rather than a crash count.
+        # If addHydrogens / createSystem fail (legitimate "this structure
+        # can't be evaluated under AMBER96" — nucleic acids, exotic
+        # ligands, broken topologies even after PDBFixer), we record
+        # status="skip" so the aggregator surfaces a skip rate rather
+        # than a crash count.
         try:
             forcefield = _openmm_app.ForceField("amber96.xml")
-            modeller = _openmm_app.Modeller(topology_in, positions_in)
+            modeller = _openmm_app.Modeller(pdb.topology, pdb.positions)
             modeller.addHydrogens(forcefield)
             system = forcefield.createSystem(
                 modeller.topology,
