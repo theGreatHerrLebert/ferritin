@@ -403,6 +403,12 @@ pub fn sasa_from_pdb(
 /// Compute per-residue SASA by summing atom contributions.
 ///
 /// Returns (residue_sasa, residue_names, chain_ids).
+///
+/// Must use the primary-conformer atom count to stay in sync with the flat
+/// `atom_sasa` array, which was produced by the primary-conformer iteration
+/// in `sasa_from_pdb`. Naively calling `residue.atom_count()` double-counts
+/// altloc-duplicated backbone atoms and walks off the end of the slice on any
+/// structure with alternate conformations (e.g. 1bpi).
 pub fn residue_sasa(pdb: &pdbtbx::PDB, atom_sasa: &[f64]) -> Vec<f64> {
     let mut result = Vec::new();
     let mut atom_idx = 0;
@@ -414,7 +420,7 @@ pub fn residue_sasa(pdb: &pdbtbx::PDB, atom_sasa: &[f64]) -> Vec<f64> {
     };
     for chain in first_model.chains() {
         for residue in chain.residues() {
-            let n_atoms = residue.atom_count();
+            let n_atoms = crate::altloc::residue_atom_count_primary(residue);
             let sum: f64 = atom_sasa[atom_idx..atom_idx + n_atoms].iter().sum();
             result.push(sum);
             atom_idx += n_atoms;
