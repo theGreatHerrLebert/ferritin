@@ -31,6 +31,34 @@ from ._base import (
     time_call,
 )
 from time import perf_counter as _time_perf
+import os as _os
+import tempfile as _tempfile
+
+
+def _strip_hetatm_to_tempfile(pdb_path: str) -> str:
+    """Write a copy of `pdb_path` with all HETATM lines removed.
+
+    Returns the path to a tempfile in /tmp. The caller is responsible for
+    cleaning up if desired, but /tmp is fine for the test corpus.
+
+    Why: OpenMM's amber96.xml force field only has templates for the 20
+    standard amino acids. Water (HOH), phosphate (PO4), and ligand
+    residues like AP5 cause createSystem to fail with "No template
+    found". We strip HETATM in both runners (ferritin + openmm) so they
+    see the same protein-only topology. This keeps the energy comparison
+    apples-to-apples at the cost of ignoring any energy contribution from
+    crystal waters or bound ligands — that's a v2 item (PDBFixer gives
+    OpenMM templates for HETATM residues).
+    """
+    base = _os.path.basename(pdb_path)
+    fd, tmp = _tempfile.mkstemp(prefix=f"sota_noHet_{base}_", suffix=".pdb")
+    _os.close(fd)
+    with open(pdb_path) as src, open(tmp, "w") as dst:
+        for line in src:
+            if line.startswith("HETATM"):
+                continue
+            dst.write(line)
+    return tmp
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +120,10 @@ if _FERRITIN_OK:
         (Modeller.addHydrogens + LocalEnergyMinimizer with heavy atoms frozen).
         """
         t0 = _time_perf()
-        s = _ferritin.load(pdb_path)
+        # Strip HETATM to match the OpenMM runner — see _strip_hetatm_to_tempfile
+        # docstring for rationale. Keeps both runners on the same atom set.
+        clean_path = _strip_hetatm_to_tempfile(pdb_path)
+        s = _ferritin.load(clean_path)
         # Ferritin's template-based H placement (modifies in place)
         _ferritin.place_all_hydrogens(s)
         # Minimize H positions only, heavy atoms frozen. Uses AMBER96
@@ -199,8 +230,12 @@ if _OPENMM_OK:
         import time as _time
         t0 = _time.perf_counter()
 
+        # Strip HETATM before loading into OpenMM. amber96.xml has no
+        # templates for water / ligands, so createSystem fails if they are
+        # present. Matches the ferritin runner's _strip_hetatm step.
+        clean_path = _strip_hetatm_to_tempfile(pdb_path)
         try:
-            pdb = _openmm_app.PDBFile(pdb_path)
+            pdb = _openmm_app.PDBFile(clean_path)
         except Exception as e:
             return RunnerResult(
                 op="energy", impl="openmm", impl_version=_OPENMM_VERSION,
