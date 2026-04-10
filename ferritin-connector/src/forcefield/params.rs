@@ -623,4 +623,94 @@ mod tests {
         assert!((lj.r - 1.908).abs() < 0.01);
         assert!((lj.epsilon - 0.1094).abs() < 0.01);
     }
+
+    // ------------------------------------------------------------------
+    // CHARMM19+EEF1 diagnostic test for the 2026-04-10 sign bug.
+    //
+    // Tier-2 weak oracle (commit 8f979f4) and the diagnostic in
+    // validation/sota_comparison/diagnose_charmm_eef1.py established
+    // that ferritin's CHARMM19+EEF1 returns +537 kJ/mol solvation on
+    // 1crn while the canonical Σ dg_ref read from charmm19_eef1.ini
+    // gives -2748 kJ/mol with all 326 of 327 heavy atoms hitting
+    // the parameter table. n_unassigned_atoms=0 at runtime. So the
+    // bug must live somewhere between the .ini parser and the eef1
+    // hashmap lookup at runtime.
+    //
+    // This test is a pure parameter-table introspection: it loads
+    // charmm19_eef1() and dumps the relevant atom_types entries plus
+    // the eef1 entries they should resolve to. The eprintln output
+    // (run with `-- --nocapture`) will show exactly what the parser
+    // produces, which localizes the bug in <30 seconds without
+    // needing to drag in pdbtbx or build_topology.
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_charmm19_eef1_charges_and_types_dump() {
+        let p = charmm19_eef1();
+        eprintln!("\n=== CharmmParams::atom_types size: {} ===", p.atom_types.len());
+        eprintln!("=== CharmmParams::eef1 size:       {} ===", p.eef1.len());
+
+        // Sample lookups for ALA backbone — should be NH1, CH1E, C, O.
+        for (res, atom, expected_type) in &[
+            ("ALA", "N", "NH1"),
+            ("ALA", "CA", "CH1E"),
+            ("ALA", "C", "C"),
+            ("ALA", "O", "O"),
+            ("ALA", "CB", "CH3E"),
+            ("GLY", "N", "NH1"),
+            ("GLY", "CA", "CH2E"),
+            ("GLY", "C", "C"),
+            ("GLY", "O", "O"),
+            ("PRO", "N", "N"),    // proline N has no H, type "N" not "NH1"
+            ("THR", "OG1", "OH1"),
+            ("ASP", "OD1", "OC"),
+            ("ARG", "NH1", "NC2"), // guanidinium
+        ] {
+            let key = format!("{res}:{atom}");
+            match p.get_atom_type(res, atom) {
+                Some(entry) => {
+                    let match_marker = if entry.amber_type == *expected_type { "✓" } else { "✗" };
+                    eprintln!(
+                        "  [{}] {:<10} -> amber_type={:<6} charge={:>+8.4} (expected {})",
+                        match_marker, key, entry.amber_type, entry.charge, expected_type,
+                    );
+                }
+                None => {
+                    eprintln!("  [✗] {:<10} -> NONE (not in atom_types)", key);
+                }
+            }
+        }
+
+        // Now look up the EEF1 dg_ref for the canonical types and
+        // print them. Anything missing here means the eef1 hashmap
+        // wasn't populated correctly by the parser.
+        eprintln!("\n=== EEF1 dg_ref lookups (kcal/mol) ===");
+        for ctype in &[
+            "NH1", "NH2", "NH3", "NC2", "N", "NR", "NP",
+            "C", "CR", "CH1E", "CH2E", "CH3E", "CR1E", "CT", "CM",
+            "O", "OC", "OH1", "OM",
+            "S", "SH1E",
+        ] {
+            match p.eef1.get(*ctype) {
+                Some(eef) => eprintln!(
+                    "  {:<6} dg_ref={:>+8.3} dg_free={:>+8.3} vol={:>7.3}",
+                    ctype, eef.dg_ref, eef.dg_free, eef.volume,
+                ),
+                None => eprintln!("  {:<6} <NOT IN eef1 hashmap>", ctype),
+            }
+        }
+
+        // The big claim: ALA:N → NH1 → dg_ref = -5.95
+        let ala_n = p.get_atom_type("ALA", "N")
+            .expect("ALA:N must exist in CHARMM atom_types");
+        let nh1 = p.eef1.get(&ala_n.amber_type)
+            .expect("ALA:N's amber_type must exist in EEF1 hashmap");
+        eprintln!(
+            "\nFINAL: ALA:N -> {} -> dg_ref={} kcal/mol (expect -5.95)",
+            ala_n.amber_type, nh1.dg_ref,
+        );
+        assert_eq!(ala_n.amber_type, "NH1",
+            "atom_types parser stored wrong type for ALA:N");
+        assert!((nh1.dg_ref - (-5.95)).abs() < 0.01,
+            "EEF1 parser stored wrong dg_ref for NH1: got {}", nh1.dg_ref);
+    }
 }
