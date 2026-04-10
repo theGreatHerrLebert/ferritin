@@ -296,7 +296,7 @@ pub fn batch_prepare(
 
         let h_mode = h_mode.clone();
         let method = method.clone();
-        let results: Vec<(usize, usize, usize, f64, f64, usize, bool, usize)> = py.allow_threads(|| {
+        let results: Vec<(usize, usize, usize, f64, f64, usize, bool, usize, bool)> = py.allow_threads(|| {
             let pool = build_pool(n);
             pool.install(|| {
                 chunk_pdbs
@@ -334,12 +334,34 @@ pub fn batch_prepare(
                             _ => (0, 0),
                         };
 
+                        // Build topology once. n_unassigned is invariant under
+                        // coordinate changes (it depends only on residue/atom
+                        // names), so we can compute it before minimization and
+                        // reuse the same topology for the minimizer.
+                        let topo = crate::forcefield::topology::build_topology(pdb, &ff);
+                        let n_unassigned = topo.unassigned_atoms.len();
+                        let total_atoms = topo.atoms.len();
+
+                        // Heuristic: if more than half the atoms have no force
+                        // field type (e.g. nucleic acids, ligand-only entries,
+                        // exotic non-standard residues) then the protein prep
+                        // pipeline is the wrong tool. Skip minimization and
+                        // mark the structure so downstream consumers can
+                        // distinguish "convergence failed" from "skipped, not
+                        // a protein". Threshold 50% picks DNA/RNA cleanly
+                        // (193d: 394/404 unassigned) without false-flagging
+                        // proteins with bound ligands or short HETATM tails.
+                        let skipped_no_protein =
+                            total_atoms > 0 && n_unassigned * 2 > total_atoms;
+
                         // Minimize H positions and apply coords back to PDB
                         let has_any_h = crate::altloc::pdb_atoms_primary(pdb).any(|a| {
                             a.element().map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")
                         });
-                        let (init_e, final_e, steps, converged) = if minimize && (h_added > 0 || has_any_h) {
-                            let topo = crate::forcefield::topology::build_topology(pdb, &ff);
+                        let (init_e, final_e, steps, converged) = if !skipped_no_protein
+                            && minimize
+                            && (h_added > 0 || has_any_h)
+                        {
                             let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
                             let constrained: Vec<bool> = topo.atoms.iter().map(|a| !a.is_hydrogen).collect();
                             let result = match method.as_str() {
@@ -356,10 +378,7 @@ pub fn batch_prepare(
                             (0.0, 0.0, 0, false)
                         };
 
-                        let topo = crate::forcefield::topology::build_topology(pdb, &ff);
-                        let n_unassigned = topo.unassigned_atoms.len();
-
-                        (reconstructed, h_added, h_skipped, init_e, final_e, steps, converged, n_unassigned)
+                        (reconstructed, h_added, h_skipped, init_e, final_e, steps, converged, n_unassigned, skipped_no_protein)
                     })
                     .collect()
             })
@@ -378,7 +397,7 @@ pub fn batch_prepare(
     // Convert to Python dicts
     Ok(all_results
         .into_iter()
-        .map(|(recon, h_add, h_skip, init_e, final_e, steps, conv, unassigned)| {
+        .map(|(recon, h_add, h_skip, init_e, final_e, steps, conv, unassigned, skipped)| {
             let dict = pyo3::types::PyDict::new(py);
             dict.set_item("atoms_reconstructed", recon).unwrap();
             dict.set_item("hydrogens_added", h_add).unwrap();
@@ -388,6 +407,7 @@ pub fn batch_prepare(
             dict.set_item("minimizer_steps", steps).unwrap();
             dict.set_item("converged", conv).unwrap();
             dict.set_item("n_unassigned_atoms", unassigned).unwrap();
+            dict.set_item("skipped_no_protein", skipped).unwrap();
             dict.into_any().unbind()
         })
         .collect())

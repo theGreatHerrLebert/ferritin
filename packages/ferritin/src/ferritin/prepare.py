@@ -40,8 +40,16 @@ class PrepReport:
         initial_energy: Total energy before minimization (kcal/mol).
         final_energy: Total energy after minimization (kcal/mol).
         minimizer_steps: Number of minimization steps taken.
-        converged: Whether the minimizer converged.
+        converged: Whether the minimizer converged. Only meaningful when
+            ``skipped_no_protein`` is False — see that field's docs.
         n_unassigned_atoms: Atoms without force field type assignment.
+        skipped_no_protein: True if the structure was skipped by the
+            minimizer because more than half of its atoms have no protein
+            force-field type assignment (e.g. nucleic acids, ligand-only
+            entries, exotic non-standard residues). When True, ``converged``
+            is always False because no minimization ran — distinguish this
+            case from real convergence failures by checking
+            ``skipped_no_protein`` first.
         warnings: List of warning messages.
     """
     atoms_reconstructed: int = 0
@@ -52,6 +60,7 @@ class PrepReport:
     minimizer_steps: int = 0
     converged: bool = False
     n_unassigned_atoms: int = 0
+    skipped_no_protein: bool = False
     warnings: List[str] = field(default_factory=list)
 
     def __repr__(self) -> str:
@@ -59,11 +68,20 @@ class PrepReport:
             f"PrepReport(",
             f"  reconstructed={self.atoms_reconstructed} heavy atoms",
             f"  hydrogens={self.hydrogens_added} added, {self.hydrogens_skipped} skipped",
-            f"  energy={self.initial_energy:.1f} -> {self.final_energy:.1f} kcal/mol",
-            f"  minimizer={self.minimizer_steps} steps, converged={self.converged}",
         ]
-        if self.n_unassigned_atoms > 0:
-            lines.append(f"  unassigned_atoms={self.n_unassigned_atoms}")
+        if self.skipped_no_protein:
+            lines.append(
+                f"  skipped_no_protein=True ({self.n_unassigned_atoms} unassigned atoms)"
+            )
+        else:
+            lines.append(
+                f"  energy={self.initial_energy:.1f} -> {self.final_energy:.1f} kcal/mol"
+            )
+            lines.append(
+                f"  minimizer={self.minimizer_steps} steps, converged={self.converged}"
+            )
+            if self.n_unassigned_atoms > 0:
+                lines.append(f"  unassigned_atoms={self.n_unassigned_atoms}")
         if self.warnings:
             lines.append(f"  warnings={self.warnings}")
         lines.append(")")
@@ -139,7 +157,14 @@ def prepare(
             report.minimizer_steps = r["minimizer_steps"]
             report.converged = r["converged"]
             report.n_unassigned_atoms = r["n_unassigned_atoms"]
-            if report.n_unassigned_atoms > 10:
+            report.skipped_no_protein = r["skipped_no_protein"]
+            if report.skipped_no_protein:
+                report.warnings.append(
+                    f"skipped: {report.n_unassigned_atoms} atoms have no "
+                    "protein force-field type (likely nucleic acid, ligand, "
+                    "or non-standard residue)"
+                )
+            elif report.n_unassigned_atoms > 10:
                 report.warnings.append(
                     f"{report.n_unassigned_atoms} atoms without force field type "
                     "(non-standard residues or ligands)"
@@ -181,6 +206,7 @@ def prepare(
             report.final_energy = r["final_energy"]
             report.minimizer_steps = r["minimizer_steps"]
             report.converged = r["converged"]
+            report.skipped_no_protein = r["skipped_no_protein"]
 
     # Step 4: Check force field coverage
     energy_result = _ff.compute_energy(ptr, "amber96")
@@ -254,8 +280,14 @@ def batch_prepare(
             minimizer_steps=r["minimizer_steps"],
             converged=r["converged"],
             n_unassigned_atoms=r["n_unassigned_atoms"],
+            skipped_no_protein=r["skipped_no_protein"],
         )
-        if report.n_unassigned_atoms > 10:
+        if report.skipped_no_protein:
+            report.warnings.append(
+                f"skipped: {report.n_unassigned_atoms} atoms have no protein "
+                "force-field type (likely nucleic acid, ligand, or non-standard residue)"
+            )
+        elif report.n_unassigned_atoms > 10:
             report.warnings.append(
                 f"{report.n_unassigned_atoms} atoms without force field type"
             )
