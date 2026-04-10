@@ -1,0 +1,15 @@
+# SOTA comparison harness — Python dependencies
+# Pin majors; tested with the floors below.
+
+# v1 tools
+freesasa>=2.2,<3          # SASA reference implementation
+openmm>=8.1,<9            # Energy + minimization reference implementation
+numpy>=1.26               # required by both ferritin and the runners
+pyarrow>=15               # required eagerly by ferritin.__init__ (arrow + search submodules)
+
+# Build tooling (so maturin develop works in the sota_venv)
+maturin>=1.5,<2
+
+# v2 additions (uncomment when advancing to v2):
+# pdbfixer                # hydrogen placement + prepare reference
+# biopython>=1.83         # PDB parsing fallback for dssp output

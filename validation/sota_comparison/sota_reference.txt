@@ -1,0 +1,23 @@
+# SOTA comparison v1 reference set
+#
+# 6 well-known small proteins, all-standard-amino-acid, single-model,
+# minimal heteroatoms. Picked for unambiguous SOTA comparison.
+#
+# On monster3, these live at /globalscratch/dateschn/ferritin-benchmark/sota_pdbs/
+# (assembled from /scratch/TMAlign/ferritin/test-pdbs/ and the 50K corpus).
+# All 6 must be present in --pdb-dir at runtime.
+#
+# NOTE: earlier drafts included 1lmb, but PDB 1LMB is actually the λ
+# repressor/OR1 operator complex — a protein-DNA hybrid whose DNA residues
+# cause FreeSASA.residueAreas() to drop ~100 entries, blowing up the
+# per-residue Pearson without being a real disagreement. Excluded.
+#
+# v2 will expand this to ~50 PDBs stratified-sampled from the 50K corpus
+# with explicit "no nucleic acid, no metal cofactors" filtering.
+
+1crn  # crambin, 46 res — BALL oracle baseline
+1ubq  # ubiquitin, 76 res — community gold standard
+1bpi  # BPTI, 58 res — disulfide bonds
+1ake  # adenylate kinase, 214 res — multi-domain, larger
+1pgb  # protein G B1, 56 res — strand-heavy β-grasp
+1aki  # lysozyme, 129 res — α/β mix, classic SASA target
