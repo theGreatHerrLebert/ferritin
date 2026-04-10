@@ -80,10 +80,12 @@ def prepare(
     minimize_method: str = "lbfgs",
     minimize_steps: int = 500,
     gradient_tolerance: float = 0.1,
+    strip_hydrogens: bool = False,
 ) -> PrepReport:
     """Prepare a structure for downstream analysis or simulation.
 
-    Pipeline: reconstruct missing atoms -> place hydrogens -> minimize H positions.
+    Pipeline: [strip H] -> reconstruct missing atoms -> place hydrogens
+    -> minimize H positions.
 
     Args:
         structure: Ferritin Structure object (modified in place).
@@ -98,6 +100,10 @@ def prepare(
         minimize_method: Minimizer: "sd", "cg", or "lbfgs" (default "lbfgs").
         minimize_steps: Maximum minimization steps (default 500).
         gradient_tolerance: Convergence criterion in kcal/mol/A (default 0.1).
+        strip_hydrogens: Remove all pre-existing H/D atoms before placement
+            (default False). Recommended for structures with externally-placed
+            hydrogens whose positions are off the MM minimum and prevent LBFGS
+            convergence — see batch_prepare docstring for details.
 
     Returns:
         PrepReport with preparation statistics.
@@ -110,6 +116,32 @@ def prepare(
     """
     ptr = _get_ptr(structure)
     report = PrepReport()
+
+    # Step 0: Optionally strip existing hydrogens.
+    if strip_hydrogens:
+        # Use the batch path so strip+reconstruct+place+minimize all run in
+        # one Rust call (cleaner and consistent with batch_prepare).
+        results = _add_h.batch_prepare(
+            [ptr], reconstruct, hydrogens, include_water,
+            minimize, minimize_method, minimize_steps, gradient_tolerance, None,
+            True,
+        )
+        if results:
+            r = results[0]
+            report.atoms_reconstructed = r["atoms_reconstructed"]
+            report.hydrogens_added = r["hydrogens_added"]
+            report.hydrogens_skipped = r["hydrogens_skipped"]
+            report.initial_energy = r["initial_energy"]
+            report.final_energy = r["final_energy"]
+            report.minimizer_steps = r["minimizer_steps"]
+            report.converged = r["converged"]
+            report.n_unassigned_atoms = r["n_unassigned_atoms"]
+            if report.n_unassigned_atoms > 10:
+                report.warnings.append(
+                    f"{report.n_unassigned_atoms} atoms without force field type "
+                    "(non-standard residues or ligands)"
+                )
+        return report
 
     # Step 1: Reconstruct missing heavy atoms
     if reconstruct:
@@ -138,6 +170,7 @@ def prepare(
         results = _add_h.batch_prepare(
             [ptr], False, "none", False,
             True, minimize_method, minimize_steps, gradient_tolerance, None,
+            False,
         )
         if results:
             r = results[0]
@@ -169,11 +202,13 @@ def batch_prepare(
     minimize_steps: int = 500,
     gradient_tolerance: float = 0.1,
     n_threads: Optional[int] = None,
+    strip_hydrogens: bool = False,
 ) -> List[PrepReport]:
     """Prepare many structures in parallel (Rust + rayon, zero GIL).
 
     Each structure is modified in place. Full pipeline runs in Rust:
-    reconstruct -> place H -> minimize H, parallelized across structures.
+    [optional strip H] -> reconstruct -> place H -> minimize H,
+    parallelized across structures.
 
     Args:
         structures: List of ferritin Structure objects.
@@ -186,6 +221,13 @@ def batch_prepare(
         gradient_tolerance: Convergence criterion in kcal/mol/A (default 0.1).
         n_threads: Thread count. ``None`` / ``-1`` / ``0`` = all cores
             (default); a positive integer = exactly that many threads.
+        strip_hydrogens: Remove all pre-existing H/D atoms before placement
+            (default False). Recommended for structures with externally-placed
+            hydrogens (NMR ensembles, deposited X-ray H, upstream protonators)
+            whose H positions are off the MM force-field minimum and would
+            otherwise prevent LBFGS from converging within
+            ``gradient_tolerance``. Discards experimental H positions but
+            produces MM-converged geometry.
 
     Returns:
         List of PrepReport, one per structure.
@@ -194,6 +236,7 @@ def batch_prepare(
     results = _add_h.batch_prepare(
         ptrs, reconstruct, hydrogens, include_water,
         minimize, minimize_method, minimize_steps, gradient_tolerance, n_threads,
+        strip_hydrogens,
     )
     reports = []
     for r in results:

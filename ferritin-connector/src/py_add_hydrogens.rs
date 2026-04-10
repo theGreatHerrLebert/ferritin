@@ -254,7 +254,7 @@ pub fn batch_place_peptide_hydrogens(
 /// Runs the full preparation pipeline on each structure using rayon parallelism.
 /// Returns list of dicts with preparation statistics.
 #[pyfunction]
-#[pyo3(signature = (structures, reconstruct=true, hydrogens="all", include_water=false, minimize=true, minimize_method="lbfgs", minimize_steps=500, gradient_tolerance=0.1, n_threads=None))]
+#[pyo3(signature = (structures, reconstruct=true, hydrogens="all", include_water=false, minimize=true, minimize_method="lbfgs", minimize_steps=500, gradient_tolerance=0.1, n_threads=None, strip_hydrogens=false))]
 #[allow(clippy::too_many_arguments)]
 pub fn batch_prepare(
     py: Python<'_>,
@@ -267,6 +267,7 @@ pub fn batch_prepare(
     minimize_steps: usize,
     gradient_tolerance: f64,
     n_threads: Option<i32>,
+    strip_hydrogens: bool,
 ) -> PyResult<Vec<PyObject>> {
     let n = resolve_threads(n_threads);
     let h_mode = hydrogens.to_string();
@@ -301,6 +302,13 @@ pub fn batch_prepare(
                 chunk_pdbs
                     .par_iter_mut()
                     .map(|pdb| {
+                        // Optionally strip pre-existing hydrogens. Used to
+                        // rescue structures whose externally-resolved H sit
+                        // off the MM minimum and prevent LBFGS convergence.
+                        if strip_hydrogens {
+                            add_hydrogens::strip_hydrogens(pdb);
+                        }
+
                         // Reconstruct
                         let reconstructed = if reconstruct {
                             crate::reconstruct::reconstruct_fragments(pdb).added

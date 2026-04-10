@@ -4,8 +4,37 @@
 //! - `place_peptide_hydrogens`: backbone amide N-H only (Phase 1)
 //! - `place_sidechain_hydrogens`: all standard amino acid H (Phase 2)
 //! - `place_all_hydrogens`: both in sequence
+//!
+//! Plus `strip_hydrogens`: remove all existing H/D atoms before re-placement.
+//! Useful for structures with externally-placed H (NMR, X-ray-deposited,
+//! upstream tooling) whose H positions are not at the MM force-field minimum
+//! and would otherwise prevent the LBFGS minimizer from converging within
+//! a tight gradient tolerance — see the 50K benchmark "stragglers" analysis.
 
 use std::collections::{HashMap, HashSet};
+
+/// Strip all hydrogen and deuterium atoms from a PDB.
+///
+/// Returns the number of atoms removed. Acts across all models, all chains,
+/// all residues, and all conformers — i.e. wipes hydrogens completely so a
+/// subsequent call to `place_*_hydrogens` starts from a clean slate.
+///
+/// Why this matters: externally-resolved hydrogens (NMR ensembles, deposited
+/// X-ray H, upstream protonators) sit at coordinates that are locally
+/// reasonable but rarely at the MM force field minimum. With heavy atoms
+/// constrained, the LBFGS minimizer can lower the energy by orders of
+/// magnitude but oscillates around a local well it cannot fully resolve,
+/// never reaching `gradient_tolerance`. Stripping and re-placing the H
+/// from clean geometry rescues every such structure tested in the 50K
+/// benchmark (~9% of stragglers).
+pub fn strip_hydrogens(pdb: &mut pdbtbx::PDB) -> usize {
+    let before = pdb.atom_count();
+    pdb.remove_atoms_by(|atom| {
+        atom.element()
+            .map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")
+    });
+    before.saturating_sub(pdb.atom_count())
+}
 
 /// Bond lengths in Ångströms.
 const NH_BOND_LENGTH: f64 = 1.01; // matches DSSP virtual H exactly
@@ -1301,6 +1330,47 @@ mod tests {
         assert!(r1.added > 0, "First pass should add hydrogens");
         assert_eq!(r2.added, 0, "Second pass should add nothing");
         assert_eq!(atoms_after_first, atoms_after_second);
+    }
+
+    #[test]
+    fn test_strip_hydrogens_round_trip() {
+        // Place all H on crambin, strip them, verify the count drops back
+        // to the original heavy-only count and we report the right delta.
+        let (mut pdb, _) = pdbtbx::ReadOptions::default()
+            .set_level(pdbtbx::StrictnessLevel::Loose)
+            .read("../test-pdbs/1crn.pdb")
+            .expect("failed to read 1crn.pdb");
+
+        let heavy_count = pdb.atom_count();
+        // 1crn ships heavy-only
+        assert!(
+            !pdb.atoms().any(|a| a
+                .element()
+                .map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")),
+            "1crn fixture should be heavy-atom only"
+        );
+
+        let placed = place_all_hydrogens(&mut pdb);
+        assert!(placed.added > 0);
+        let with_h = pdb.atom_count();
+        assert_eq!(with_h, heavy_count + placed.added);
+
+        let removed = strip_hydrogens(&mut pdb);
+        assert_eq!(
+            removed, placed.added,
+            "strip should remove exactly the H we placed"
+        );
+        assert_eq!(pdb.atom_count(), heavy_count);
+        assert!(
+            !pdb.atoms().any(|a| a
+                .element()
+                .map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")),
+            "no H atoms should remain after strip"
+        );
+
+        // Re-place: should add the same number again (deterministic)
+        let placed2 = place_all_hydrogens(&mut pdb);
+        assert_eq!(placed2.added, placed.added);
     }
 
     // --- Sidechain H tests ---
