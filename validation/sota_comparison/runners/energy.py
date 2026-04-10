@@ -30,6 +30,7 @@ from ._base import (
     register,
     time_call,
 )
+from time import perf_counter as _time_perf
 
 
 # ---------------------------------------------------------------------------
@@ -73,43 +74,40 @@ if _FERRITIN_OK:
 
     @register("energy", "ferritin")
     def ferritin(pdb_path: str) -> RunnerResult:
-        """Compute AMBER96 energy via ferritin.compute_energy after H placement
-        and hydrogen minimization.
+        """Compute AMBER96 energy via ferritin's H placement + LBFGS minimization.
 
-        The pipeline: load → place_all_hydrogens → minimize_hydrogens (LBFGS,
-        heavy atoms constrained) → compute_energy(ff="amber96"). Minimization
-        is required because `place_all_hydrogens()` alone produces template-
-        placed H positions that can have steric clashes; without relaxation
-        the vdw term blows up (we saw ferritin.vdw = 782,514 kJ/mol on a
-        non-minimized 1crn — 150× larger than OpenMM's nonbonded total).
+        Pipeline: load → place_all_hydrogens → minimize_hydrogens(method="lbfgs").
 
-        Hydrogen-only minimization matches what the OpenMM runner does on
-        its side (LocalEnergyMinimizer on the Modeller-added H atoms only).
-        Both stacks evaluate the FF at each tool's local min for the
-        corresponding H placement algorithm — this measures "FF + H
-        placement + minimizer agreement", not pure FF agreement. For a
-        pure-FF comparison we would need a shared minimized input PDB;
-        that's a v2 item.
+        Why not `compute_energy` directly? AMBER96 parameterizes H, so heavy-
+        only input gives nonsensical energies. Why not `batch_prepare`? Because
+        `batch_prepare` hardcodes CHARMM19-EEF1 (commit 73248f7 made that the
+        default for "prepare a loaded PDB" because raw vacuum AMBER96
+        electrostatics blow up). For the SOTA comparison we specifically want
+        vacuum AMBER96 at both ends so the comparison to OpenMM-amber96-xml is
+        apples-to-apples. `minimize_hydrogens` uses AMBER96 internally and
+        returns the full component-decomposed energy dict, so we don't need a
+        separate `compute_energy` call afterwards.
+
+        The same minimize-then-evaluate flow is used by the OpenMM runner
+        (Modeller.addHydrogens + LocalEnergyMinimizer with heavy atoms frozen).
         """
-        s, _ = time_call(_ferritin.load, pdb_path)
-        # Full prepare pipeline: place_all_hydrogens + minimize_hydrogens,
-        # all in-place. strip_hydrogens=False because we loaded a heavy-only
-        # PDB (no H to strip). reconstruct=False because the test corpus
-        # doesn't have missing heavy atoms.
-        _ferritin.batch_prepare(
-            [s],
-            reconstruct=False,
-            hydrogens="all",
-            minimize=True,
-            minimize_method="lbfgs",
-            minimize_steps=500,
+        t0 = _time_perf()
+        s = _ferritin.load(pdb_path)
+        # Ferritin's template-based H placement (modifies in place)
+        _ferritin.place_all_hydrogens(s)
+        # Minimize H positions only, heavy atoms frozen. Uses AMBER96
+        # internally (verified in ferritin-connector/src/py_forcefield.rs).
+        result = _ferritin.minimize_hydrogens(
+            s,
+            max_steps=500,
             gradient_tolerance=0.1,
-            strip_hydrogens=False,
+            method="lbfgs",
+            units="kJ/mol",
         )
-        # Evaluate the post-minimization energy
-        result, elapsed = time_call(
-            _ferritin.compute_energy, s, ff="amber96", units="kJ/mol"
-        )
+        elapsed = _time_perf() - t0
+
+        components_raw = result.get("energy_components", {})
+        total = float(result.get("final_energy", 0.0))
 
         return RunnerResult(
             op="energy",
@@ -121,12 +119,14 @@ if _FERRITIN_OK:
             status="ok",
             error=None,
             payload={
-                "total": float(result["total"]),
+                "total": total,
                 "units": "kJ/mol",
                 "ff": "amber96",
-                "components": _normalize_components(result),
-                "n_unassigned_atoms": int(result.get("n_unassigned_atoms", 0)),
+                "components": _normalize_components(components_raw),
                 "n_atoms_after_h": int(s.atom_count),
+                "minimizer_steps": int(result.get("steps", 0)),
+                "minimizer_converged": bool(result.get("converged", False)),
+                "initial_energy": float(result.get("initial_energy", 0.0)),
             },
         )
 
