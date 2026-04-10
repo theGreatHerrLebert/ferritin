@@ -10,7 +10,7 @@ populated before walking it.
 """
 
 from . import _base
-from ._base import IMPORT_FAILURES, OPS, RunnerResult, register
+from ._base import BATCH_RUNNERS, IMPORT_FAILURES, OPS, RunnerResult, register, register_batch
 
 # Side-effect imports: each module registers its implementations on import.
 # Wrap in try/except so a missing optional dependency (e.g. freesasa not yet
@@ -26,4 +26,11 @@ def _safe_import(modname: str) -> None:
 for _mod in ("sasa", "energy"):
     _safe_import(_mod)
 
-__all__ = ["OPS", "RunnerResult", "register", "IMPORT_FAILURES"]
+__all__ = [
+    "OPS",
+    "BATCH_RUNNERS",
+    "RunnerResult",
+    "register",
+    "register_batch",
+    "IMPORT_FAILURES",
+]

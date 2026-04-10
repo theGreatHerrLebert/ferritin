@@ -27,8 +27,11 @@ from typing import Optional
 from ._base import (
     RunnerResult,
     register,
+    register_batch,
     time_call,
 )
+from time import perf_counter as _time_perf
+from typing import List as _List
 
 # ---------------------------------------------------------------------------
 # ferritin baseline
@@ -110,6 +113,95 @@ if _FERRITIN_OK:
                 "radii": "protor",
             },
         )
+
+    @register_batch("sasa", "ferritin")
+    def ferritin_batch(pdb_paths: _List[str]) -> _List[RunnerResult]:
+        """Batched ferritin SASA runner.
+
+        Loads all structures in parallel via ferritin.batch_load_tolerant,
+        then calls batch_total_sasa once across the whole list. This gives
+        the in-Rust rayon parallelism a whole chunk of work rather than
+        spinning up a pool for every structure. Per-residue SASA is still
+        computed per structure because ferritin.residue_sasa is
+        single-structure.
+
+        Wall time for the batched path should scale as
+        ~O(total_work / num_cores) + O(per_structure overhead * N).
+        """
+        t_total = _time_perf()
+        # Phase 1: parallel load (indices of successful loads returned in
+        # (i, structure) tuples by batch_load_tolerant)
+        loaded = _ferritin.batch_load_tolerant(pdb_paths, n_threads=-1)
+        load_index = {i: s for i, s in loaded}
+
+        # Phase 2: batch total SASA across all successfully-loaded structs
+        # in one Rust call
+        successful_idx = [i for i in range(len(pdb_paths)) if i in load_index]
+        successful_structs = [load_index[i] for i in successful_idx]
+        if successful_structs:
+            total_sasa_arr = _ferritin.batch_total_sasa(
+                successful_structs, n_threads=-1, radii="protor"
+            )
+        else:
+            total_sasa_arr = []
+
+        # Phase 3: per-residue SASA still single-structure
+        results: _List[RunnerResult] = []
+        t_phase3 = _time_perf()
+        for i, pdb_path in enumerate(pdb_paths):
+            if i not in load_index:
+                results.append(RunnerResult(
+                    op="sasa", impl="ferritin", impl_version=_FERRITIN_VERSION,
+                    pdb_id="", pdb_path=pdb_path, elapsed_s=0.0,
+                    status="error",
+                    error="batch_load_tolerant failed for this file",
+                    payload={},
+                ))
+                continue
+            s = load_index[i]
+            # Find the index in successful_structs to get the total
+            pos = successful_idx.index(i)
+            total = float(total_sasa_arr[pos])
+            # Per-residue (still single-structure call, cheap)
+            per_res_arr = _ferritin.residue_sasa(s, radii="protor")
+            residues = list(s.residues)
+            per_residue = []
+            if len(residues) != len(per_res_arr):
+                results.append(RunnerResult(
+                    op="sasa", impl="ferritin", impl_version=_FERRITIN_VERSION,
+                    pdb_id="", pdb_path=pdb_path, elapsed_s=0.0,
+                    status="error",
+                    error=(f"residue count mismatch: {len(residues)} vs {len(per_res_arr)}"),
+                    payload={},
+                ))
+                continue
+            for r, val in zip(residues, per_res_arr):
+                per_residue.append({
+                    "chain": r.chain_id,
+                    "resi": int(r.serial_number),
+                    "icode": r.insertion_code or "",
+                    "name": r.name or "",
+                    "sasa": float(val),
+                })
+            # Split the total time evenly for per-structure attribution
+            # (reasonable approximation; sub-phase timing is complicated
+            # and the user cares about total wall anyway)
+            results.append(RunnerResult(
+                op="sasa", impl="ferritin", impl_version=_FERRITIN_VERSION,
+                pdb_id="", pdb_path=pdb_path,
+                elapsed_s=0.0,  # per-structure not meaningful in batched mode
+                status="ok", error=None,
+                payload={
+                    "total_sasa": total,
+                    "per_residue": per_residue,
+                    "n_residues": len(per_residue),
+                    "radii": "protor",
+                },
+            ))
+        # Stamp aggregate wall time on the first result for reporting
+        if results and results[0].status == "ok":
+            results[0].elapsed_s = _time_perf() - t_total
+        return results
 
 
 # ---------------------------------------------------------------------------

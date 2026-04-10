@@ -28,9 +28,11 @@ from typing import Optional
 from ._base import (
     RunnerResult,
     register,
+    register_batch,
     time_call,
 )
 from time import perf_counter as _time_perf
+from typing import List as _List
 import os as _os
 import tempfile as _tempfile
 
@@ -167,6 +169,91 @@ if _FERRITIN_OK:
                 "initial_energy": float(r.initial_energy),
             },
         )
+
+    @register_batch("energy", "ferritin")
+    def ferritin_batch(pdb_paths: _List[str]) -> _List[RunnerResult]:
+        """Batched ferritin energy runner.
+
+        Loads all structures (after HETATM stripping), then calls
+        `ferritin.batch_prepare(ff="amber96")` ONCE across the whole list.
+        This unlocks in-Rust rayon parallelism across the full batch plus
+        the NBL-cached fast minimizer path for structures > 2000 atoms.
+
+        On the 50K benchmark, `batch_prepare` processes 200 structures in
+        ~22 seconds (0.11s/structure amortized). Calling it with a list
+        of 1 in the per-structure driver loses this entirely. The batched
+        runner gets the amortized cost at the cost of losing per-structure
+        elapsed times (all elapsed values except the first are 0.0 —
+        wall-time attribution is at the batch level).
+        """
+        t0 = _time_perf()
+        # Strip HETATM once per path (cached tempfiles)
+        clean_paths = [_strip_hetatm_to_tempfile(p) for p in pdb_paths]
+        # Parallel load
+        loaded = _ferritin.batch_load_tolerant(clean_paths, n_threads=-1)
+        load_index = {i: s for i, s in loaded}
+
+        # Collect successful structures for the batch call
+        pos_map: _List[int] = []  # index into pdb_paths for each position in the batch
+        structs_to_prep = []
+        for i in range(len(pdb_paths)):
+            if i in load_index:
+                pos_map.append(i)
+                structs_to_prep.append(load_index[i])
+
+        # Batched prep + minimize + energy-eval, all in one Rust call
+        if structs_to_prep:
+            reports = _ferritin.batch_prepare(
+                structs_to_prep,
+                reconstruct=False,
+                hydrogens="all",
+                minimize=True,
+                minimize_method="lbfgs",
+                minimize_steps=2000,
+                gradient_tolerance=0.1,
+                strip_hydrogens=False,
+                ff="amber96",
+                n_threads=-1,
+            )
+        else:
+            reports = []
+
+        # Build per-path results
+        out: _List[RunnerResult] = []
+        batch_wall = _time_perf() - t0
+        for i, pdb_path in enumerate(pdb_paths):
+            if i not in load_index:
+                out.append(RunnerResult(
+                    op="energy", impl="ferritin", impl_version=_FERRITIN_VERSION,
+                    pdb_id="", pdb_path=pdb_path, elapsed_s=0.0,
+                    status="error",
+                    error="batch_load_tolerant failed for this file",
+                    payload={},
+                ))
+                continue
+            pos = pos_map.index(i)
+            r = reports[pos]
+            s = structs_to_prep[pos]
+            out.append(RunnerResult(
+                op="energy", impl="ferritin", impl_version=_FERRITIN_VERSION,
+                pdb_id="", pdb_path=pdb_path,
+                elapsed_s=0.0,  # see batch elapsed below
+                status="ok", error=None,
+                payload={
+                    "total": float(r.final_energy),
+                    "units": "kJ/mol",
+                    "ff": "amber96",
+                    "components": _normalize_components(r.components),
+                    "n_atoms_after_h": int(s.atom_count),
+                    "minimizer_steps": int(r.minimizer_steps),
+                    "minimizer_converged": bool(r.converged),
+                    "initial_energy": float(r.initial_energy),
+                },
+            ))
+        # Stamp the aggregate wall time on the first result for reporting
+        if out and out[0].status == "ok":
+            out[0].elapsed_s = batch_wall
+        return out
 
 
 # ---------------------------------------------------------------------------

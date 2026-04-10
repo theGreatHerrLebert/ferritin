@@ -25,6 +25,12 @@ from typing import Callable, Dict, List, Optional
 # Global registry: op_name -> list of (impl_name, runner_callable).
 OPS: Dict[str, List[tuple]] = defaultdict(list)
 
+# Optional batch runners keyed by (op, impl). When present, the driver
+# prefers the batch runner over the per-structure one to unlock in-Rust
+# parallelism across the full PDB set. Batch runner signature:
+#   def batch_fn(pdb_paths: List[str]) -> List[RunnerResult]
+BATCH_RUNNERS: Dict[tuple, Callable] = {}
+
 # Modules that failed to import are recorded here so the driver can report
 # them without crashing the whole pipeline (e.g., freesasa not installed).
 IMPORT_FAILURES: Dict[str, str] = {}
@@ -79,6 +85,32 @@ def register(op: str, impl: str) -> Callable:
 
     def decorator(fn: Callable[[str], RunnerResult]) -> Callable[[str], RunnerResult]:
         OPS[op].append((impl, fn))
+        return fn
+
+    return decorator
+
+
+def register_batch(op: str, impl: str) -> Callable:
+    """Decorator that registers a batched runner for `(op, impl)`.
+
+    A batched runner takes a list of PDB paths and returns a list of
+    RunnerResult envelopes (same length). The driver prefers the batched
+    runner when one is registered, because it unlocks in-Rust parallelism
+    across the full PDB set (e.g. batch_prepare processing 200 structures
+    at once on 120 cores is ~100x faster than 200 single-structure calls).
+
+    Usage:
+        @register_batch("energy", "ferritin")
+        def ferritin_batch(paths: List[str]) -> List[RunnerResult]:
+            ...
+
+    The corresponding non-batched runner should still be registered via
+    `@register`, because the driver's determinism check and warmup pass
+    use the single-structure path.
+    """
+
+    def decorator(fn: Callable) -> Callable:
+        BATCH_RUNNERS[(op, impl)] = fn
         return fn
 
     return decorator

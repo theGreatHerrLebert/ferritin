@@ -35,7 +35,11 @@ _REPO = _THIS.parents[2]  # /scratch/TMAlign/ferritin
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from validation.sota_comparison.runners import OPS, IMPORT_FAILURES  # noqa: E402
+from validation.sota_comparison.runners import (  # noqa: E402
+    BATCH_RUNNERS,
+    IMPORT_FAILURES,
+    OPS,
+)
 from validation.sota_comparison.runners._base import (  # noqa: E402
     RunnerResult,
     make_error_result,
@@ -136,6 +140,8 @@ def main() -> int:
                         help="Output JSON path")
     parser.add_argument("--warmup", action="store_true",
                         help="Warm each runner with a 1crn pass before timing")
+    parser.add_argument("--force-serial", action="store_true",
+                        help="Skip batched runners, always use per-structure path")
     args = parser.parse_args()
 
     if not args.pdb_dir.is_dir():
@@ -172,18 +178,42 @@ def main() -> int:
                 _ = call_runner(op, impl, fn, "1crn", paths["1crn"])
         log("")
 
-    # Main loop
+    # Main loop. For each (op, impl) we prefer the batched runner when one
+    # is registered — it processes all PDBs in one Rust call and unlocks
+    # the in-Rust rayon parallelism. Falls back to the per-structure loop
+    # when no batch runner is registered.
     records: List[dict] = []
     t_start = time.perf_counter()
-    for pid in pdb_ids:
-        log(f"=== {pid} ===")
-        for op in op_list:
-            for impl, fn in OPS[op]:
+    for op in op_list:
+        log(f"=== op: {op} ===")
+        for impl, fn in OPS[op]:
+            batch_fn = BATCH_RUNNERS.get((op, impl))
+            if batch_fn is not None and len(pdb_ids) > 1 and not args.force_serial:
+                t0 = time.perf_counter()
+                batch_paths = [paths[pid] for pid in pdb_ids]
+                try:
+                    batch_results = batch_fn(batch_paths)
+                except Exception as e:
+                    log(f"  ✗ {impl} (batched) crashed: {type(e).__name__}: {e}")
+                    # Fall back to per-structure path below
+                    batch_results = None
+                if batch_results is not None:
+                    dt = time.perf_counter() - t0
+                    n_ok = sum(1 for r in batch_results if r.status == "ok")
+                    n_err = sum(1 for r in batch_results if r.status == "error")
+                    log(f"  batched {impl}: {dt*1000:.0f} ms total "
+                        f"({n_ok} ok, {n_err} err, {dt*1000/len(pdb_ids):.1f} ms/structure avg)")
+                    for pid, r in zip(pdb_ids, batch_results):
+                        r.pdb_id = pid
+                        records.append(r.to_dict())
+                    continue
+            # Per-structure fallback
+            for pid in pdb_ids:
                 r = call_runner(op, impl, fn, pid, paths[pid])
                 rec = r.to_dict()
                 records.append(rec)
                 marker = {"ok": "✓", "skip": "○", "error": "✗"}.get(r.status, "?")
-                log(f"  {marker} {op}/{impl}: {r.elapsed_s*1000:.1f} ms"
+                log(f"  {marker} {pid}/{impl}: {r.elapsed_s*1000:.1f} ms"
                     + (f"  ({r.error})" if r.error else ""))
     total = time.perf_counter() - t_start
     log("")
