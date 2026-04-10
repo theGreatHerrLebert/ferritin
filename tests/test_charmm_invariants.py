@@ -163,6 +163,46 @@ class TestSigns:
         )
 
 
+class TestSolvationNegative:
+    """EEF1 self-solvation MUST be negative for any folded protein.
+
+    Why this exists (regression test for the 2026-04-10 sign bug):
+    The Tier-2 weak oracle (commit 8f979f4) caught that ferritin's
+    CHARMM19+EEF1 returns POSITIVE solvation on every v1 PDB while
+    OpenMM's CHARMM36+OBC2 returns NEGATIVE. Canonical EEF1 self-
+    solvation for 1crn computed independently from the .ini parameter
+    file is -2748 kJ/mol; ferritin reports +537 kJ/mol. The bug was
+    invisible because the existing test_solvation_nontrivial only
+    checks |solvation| > 1.0 — never the sign.
+
+    This is a SOFT assertion: it depends on the convention that EEF1's
+    "solvation" reports the canonical Lazaridis-Karplus ΔG_solv, where
+    polar atoms (peptide N, carbonyl O, OH) contribute large negative
+    terms (favorable solvation) and hydrophobic CH3 contribute small
+    positives. For a real folded protein the polar terms dominate,
+    so the total Σ dg_ref is always negative under this convention.
+
+    If a future ferritin maintainer deliberately changes the sign
+    convention (e.g., reports the negation, or some "lost solvation"
+    quantity), update this test AND the SOTA aggregator's
+    `solvation_sign_agree` check in compare_energy_weak together —
+    they encode the same assumption.
+    """
+
+    def test_solvation_negative(self, charmm_energy):
+        name, e = charmm_energy
+        assert e["solvation"] < 0, (
+            f"{name}: solvation = {e['solvation']:.6f} kJ/mol is "
+            f"non-negative. EEF1 should produce a NEGATIVE total "
+            f"solvation free energy for folded proteins (canonical "
+            f"Lazaridis-Karplus convention). For 1crn, the canonical "
+            f"value computed directly from charmm19_eef1.ini is "
+            f"≈ -2748 kJ/mol. See "
+            f"validation/sota_comparison/diagnose_charmm_eef1.py for "
+            f"the regression that caught this in the first place."
+        )
+
+
 class TestSolvationActive:
     """EEF1 implicit solvation must contribute non-trivially.
 
