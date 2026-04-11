@@ -1329,4 +1329,258 @@ mod gradient_tests {
             );
         }
     }
+
+    // ------------------------------------------------------------------
+    // Physical symmetry tests
+    //
+    // These would catch any class of bug where a position-absolute term
+    // sneaks into the energy function. None of the existing tests cover
+    // this; numerical gradient tests catch wrong derivatives, parity
+    // tests catch NBL-vs-exact divergence, but neither catches
+    // "electrostatic energy depends on the absolute origin of the
+    // coordinate system."
+    //
+    // The tests are parametrized over force field via a generic helper
+    // so adding a new FF (amber14, charmm36, ...) means appending to
+    // the list of #[test] wrappers at the bottom — not rewriting the
+    // check logic.
+    // ------------------------------------------------------------------
+
+    /// Apply a rigid translation to every coordinate: `coords[i] += delta`.
+    fn translate(coords: &[[f64; 3]], delta: [f64; 3]) -> Vec<[f64; 3]> {
+        coords
+            .iter()
+            .map(|c| [c[0] + delta[0], c[1] + delta[1], c[2] + delta[2]])
+            .collect()
+    }
+
+    /// Apply a rigid rotation about the origin. Axis is Z, angle in radians.
+    /// (Simple case — a single axis is enough to catch rotation-dependence
+    /// bugs; we don't need full Euler-angle coverage for a regression test.)
+    fn rotate_z(coords: &[[f64; 3]], theta: f64) -> Vec<[f64; 3]> {
+        let c = theta.cos();
+        let s = theta.sin();
+        coords
+            .iter()
+            .map(|p| [c * p[0] - s * p[1], s * p[0] + c * p[1], p[2]])
+            .collect()
+    }
+
+    /// Core symmetry check: energy at `coords` must equal energy at
+    /// `transformed_coords` to `tol` on every component. Generic over the
+    /// force field so both AMBER and CHARMM share the same assertion.
+    fn assert_symmetry<F: ForceField>(
+        ff: &F,
+        ff_name: &str,
+        transform_name: &str,
+        original: &[[f64; 3]],
+        transformed: &[[f64; 3]],
+        topo: &Topology,
+        tol: f64,
+    ) {
+        let e_orig = compute_energy_impl(original, topo, ff, false);
+        let e_xform = compute_energy_impl(transformed, topo, ff, false);
+
+        let components = [
+            ("bond_stretch", e_orig.bond_stretch, e_xform.bond_stretch),
+            ("angle_bend", e_orig.angle_bend, e_xform.angle_bend),
+            ("torsion", e_orig.torsion, e_xform.torsion),
+            ("improper_torsion", e_orig.improper_torsion, e_xform.improper_torsion),
+            ("vdw", e_orig.vdw, e_xform.vdw),
+            ("electrostatic", e_orig.electrostatic, e_xform.electrostatic),
+            ("solvation", e_orig.solvation, e_xform.solvation),
+            ("total", e_orig.total, e_xform.total),
+        ];
+        for (name, orig, xform) in components {
+            let diff = (orig - xform).abs();
+            // Relative tolerance on large values (electrostatic on a clashy
+            // raw PDB can be O(10⁵) kcal/mol; forcing strict 1e-6 there is
+            // pointless). Absolute floor catches any near-zero component.
+            let rel_tol = tol.max(1e-10 * orig.abs());
+            assert!(
+                diff < rel_tol,
+                "[{}/{}] {}: orig={:.9} xform={:.9} diff={:.3e} tol={:.3e}",
+                ff_name, transform_name, name, orig, xform, diff, rel_tol
+            );
+        }
+    }
+
+    fn check_translation_invariance<F: ForceField>(ff: &F, ff_name: &str) {
+        let pdb = crambin_with_h();
+        let topo = build_topology(pdb, ff);
+        let coords = collect_coords(pdb);
+
+        // A few translations: small, medium, and large (to make sure the
+        // energy is invariant far from the origin too — catches bugs where
+        // numerical error accumulates with coordinate magnitude).
+        for &delta in &[[0.5, 0.0, 0.0], [10.0, 20.0, 30.0], [1000.0, -500.0, 250.0]] {
+            let translated = translate(&coords, delta);
+            assert_symmetry(
+                ff, ff_name,
+                &format!("translate{:?}", delta),
+                &coords, &translated, &topo,
+                1e-6,
+            );
+        }
+    }
+
+    fn check_rotation_invariance<F: ForceField>(ff: &F, ff_name: &str) {
+        let pdb = crambin_with_h();
+        let topo = build_topology(pdb, ff);
+        let coords = collect_coords(pdb);
+
+        // A few rotation angles. π/3 and π/2 catch sign bugs; π/7 catches
+        // any bug where the check happens to pass on "nice" angles.
+        for &theta in &[
+            std::f64::consts::PI / 7.0,
+            std::f64::consts::PI / 3.0,
+            std::f64::consts::PI / 2.0,
+            std::f64::consts::PI * 0.9,
+        ] {
+            let rotated = rotate_z(&coords, theta);
+            // Rotation invariance has a slightly higher numerical floor
+            // than translation — rotating multiplies every coordinate by
+            // a 3×3 matrix, so FP error scales with |coord|. A rigid-body
+            // rotation on coords ~10 Å changes FP ordering in dist() and
+            // dot() calls, which gives O(1e-9) drift on large components.
+            assert_symmetry(
+                ff, ff_name,
+                &format!("rotate_z({:.3})", theta),
+                &coords, &rotated, &topo,
+                1e-4,
+            );
+        }
+    }
+
+    fn check_rigid_body_forces_sum_to_zero<F: ForceField>(ff: &F, ff_name: &str) {
+        // Newton's third law applied to an isolated system: the sum of
+        // forces on all atoms must be zero (translational symmetry of the
+        // Lagrangian → momentum conservation). Any nonzero total force is
+        // a spurious "body force" — equivalent to an external field leaking
+        // into the supposedly-internal energy function.
+        let pdb = crambin_with_h();
+        let topo = build_topology(pdb, ff);
+        let coords = collect_coords(pdb);
+        let (_, forces) = compute_energy_and_forces_impl(&coords, &topo, ff, false);
+
+        let mut sum = [0.0_f64; 3];
+        for f in &forces {
+            sum[0] += f[0];
+            sum[1] += f[1];
+            sum[2] += f[2];
+        }
+        let mag = (sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]).sqrt();
+        // Tolerance: 1e-6 kcal/mol/Å in any component is below the noise
+        // floor of the force kernel. Large LJ interactions on raw PDBs
+        // produce per-atom forces of O(10⁴), and the sum over 600 atoms
+        // FP-accumulates to ~1e-9 * 10⁴ * 600 ≈ 1e-2 — so we need a
+        // relative tolerance. 1e-8 × max-|f| is enough.
+        let max_f = forces.iter().fold(0.0_f64, |m, f| {
+            let n = (f[0] * f[0] + f[1] * f[1] + f[2] * f[2]).sqrt();
+            m.max(n)
+        });
+        let tol = (1e-6_f64).max(1e-8 * max_f);
+        assert!(
+            mag < tol,
+            "[{}] Σforces = ({:.3e}, {:.3e}, {:.3e}), |Σ|={:.3e} > tol={:.3e}. \
+             max per-atom force magnitude = {:.3e}",
+            ff_name, sum[0], sum[1], sum[2], mag, tol, max_f
+        );
+    }
+
+    #[test]
+    fn translation_invariance_amber96() {
+        check_translation_invariance(&amber96(), "amber96");
+    }
+
+    #[test]
+    fn translation_invariance_charmm19_eef1() {
+        use crate::forcefield::params::charmm19_eef1;
+        check_translation_invariance(&charmm19_eef1(), "charmm19_eef1");
+    }
+
+    #[test]
+    fn rotation_invariance_amber96() {
+        check_rotation_invariance(&amber96(), "amber96");
+    }
+
+    #[test]
+    fn rotation_invariance_charmm19_eef1() {
+        use crate::forcefield::params::charmm19_eef1;
+        check_rotation_invariance(&charmm19_eef1(), "charmm19_eef1");
+    }
+
+    #[test]
+    fn rigid_body_forces_sum_to_zero_amber96() {
+        check_rigid_body_forces_sum_to_zero(&amber96(), "amber96");
+    }
+
+    #[test]
+    fn rigid_body_forces_sum_to_zero_charmm19_eef1() {
+        use crate::forcefield::params::charmm19_eef1;
+        check_rigid_body_forces_sum_to_zero(&charmm19_eef1(), "charmm19_eef1");
+    }
+
+    // ------------------------------------------------------------------
+    // Extended numerical gradient tests — cover CHARMM19+EEF1 too.
+    // The existing gradient_matches_numerical_on_hydrogens /
+    // gradient_matches_numerical_on_heavy_atoms tests only run AMBER96;
+    // CHARMM had no gradient-consistency check until now. A sign error
+    // in eef1_energy_and_forces (e.g. wrong force accumulation direction)
+    // wouldn't be caught by the numerical-gradient tests on AMBER since
+    // AMBER never calls EEF1.
+    // ------------------------------------------------------------------
+
+    fn check_gradient_on_atoms_charmm(indices: &[usize]) {
+        use crate::forcefield::params::charmm19_eef1;
+        let pdb = crambin_with_h();
+        let ff = charmm19_eef1();
+        let topo = build_topology(pdb, &ff);
+        let coords = collect_coords(pdb);
+        let (_, forces) = compute_energy_and_forces_impl(&coords, &topo, &ff, false);
+
+        let eps = 1e-5;
+        for &idx in indices {
+            for d in 0..3 {
+                let mut shifted = coords.clone();
+                shifted[idx][d] += eps;
+                let ep = compute_energy_impl(&shifted, &topo, &ff, false).total;
+                shifted[idx][d] -= 2.0 * eps;
+                let em = compute_energy_impl(&shifted, &topo, &ff, false).total;
+                let num_grad = (ep - em) / (2.0 * eps);
+                let ana_grad = -forces[idx][d];
+
+                let axis = ['x', 'y', 'z'][d];
+                let tol = 1e-3 + 1e-3 * ana_grad.abs();
+                let diff = (num_grad - ana_grad).abs();
+                assert!(
+                    diff < tol,
+                    "[charmm19_eef1] Gradient mismatch on atom {} axis {}: analytical={:.6}, numerical={:.6}, diff={:.2e}, tol={:.2e}",
+                    idx, axis, ana_grad, num_grad, diff, tol
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn charmm19_eef1_gradient_matches_numerical_on_hydrogens() {
+        use crate::forcefield::params::charmm19_eef1;
+        let pdb = crambin_with_h();
+        let ff = charmm19_eef1();
+        let topo = build_topology(pdb, &ff);
+        let h_indices: Vec<usize> = topo
+            .atoms
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| if a.is_hydrogen { Some(i) } else { None })
+            .take(5)
+            .collect();
+        assert!(!h_indices.is_empty(), "no hydrogens found in topology");
+        check_gradient_on_atoms_charmm(&h_indices);
+    }
+
+    #[test]
+    fn charmm19_eef1_gradient_matches_numerical_on_heavy_atoms() {
+        check_gradient_on_atoms_charmm(&[0, 4, 10, 25, 50]);
+    }
 }

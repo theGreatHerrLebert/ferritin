@@ -1,0 +1,15 @@
+{
+  "components": {
+    "angle_bend": 3857.595171687381,
+    "bond_stretch": 2028.7093724164931,
+    "electrostatic": 351843.69684531685,
+    "improper_torsion": 0.0,
+    "solvation": -21069.570691490666,
+    "torsion": 4692.405610351855,
+    "vdw": 1301.192309601394
+  },
+  "ff": "charmm19_eef1",
+  "pdb": "1ake",
+  "total": 342654.02861788333,
+  "units": "kJ/mol"
+}
