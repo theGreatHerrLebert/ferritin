@@ -1,11 +1,11 @@
 {
   "components": {
     "angle_bend": 282.12104951352484,
-    "bond_stretch": 354.89162071650264,
+    "bond_stretch": 354.8916207165028,
     "electrostatic": 80355.57163808217,
     "improper_torsion": 2.212303925995651,
     "solvation": 0.0,
-    "torsion": 703.1710010085164,
+    "torsion": 703.1710010085155,
     "vdw": -425.37496683061465
   },
   "ff": "amber96",

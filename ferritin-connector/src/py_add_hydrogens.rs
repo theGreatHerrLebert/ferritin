@@ -16,6 +16,13 @@ use crate::py_pdb::PyPDB;
 /// [`crate::altloc::primary_conformer`]: blank altLoc first, then "A", then
 /// the first available conformer.
 ///
+/// Water residues are SKIPPED in lockstep with `build_topology`, which
+/// excludes them from the FFAtom list under a vacuum protein FF. Without
+/// this skip, the coord array (which only contains non-water atoms) would
+/// be shorter than the number of atoms we try to write back, and the
+/// assert below fires. See `crate::forcefield::topology::build_topology`
+/// for the matching skip.
+///
 /// Panics if the coordinate array doesn't match the atom count.
 fn apply_coords_to_pdb(pdb: &mut pdbtbx::PDB, coords: &[[f64; 3]]) {
     let mut idx = 0;
@@ -26,6 +33,13 @@ fn apply_coords_to_pdb(pdb: &mut pdbtbx::PDB, coords: &[[f64; 3]]) {
     };
     for chain in first_model.chains_mut() {
         for residue in chain.residues_mut() {
+            // Skip waters — must mirror the skip in build_topology,
+            // otherwise the coord array is too short.
+            let res_name = residue.name().unwrap_or("UNK").to_string();
+            if add_hydrogens::is_water_residue(&res_name) {
+                continue;
+            }
+
             // Determine the primary-conformer alt_loc in an immutable scan,
             // then iterate mutably and update only atoms in that conformer.
             let primary_alt: Option<Option<String>> = {
@@ -463,19 +477,46 @@ where
                         // reuse the same topology for the minimizer.
                         let topo = crate::forcefield::topology::build_topology(pdb, ff);
                         let n_unassigned = topo.unassigned_atoms.len();
-                        let total_atoms = topo.atoms.len();
 
-                        // Heuristic: if more than half the atoms have no force
-                        // field type (e.g. nucleic acids, ligand-only entries,
-                        // exotic non-standard residues) then the protein prep
-                        // pipeline is the wrong tool. Skip minimization and
-                        // mark the structure so downstream consumers can
-                        // distinguish "convergence failed" from "skipped, not
-                        // a protein". Threshold 50% picks DNA/RNA cleanly
-                        // (193d: 394/404 unassigned) without false-flagging
-                        // proteins with bound ligands or short HETATM tails.
+                        // Heuristic: if more than half the NON-WATER atoms have
+                        // no force field type (e.g. nucleic acids, ligand-only
+                        // entries, exotic non-standard residues) then the
+                        // protein prep pipeline is the wrong tool. Skip
+                        // minimization and mark the structure so downstream
+                        // consumers can distinguish "convergence failed" from
+                        // "skipped, not a protein".
+                        //
+                        // Waters (HOH, WAT, ...) are EXCLUDED from both the
+                        // numerator and denominator: they're expected to be
+                        // "unassigned" under a protein-only force field, but
+                        // their presence doesn't mean the pipeline should give
+                        // up. Before this exclusion, 1bpi (58-residue protein
+                        // with 167 crystal waters + 2 PO4 ions) got classified
+                        // as not-a-protein because after H placement the water
+                        // atoms outnumbered the protein atoms by a hair
+                        // (544/1065 ≈ 51% unassigned, above the 50% line).
+                        // Post-fix, only the non-water atoms count: for 1bpi
+                        // that's ~44/565 ≈ 8% unassigned, well below threshold.
+                        //
+                        // Threshold 50% still picks DNA/RNA cleanly (193d: 394
+                        // of ~404 non-water atoms unassigned) without false-
+                        // flagging proteins with bound ligands or HETATM tails.
+                        let non_water_total = topo
+                            .atoms
+                            .iter()
+                            .filter(|a| !crate::add_hydrogens::is_water_residue(&a.residue_name))
+                            .count();
+                        let non_water_unassigned = topo
+                            .unassigned_atoms
+                            .iter()
+                            .filter(|s| {
+                                // Unassigned entries are formatted "ResName:AtomName".
+                                let res = s.split(':').next().unwrap_or("");
+                                !crate::add_hydrogens::is_water_residue(res)
+                            })
+                            .count();
                         let skipped_no_protein =
-                            total_atoms > 0 && n_unassigned * 2 > total_atoms;
+                            non_water_total > 0 && non_water_unassigned * 2 > non_water_total;
 
                         let mut out = PrepareResult::empty();
                         out.reconstructed = reconstructed;

@@ -1,15 +1,15 @@
 {
   "components": {
     "angle_bend": 614.6245426872474,
-    "bond_stretch": 6390.217334936715,
-    "electrostatic": 111932.9861838883,
+    "bond_stretch": 6390.217334936701,
+    "electrostatic": 35106.18431281571,
     "improper_torsion": 19.191375063189625,
     "solvation": 0.0,
     "torsion": 1208.9600570475504,
-    "vdw": 8203992.507500272
+    "vdw": 8203892.795753214
   },
   "ff": "amber96",
   "pdb": "1ubq",
-  "total": 8324158.486993896,
+  "total": 8247231.973375764,
   "units": "kJ/mol"
 }

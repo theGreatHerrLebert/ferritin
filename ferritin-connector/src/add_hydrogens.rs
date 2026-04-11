@@ -986,8 +986,16 @@ fn general_handle_atom(
 /// First runs Phase 1+2 (backbone + sidechain templates), then applies
 /// the general algorithm to any remaining unsaturated heavy atoms
 /// (ligands, modified residues, cofactors).
-/// Water residue names.
-const WATER_NAMES: &[&str] = &["HOH", "WAT", "H2O", "TIP", "TIP3", "SPC", "DOD"];
+/// Water residue names. Made `pub(crate)` so other modules (e.g. the
+/// batch_prepare "is this a protein?" heuristic in py_add_hydrogens)
+/// can exclude waters from unassigned-atom counts without duplicating
+/// the list.
+pub(crate) const WATER_NAMES: &[&str] = &["HOH", "WAT", "H2O", "TIP", "TIP3", "SPC", "DOD"];
+
+/// Check whether a residue name refers to a water molecule.
+pub(crate) fn is_water_residue(name: &str) -> bool {
+    WATER_NAMES.iter().any(|&w| w == name)
+}
 
 /// Place 2 H on a water molecule's oxygen atom.
 fn place_water_h(o_pos: [f64; 3]) -> [[f64; 3]; 2] {

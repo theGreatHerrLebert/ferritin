@@ -130,7 +130,17 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
     // not from raw PDB geometry. Applying it here would change charges and
     // diverge from BALL's behavior.
 
-    // Step 1: Extract atoms with type assignment using variant names
+    // Step 1: Extract atoms with type assignment using variant names.
+    //
+    // Water residues (HOH, WAT, H2O, ...) are SKIPPED entirely: they have
+    // no FF type under a vacuum protein force field, and including them
+    // with a fallback atom type (CT/H/etc.) causes catastrophic
+    // 1/r^12 blowups because crystal water-water distances (2.5-3.5 Å)
+    // sit deep inside the CT-CT pair Rmin of ~4.98 Å. On 1bpi this
+    // produced vdW ≈ +29 million kJ/mol post-minimization before the
+    // fix. If the user wants explicit waters, they need a solvated
+    // force field (e.g. TIP3P), not a vacuum protein FF. See also
+    // crate::add_hydrogens::is_water_residue.
     let mut atoms = Vec::new();
     let mut unassigned_atoms = Vec::new();
     res_idx = 0;
@@ -138,6 +148,13 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
     for chain in first_model.chains() {
         for residue in chain.residues() {
             let base_name = residue.name().unwrap_or("UNK").to_string();
+
+            // Skip waters entirely — see module comment above.
+            if crate::add_hydrogens::is_water_residue(&base_name) {
+                res_idx += 1;
+                continue;
+            }
+
             let lookup_name = residue_variants.get(&res_idx)
                 .cloned()
                 .unwrap_or_else(|| base_name.clone());
