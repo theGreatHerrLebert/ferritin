@@ -74,17 +74,50 @@ CHARMM_COMPONENTS = (
 )
 
 
-@pytest.fixture(params=V1_PDBS, ids=[p[0] for p in V1_PDBS])
+# Path regimes to exercise every CHARMM invariant through. The goal is
+# to catch the class of bug where the neighbor-list path silently diverges
+# from the exact path — for example the 2026-04-11 regression where
+# compute_energy_and_forces_nbl skipped EEF1 entirely, leaving solvation
+# at 0 for every structure above NBL_AUTO_THRESHOLD. That bug escaped
+# detection for months because every v1 PDB except 1ake is small enough
+# to stay on the exact path by default.
+#
+# "default"     → whichever path the library's NBL_AUTO_THRESHOLD picks
+#                 (exact for small PDBs, NBL for >2000 atoms)
+# "force_nbl"   → nbl_threshold=0, always take the NBL path
+# "forbid_nbl"  → nbl_threshold=10_000_000, always take the exact path
+PATHS = [
+    ("default", None),
+    ("force_nbl", 0),
+    ("forbid_nbl", 10_000_000),
+]
+
+_PDB_PATH_PARAMS = [
+    (pdb, path) for pdb in V1_PDBS for path in PATHS
+]
+_PDB_PATH_IDS = [
+    f"{pdb[0]}-{path[0]}" for pdb in V1_PDBS for path in PATHS
+]
+
+
+@pytest.fixture(params=_PDB_PATH_PARAMS, ids=_PDB_PATH_IDS)
 def charmm_energy(request):
-    """(name, energy_dict) tuple, parametrized over the v1 reference set.
+    """(name, energy_dict) tuple, parametrized over (V1 PDB × code path).
 
     Uses `compute_energy` (not `batch_prepare`) so the input geometry is
     the raw PDB — no H placement, no minimization. This is the cleanest
     "is the energy kernel correct on a known input" measurement.
+
+    The code-path dimension ensures every invariant runs on BOTH the
+    O(N²) exact path and the neighbor-list path. Without this, the NBL
+    implementation could silently diverge from the exact one as long as
+    no default-sized test PDB happened to cross NBL_AUTO_THRESHOLD.
     """
-    name, path = request.param
+    (name, path), (_path_id, nbl_threshold) = request.param
     s = ferritin.load(path)
-    e = ferritin.compute_energy(s, ff=CHARMM, units="kJ/mol")
+    e = ferritin.compute_energy(
+        s, ff=CHARMM, units="kJ/mol", nbl_threshold=nbl_threshold
+    )
     return name, e
 
 

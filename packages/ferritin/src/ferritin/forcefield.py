@@ -114,6 +114,7 @@ def compute_energy(
     structure,
     ff: str = "amber96",
     units: str = "kJ/mol",
+    nbl_threshold: int | None = None,
 ) -> dict:
     """Compute force field energy of a structure.
 
@@ -121,13 +122,19 @@ def compute_energy(
         structure: Ferritin Structure object.
         ff: Force field — "amber96" (default) or "charmm19_eef1".
         units: Energy units — "kJ/mol" (default) or "kcal/mol".
+        nbl_threshold: Optional override for the neighbor-list atom-count
+            threshold. None (default) uses the library default of 2000.
+            Set to 0 to force the neighbor-list path for every structure,
+            or to a very large value to force the O(N²) exact path. Only
+            useful for cross-path parity testing; leave as None in normal
+            use.
 
     Returns dict with energy components:
         bond_stretch, angle_bend, torsion, improper_torsion,
         vdw, electrostatic, solvation, total
     """
     u = _validate_units(units)
-    result = _ff.compute_energy(_get_ptr(structure), ff)
+    result = _ff.compute_energy(_get_ptr(structure), ff, nbl_threshold)
     return _convert_energy_dict(result, u)
 
 

@@ -17,27 +17,49 @@ fn build_pool(n_threads: usize) -> rayon::ThreadPool {
     builder.build().expect("failed to build rayon thread pool")
 }
 
-/// Compute AMBER force field energy of a structure.
+/// Compute force field energy of a structure.
 ///
 /// Returns dict with energy components:
-///   bond_stretch, angle_bend, torsion, vdw, electrostatic, total
-///   (all in kcal/mol)
+///   bond_stretch, angle_bend, torsion, improper_torsion, vdw,
+///   electrostatic, solvation, total
+///   (all in kcal/mol internally; Python wrapper can convert)
+///
+/// Args:
+///     pdb: Structure to evaluate.
+///     ff: Force field name ("amber96" or "charmm19_eef1").
+///     nbl_threshold: Optional override for the neighbor-list atom-count
+///         threshold. If None, uses the library default (2000 atoms).
+///         Set to 0 to force the NBL path for any structure, or to a very
+///         large value (e.g. 10_000_000) to force the O(N²) exact path.
+///         Primarily intended for regression testing — exposing the two
+///         paths so cross-path parity can be verified from Python.
 #[pyfunction]
-#[pyo3(signature = (pdb, ff="amber96"))]
-pub fn compute_energy(py: Python<'_>, pdb: &PyPDB, ff: &str) -> PyResult<PyObject> {
+#[pyo3(signature = (pdb, ff="amber96", nbl_threshold=None))]
+pub fn compute_energy(
+    py: Python<'_>,
+    pdb: &PyPDB,
+    ff: &str,
+    nbl_threshold: Option<usize>,
+) -> PyResult<PyObject> {
     let (topo, result) = match ff {
         "charmm" | "charmm19" | "charmm19_eef1" => {
             let charmm = params::charmm19_eef1();
             let topo = topology::build_topology(&pdb.inner, &charmm);
             let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
-            let result = py.allow_threads(|| energy::compute_energy(&coords, &topo, &charmm));
+            let result = py.allow_threads(|| match nbl_threshold {
+                Some(t) => energy::compute_energy_auto(&coords, &topo, &charmm, t),
+                None => energy::compute_energy(&coords, &topo, &charmm),
+            });
             (topo, result)
         }
         "amber" | "amber96" => {
             let amber = params::amber96();
             let topo = topology::build_topology(&pdb.inner, &amber);
             let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
-            let result = py.allow_threads(|| energy::compute_energy(&coords, &topo, &amber));
+            let result = py.allow_threads(|| match nbl_threshold {
+                Some(t) => energy::compute_energy_auto(&coords, &topo, &amber, t),
+                None => energy::compute_energy(&coords, &topo, &amber),
+            });
             (topo, result)
         }
         _ => {
