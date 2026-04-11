@@ -74,6 +74,60 @@ fn max_bond_distance(elem_a: &str, elem_b: &str) -> f64 {
     }
 }
 
+/// Shared predicate: should this (residue_name, atom_name, element) triple
+/// be included in the force-field topology?
+///
+/// Returns `false` in two cases that must be mirrored across
+/// `build_topology` and `apply_coords_to_pdb` (coordinate write-back
+/// after minimization) so the two stay in lockstep:
+///
+/// 1. **Water residue** (HOH/WAT/...) — waters have no type in a vacuum
+///    protein FF and were previously catastrophically clashing when
+///    fallback-typed as CT. See the water-skip commit message for
+///    numerical impact.
+///
+/// 2. **Non-polar hydrogen with no FF entry** — under polar-H united-
+///    atom force fields (CHARMM19+EEF1), C-H atoms don't exist at all;
+///    they're absorbed into CH1E/CH2E/CH3E united carbon types. Adding
+///    them with a fallback "H" type produced ~40% unassigned atoms and
+///    wrong-signed totals on every v1 PDB except 1crn. See the related
+///    commit for the BALL + GROMACS cross-oracle confirmation.
+///
+/// If you change this function, update `apply_coords_to_pdb` in
+/// `crate::py_add_hydrogens` in the same commit.
+pub(crate) fn should_include_atom<F: ForceField + ?Sized>(
+    residue_name: &str,
+    atom_name: &str,
+    element: &str,
+    params: &F,
+    // The residue lookup name used by build_topology — for terminal
+    // variants this is "ALA-N" / "VAL-C" / etc. so the FF has a chance
+    // to resolve N-terminal H, OXT, etc. apply_coords_to_pdb doesn't
+    // know the variants (it has no topology context), so it passes the
+    // base name and relies on the or_else fallback in get_atom_type.
+    lookup_name: &str,
+) -> bool {
+    // Waters: skip entirely.
+    if crate::add_hydrogens::is_water_residue(residue_name) {
+        return false;
+    }
+
+    // For hydrogens: skip if the FF has no entry for this
+    // (residue, atom_name) pair. Non-H atoms with no entry fall
+    // through to the topology-builder fallback for visibility.
+    let is_hydrogen = element == "H" || element == "D";
+    if is_hydrogen {
+        let found = params
+            .get_atom_type(lookup_name, atom_name)
+            .or_else(|| params.get_atom_type(residue_name, atom_name))
+            .is_some();
+        if !found {
+            return false;
+        }
+    }
+    true
+}
+
 /// Build topology from a PDB structure.
 pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
     // Step 0: Pre-scan to detect terminal residues and disulfide CYS.
@@ -132,15 +186,12 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
 
     // Step 1: Extract atoms with type assignment using variant names.
     //
-    // Water residues (HOH, WAT, H2O, ...) are SKIPPED entirely: they have
-    // no FF type under a vacuum protein force field, and including them
-    // with a fallback atom type (CT/H/etc.) causes catastrophic
-    // 1/r^12 blowups because crystal water-water distances (2.5-3.5 Å)
-    // sit deep inside the CT-CT pair Rmin of ~4.98 Å. On 1bpi this
-    // produced vdW ≈ +29 million kJ/mol post-minimization before the
-    // fix. If the user wants explicit waters, they need a solvated
-    // force field (e.g. TIP3P), not a vacuum protein FF. See also
-    // crate::add_hydrogens::is_water_residue.
+    // Waters, non-polar hydrogens under polar-H force fields, and other
+    // "skipped atoms" are filtered out via `should_include_atom`. That
+    // predicate is the single source of truth for the include/skip
+    // decision, and `apply_coords_to_pdb` must call the same function
+    // so the coord write-back iterates in lockstep with the topology.
+    // See the module comment on `should_include_atom` for rationale.
     let mut atoms = Vec::new();
     let mut unassigned_atoms = Vec::new();
     res_idx = 0;
@@ -148,13 +199,6 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
     for chain in first_model.chains() {
         for residue in chain.residues() {
             let base_name = residue.name().unwrap_or("UNK").to_string();
-
-            // Skip waters entirely — see module comment above.
-            if crate::add_hydrogens::is_water_residue(&base_name) {
-                res_idx += 1;
-                continue;
-            }
-
             let lookup_name = residue_variants.get(&res_idx)
                 .cloned()
                 .unwrap_or_else(|| base_name.clone());
@@ -172,23 +216,49 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
                     .unwrap_or_else(|| "C".to_string());
                 let is_hydrogen = element == "H" || element == "D";
 
-                // Look up AMBER type and charge: try variant name first, then base name
-                let (amber_type, charge) = params.get_atom_type(&lookup_name, &atom_name)
-                    .or_else(|| params.get_atom_type(&base_name, &atom_name))
-                    .map(|e| (e.amber_type.clone(), e.charge))
-                    .unwrap_or_else(|| {
+                // Shared include/skip predicate — identical in
+                // apply_coords_to_pdb. See `should_include_atom` above.
+                //
+                // Skipped atoms are NOT added to `unassigned_atoms`. That
+                // field tracks "atoms we wanted to put into the topology
+                // but couldn't figure out a type for" — it's a signal
+                // for the `skipped_no_protein` heuristic in batch_prepare
+                // and a diagnostic for users. Atoms skipped here are
+                // skipped by DESIGN (waters because the FF is vacuum,
+                // non-polar H because the FF is polar-H united-atom), not
+                // because of a typing failure. Conflating the two would
+                // re-break the heuristic — it would count expected skips
+                // against the "is this a protein?" threshold and falsely
+                // reject valid inputs.
+                if !should_include_atom(&base_name, &atom_name, &element, params, &lookup_name) {
+                    continue;
+                }
+
+                // At this point the predicate said "include". For hydrogens
+                // this means the FF has a type for (residue, atom_name).
+                // For non-H it means "not water, maybe unknown ligand —
+                // include with whatever the lookup gives us, falling back
+                // to a default type if unknown". The fallback path is
+                // retained for visibility of unknown ligand atoms.
+                let lookup = params.get_atom_type(&lookup_name, &atom_name)
+                    .or_else(|| params.get_atom_type(&base_name, &atom_name));
+                let (amber_type, charge) = match lookup {
+                    Some(e) => (e.amber_type.clone(), e.charge),
+                    None => {
+                        // Only non-H atoms reach here — H would have been
+                        // skipped by the predicate above.
                         unassigned_atoms.push(format!("{}:{}", base_name, atom_name));
                         let t = match element.as_str() {
                             "C" => "CT",
                             "N" => "N",
                             "O" => "O",
                             "S" => "S",
-                            "H" => "H",
                             "P" => "P",
                             _ => "CT",
                         };
                         (t.to_string(), 0.0)
-                    });
+                    }
+                };
 
                 atoms.push(FFAtom {
                     pos: [x, y, z],

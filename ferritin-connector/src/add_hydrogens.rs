@@ -700,7 +700,13 @@ fn compute_sidechain_h(
 ///
 /// Template-based placement for the 20 standard amino acids.
 /// Handles HA, methyl, methylene, aromatic, hydroxyl, and amide H.
-pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
+///
+/// If `polar_only` is true, non-polar H (HA, HB*, HG*, HD*, HE*-carbon,
+/// methyl/methylene/methine) are NOT placed — only hydrogens bonded to
+/// N/O/S (guanidinium, amide, hydroxyl, thiol, imidazole, indole N-H,
+/// and the N-terminal NH3+) are added. This matches GROMACS's
+/// pdb2gmx hydrogen database for polar-H united-atom force fields.
+pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> AddHydrogensResult {
     let mut placements: Vec<(usize, usize, String, [f64; 3], usize)> = Vec::new();
     let mut skipped = 0;
     let mut max_serial: usize = crate::altloc::pdb_atoms_primary(pdb)
@@ -757,6 +763,13 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
             let new_hs = compute_sidechain_h(&resname, &positions, &existing_h, &all_sg_positions);
 
             for (h_name, pos) in &new_hs {
+                // Layer A: under polar-H force fields (CHARMM19), only
+                // place hydrogens bonded to N/O/S. Skip non-polar C-H
+                // atoms — they don't exist as distinct atoms in the
+                // united-atom model.
+                if polar_only && !is_polar_sidechain_h(&resname, h_name) {
+                    continue;
+                }
                 max_serial += 1;
                 placements.push((chain_idx, residue_idx, h_name.clone(), *pos, max_serial));
             }
@@ -834,9 +847,15 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
 }
 
 /// Place all hydrogens: backbone amide H + sidechain H.
-pub fn place_all_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
+///
+/// If `polar_only` is true, only hydrogens bonded to N/O/S are placed
+/// (matching polar-H united-atom force fields like CHARMM19). The
+/// backbone amide H is always polar so `place_peptide_hydrogens` is
+/// called unconditionally; only `place_sidechain_hydrogens` branches
+/// on the flag.
+pub fn place_all_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> AddHydrogensResult {
     let r1 = place_peptide_hydrogens(pdb);
-    let r2 = place_sidechain_hydrogens(pdb);
+    let r2 = place_sidechain_hydrogens(pdb, polar_only);
     AddHydrogensResult {
         added: r1.added + r2.added,
         skipped: r1.skipped + r2.skipped,
@@ -997,6 +1016,59 @@ pub(crate) fn is_water_residue(name: &str) -> bool {
     WATER_NAMES.iter().any(|&w| w == name)
 }
 
+/// Return true if the given `(residue, hydrogen_atom_name)` pair is a
+/// POLAR hydrogen — one bonded to N, O, or S in the standard amino
+/// acids. Polar H exist under both explicit-H force fields (AMBER96)
+/// and polar-H-only united-atom force fields (CHARMM19). Non-polar H
+/// (bonded to C) are absorbed into united carbon types CH1E/CH2E/CH3E
+/// in CHARMM19 and must NOT be placed when a polar-H FF is active.
+///
+/// This table is the single source of truth for "which sidechain H
+/// to keep in CHARMM19 mode". Cross-referenced against:
+///   * BALL /data/CHARMM/EEF1/param19_eef1.ini residue templates
+///   * GROMACS /share/top/gromos54a7.ff/aminoacids.hdb placement rules
+/// Both oracles agree on the set below. If you add support for a new
+/// residue (non-standard AA, modified residue), extend this function.
+pub(crate) fn is_polar_sidechain_h(residue: &str, h_name: &str) -> bool {
+    // Backbone amide H is placed by `place_peptide_hydrogens`, not
+    // this sidechain path — so "H" and "HN" and numbered variants
+    // are handled elsewhere. The N-terminal H1/H2/H3 ("NH3+") are
+    // placed by the sidechain path below, but they're on N, so they
+    // count as polar.
+    match residue {
+        // Charged N-terminus (placed by sidechain path): always polar.
+        _ if h_name == "H1" || h_name == "H2" || h_name == "H3" => true,
+        // C-terminal carboxyl (placed by sidechain path): polar.
+        _ if h_name == "HXT" || h_name == "HOXT" => true,
+        // Arg: backbone H (elsewhere) + guanidinium HE, HH* — all polar.
+        "ARG" => matches!(h_name, "HE" | "HH11" | "HH12" | "HH21" | "HH22"),
+        // Lys: NH3+ HZ1/HZ2/HZ3 — polar.
+        "LYS" => matches!(h_name, "HZ1" | "HZ2" | "HZ3"),
+        // Asn: amide HD21, HD22 — polar.
+        "ASN" => matches!(h_name, "HD21" | "HD22"),
+        // Gln: amide HE21, HE22 — polar.
+        "GLN" => matches!(h_name, "HE21" | "HE22"),
+        // Ser: hydroxyl HG — polar.
+        "SER" => h_name == "HG",
+        // Thr: hydroxyl HG1 (PDB standard) — polar.
+        "THR" => h_name == "HG1",
+        // Tyr: hydroxyl HH — polar.
+        "TYR" => h_name == "HH",
+        // Cys (free thiol): HG — polar. CYX (disulfide) has no HG.
+        "CYS" => h_name == "HG",
+        // His: imidazole N-H. In standard form HD1 (HID) or HE2 (HIE)
+        // depending on tautomer. We place whichever is present; both
+        // are polar.
+        "HIS" | "HID" | "HIE" | "HIP" => matches!(h_name, "HD1" | "HE2"),
+        // Trp: indole HE1 — polar.
+        "TRP" => h_name == "HE1",
+        // Everything else (Ala, Val, Leu, Ile, Gly, Pro, Phe, Met, Asp,
+        // Glu): has no polar sidechain H at all. Backbone H comes from
+        // place_peptide_hydrogens.
+        _ => false,
+    }
+}
+
 /// Place 2 H on a water molecule's oxygen atom.
 fn place_water_h(o_pos: [f64; 3]) -> [[f64; 3]; 2] {
     // Water H-O-H angle: 104.5 degrees
@@ -1017,9 +1089,15 @@ fn place_water_h(o_pos: [f64; 3]) -> [[f64; 3]; 2] {
 /// Place hydrogens on non-standard residues using the general BALL algorithm.
 ///
 /// If `include_water` is true, also places 2 H on each water molecule.
+/// Standard amino acid hydrogens are placed first via `place_all_hydrogens`
+/// with `polar_only=false` — this function is for the "general" mode where
+/// the user wants all atoms present for visualization or non-FF downstream
+/// tools. For a CHARMM19 energy run, use `place_all_hydrogens(pdb, true)`
+/// directly instead.
 pub fn place_general_hydrogens(pdb: &mut pdbtbx::PDB, include_water: bool) -> AddHydrogensResult {
-    // First: place standard AA hydrogens
-    let standard = place_all_hydrogens(pdb);
+    // First: place standard AA hydrogens (all atoms, not polar-only —
+    // this mode is for non-FF consumers).
+    let standard = place_all_hydrogens(pdb, false);
 
     // Then: find non-standard residues and apply general algorithm
     let mut placements: Vec<(usize, usize, String, [f64; 3], usize)> = Vec::new();
@@ -1358,7 +1436,7 @@ mod tests {
             "1crn fixture should be heavy-atom only"
         );
 
-        let placed = place_all_hydrogens(&mut pdb);
+        let placed = place_all_hydrogens(&mut pdb, false);
         assert!(placed.added > 0);
         let with_h = pdb.atom_count();
         assert_eq!(with_h, heavy_count + placed.added);
@@ -1377,7 +1455,7 @@ mod tests {
         );
 
         // Re-place: should add the same number again (deterministic)
-        let placed2 = place_all_hydrogens(&mut pdb);
+        let placed2 = place_all_hydrogens(&mut pdb, false);
         assert_eq!(placed2.added, placed.added);
     }
 
@@ -1391,7 +1469,7 @@ mod tests {
             .expect("failed to read 1crn.pdb");
 
         let before = pdb.atom_count();
-        let result = place_sidechain_hydrogens(&mut pdb);
+        let result = place_sidechain_hydrogens(&mut pdb, false);
         let after = pdb.atom_count();
 
         assert!(result.added > 0, "Should place sidechain H atoms");
@@ -1408,10 +1486,10 @@ mod tests {
             .read("../test-pdbs/1crn.pdb")
             .expect("failed to read 1crn.pdb");
 
-        let r1 = place_sidechain_hydrogens(&mut pdb);
+        let r1 = place_sidechain_hydrogens(&mut pdb, false);
         assert!(r1.added > 0);
 
-        let r2 = place_sidechain_hydrogens(&mut pdb);
+        let r2 = place_sidechain_hydrogens(&mut pdb, false);
         assert_eq!(r2.added, 0, "Second pass should add nothing");
     }
 
@@ -1423,14 +1501,14 @@ mod tests {
             .expect("failed to read 1crn.pdb");
 
         let before = pdb.atom_count();
-        let result = place_all_hydrogens(&mut pdb);
+        let result = place_all_hydrogens(&mut pdb, false);
 
         // Backbone (40) + sidechain (150+)
         assert!(result.added > 190, "Expected >190 total H, got {}", result.added);
         assert_eq!(pdb.atom_count(), before + result.added);
 
         // Idempotent
-        let r2 = place_all_hydrogens(&mut pdb);
+        let r2 = place_all_hydrogens(&mut pdb, false);
         assert_eq!(r2.added, 0);
     }
 
@@ -1443,7 +1521,7 @@ mod tests {
             .read("../test-pdbs/1crn.pdb")
             .expect("failed to read 1crn.pdb");
 
-        let result = place_all_hydrogens(&mut pdb);
+        let result = place_all_hydrogens(&mut pdb, false);
 
         // PDBFixer: 315. We expect 250+ (missing: some terminal H, protonation-dependent H)
         assert!(
@@ -1461,7 +1539,7 @@ mod tests {
             .read("../test-pdbs/1crn.pdb")
             .expect("failed to read 1crn.pdb");
 
-        place_all_hydrogens(&mut pdb);
+        place_all_hydrogens(&mut pdb, false);
 
         // Check that every H atom is within reasonable bond length of its nearest heavy atom
         for chain in pdb.chains() {

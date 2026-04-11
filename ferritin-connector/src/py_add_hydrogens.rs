@@ -16,15 +16,28 @@ use crate::py_pdb::PyPDB;
 /// [`crate::altloc::primary_conformer`]: blank altLoc first, then "A", then
 /// the first available conformer.
 ///
-/// Water residues are SKIPPED in lockstep with `build_topology`, which
-/// excludes them from the FFAtom list under a vacuum protein FF. Without
-/// this skip, the coord array (which only contains non-water atoms) would
-/// be shorter than the number of atoms we try to write back, and the
-/// assert below fires. See `crate::forcefield::topology::build_topology`
-/// for the matching skip.
+/// Atoms are included or skipped via `topology::should_include_atom`, the
+/// same predicate `build_topology` calls. That function filters out:
+///   * water residues (HOH/WAT/...) under vacuum protein force fields,
+///   * non-polar hydrogens under polar-H force fields (CHARMM19).
+/// If this function's skip logic drifts from build_topology's, the
+/// coord array length and the atom iteration will desync and the asserts
+/// below will fire.
+///
+/// Takes the force field as a parameter so the predicate can consult
+/// the parameter table — same as build_topology does. Note that the
+/// residue-variant lookup (terminal "-N"/"-C" tails) is not available
+/// here since we don't have a Topology at this point, so we pass the
+/// base residue name as `lookup_name`. `get_atom_type` internally falls
+/// back from variant to base name, so hydrogens that exist under both
+/// variant and base names (all of them, in practice) still resolve.
 ///
 /// Panics if the coordinate array doesn't match the atom count.
-fn apply_coords_to_pdb(pdb: &mut pdbtbx::PDB, coords: &[[f64; 3]]) {
+fn apply_coords_to_pdb<F: crate::forcefield::params::ForceField + ?Sized>(
+    pdb: &mut pdbtbx::PDB,
+    coords: &[[f64; 3]],
+    params: &F,
+) {
     let mut idx = 0;
     // Use first model only (consistent with build_topology, etc.)
     let first_model = match pdb.models_mut().next() {
@@ -33,12 +46,7 @@ fn apply_coords_to_pdb(pdb: &mut pdbtbx::PDB, coords: &[[f64; 3]]) {
     };
     for chain in first_model.chains_mut() {
         for residue in chain.residues_mut() {
-            // Skip waters — must mirror the skip in build_topology,
-            // otherwise the coord array is too short.
             let res_name = residue.name().unwrap_or("UNK").to_string();
-            if add_hydrogens::is_water_residue(&res_name) {
-                continue;
-            }
 
             // Determine the primary-conformer alt_loc in an immutable scan,
             // then iterate mutably and update only atoms in that conformer.
@@ -66,6 +74,19 @@ fn apply_coords_to_pdb(pdb: &mut pdbtbx::PDB, coords: &[[f64; 3]]) {
                     continue;
                 }
                 for atom in conformer.atoms_mut() {
+                    let atom_name = atom.name().trim().to_string();
+                    let element = atom
+                        .element()
+                        .map(|e| e.symbol().to_string())
+                        .unwrap_or_else(|| "C".to_string());
+                    // Shared predicate — identical to build_topology.
+                    // Using `res_name` for both residue_name and lookup_name
+                    // because we lack Topology's residue_variants map here.
+                    if !crate::forcefield::topology::should_include_atom(
+                        &res_name, &atom_name, &element, params, &res_name,
+                    ) {
+                        continue;
+                    }
                     assert!(
                         idx < coords.len(),
                         "apply_coords_to_pdb: coord array too short ({} coords, atom index {})",
@@ -166,9 +187,21 @@ pub fn place_peptide_hydrogens_with_coords<'py>(
 ///
 /// Template-based placement for the 20 standard amino acids.
 /// Modifies the structure in place and returns (n_added, n_skipped).
+///
+/// If `polar_only=True`, only hydrogens bonded to N/O/S are placed
+/// (guanidinium, amide, hydroxyl, thiol, imidazole, indole N-H, and
+/// NH3+). Non-polar C-H atoms are skipped. Use this when the downstream
+/// force field is a polar-H united-atom model like CHARMM19.
 #[pyfunction]
-pub fn place_sidechain_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize) {
-    let result = py.allow_threads(|| add_hydrogens::place_sidechain_hydrogens(&mut pdb.inner));
+#[pyo3(signature = (pdb, polar_only=false))]
+pub fn place_sidechain_hydrogens(
+    py: Python<'_>,
+    pdb: &mut PyPDB,
+    polar_only: bool,
+) -> (usize, usize) {
+    let result = py.allow_threads(|| {
+        add_hydrogens::place_sidechain_hydrogens(&mut pdb.inner, polar_only)
+    });
     (result.added, result.skipped)
 }
 
@@ -176,9 +209,19 @@ pub fn place_sidechain_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usi
 ///
 /// Equivalent to calling place_peptide_hydrogens then place_sidechain_hydrogens.
 /// Returns (n_added, n_skipped).
+///
+/// If `polar_only=True`, only hydrogens bonded to N/O/S are placed on
+/// the sidechain (backbone amide is always placed). Use for CHARMM19.
 #[pyfunction]
-pub fn place_all_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize) {
-    let result = py.allow_threads(|| add_hydrogens::place_all_hydrogens(&mut pdb.inner));
+#[pyo3(signature = (pdb, polar_only=false))]
+pub fn place_all_hydrogens(
+    py: Python<'_>,
+    pdb: &mut PyPDB,
+    polar_only: bool,
+) -> (usize, usize) {
+    let result = py.allow_threads(|| {
+        add_hydrogens::place_all_hydrogens(&mut pdb.inner, polar_only)
+    });
     (result.added, result.skipped)
 }
 
@@ -454,6 +497,16 @@ where
                         };
 
                         // Place hydrogens
+                        // Layer A: under a polar-H united-atom force field
+                        // (CHARMM19+EEF1), only place hydrogens bonded to
+                        // N/O/S. Non-polar C-H atoms are absorbed into
+                        // united carbon types (CH1E/CH2E/CH3E) and don't
+                        // exist as separate atoms. Placing them anyway
+                        // produces 40% "unassigned" atoms at build_topology
+                        // time, which Layer B skips, but it's cleaner to
+                        // not place them in the first place so the output
+                        // PDB matches GROMACS's pdb2gmx behavior exactly.
+                        let polar_only = ff.has_eef1();
                         let (h_added, h_skipped) = match h_mode.as_str() {
                             "backbone" => {
                                 let r = add_hydrogens::place_peptide_hydrogens(pdb);
@@ -465,7 +518,7 @@ where
                             }
                             "none" => (0, 0),
                             "all" => {
-                                let r = add_hydrogens::place_all_hydrogens(pdb);
+                                let r = add_hydrogens::place_all_hydrogens(pdb, polar_only);
                                 (r.added, r.skipped)
                             }
                             _ => (0, 0),
@@ -540,7 +593,7 @@ where
                                 _ => crate::forcefield::minimize::steepest_descent(
                                     &coords, &topo, ff, minimize_steps, gradient_tolerance, &constrained),
                             };
-                            apply_coords_to_pdb(pdb, &result.coords);
+                            apply_coords_to_pdb(pdb, &result.coords, ff);
                             out.init_e = result.initial_energy;
                             out.final_e = result.energy.total;
                             out.bond_stretch = result.energy.bond_stretch;
