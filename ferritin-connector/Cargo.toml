@@ -8,6 +8,9 @@ description = "PyO3 Python bindings for ferritin structural bioinformatics tools
 name = "ferritin_connector"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+cuda = ["cudarc"]
+
 [dependencies]
 ferritin-align = { path = "../ferritin-align" }
 ferritin-arrow = { path = "../ferritin-arrow" }
@@ -18,3 +21,4 @@ pyo3 = { version = "0.23", features = ["extension-module"] }
 numpy = "0.23"
 rayon = "1"
 anyhow = "1"
+cudarc = { version = "0.19", features = ["std", "driver", "nvrtc", "cuda-12050"], optional = true }

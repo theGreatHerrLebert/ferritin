@@ -14,3 +14,5 @@ pub mod energy;
 pub mod neighbor_list;
 pub mod minimize;
 pub mod md;
+#[cfg(feature = "cuda")]
+pub(crate) mod gpu;
