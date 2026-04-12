@@ -412,7 +412,22 @@ pub fn sasa_from_pdb(
         }
     }
 
-    // Use rayon-parallel version for large structures
+    // GPU dispatch: if cuda feature + GPU available + large enough → GPU kernel.
+    // This is checked BEFORE the rayon/serial split because the GPU path
+    // is faster than rayon for structures above the threshold.
+    #[cfg(feature = "cuda")]
+    if coords.len() >= SASA_GPU_THRESHOLD {
+        if let Some(_) = crate::forcefield::gpu::GpuContext::try_global() {
+            match crate::forcefield::gpu::gpu_shrake_rupley(&coords, &radii, probe, n_points) {
+                Ok(sasa) => return sasa,
+                Err(e) => {
+                    eprintln!("[ferritin-gpu] GPU SASA failed in sasa_from_pdb, falling back: {}", e);
+                }
+            }
+        }
+    }
+
+    // CPU fallback: rayon-parallel for large structures, serial for small
     if coords.len() > 500 {
         shrake_rupley_parallel(&coords, &radii, probe, n_points)
     } else {

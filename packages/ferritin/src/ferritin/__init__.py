@@ -61,6 +61,8 @@ from .core import RustWrapperObject
 from .forcefield import (
     batch_minimize_hydrogens,
     compute_energy,
+    gpu_available,
+    gpu_info,
     load_and_minimize_hydrogens,
     minimize_hydrogens,
     minimize_structure,

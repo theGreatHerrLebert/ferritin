@@ -77,6 +77,21 @@ impl GpuContext {
             .as_ref()
     }
 
+    /// Device name for Python gpu_info().
+    pub fn device_name(&self) -> String {
+        self.ctx.name().unwrap_or_default()
+    }
+
+    /// Compute capability for Python gpu_info().
+    pub fn compute_capability(&self) -> (i32, i32) {
+        self.ctx.compute_capability().unwrap_or((0, 0))
+    }
+
+    /// Total GPU memory in MB for Python gpu_info().
+    pub fn total_memory_mb(&self) -> usize {
+        self.ctx.total_mem().unwrap_or(0) / (1024 * 1024)
+    }
+
     fn init() -> Result<Self, Box<dyn std::error::Error>> {
         let ctx = CudaContext::new(0)?;
         let (major, minor) = ctx.compute_capability()?;

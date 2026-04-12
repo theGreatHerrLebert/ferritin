@@ -503,6 +503,57 @@ pub fn run_md(
 }
 
 // ---------------------------------------------------------------------------
+// GPU status API
+// ---------------------------------------------------------------------------
+
+/// Check if CUDA GPU acceleration is available.
+///
+/// Returns True if the binary was compiled with the `cuda` feature AND a
+/// GPU was detected at runtime. This is the same check the minimizer and
+/// SASA functions use internally to decide whether to dispatch to GPU.
+#[pyfunction]
+pub fn gpu_available() -> bool {
+    #[cfg(feature = "cuda")]
+    {
+        crate::forcefield::gpu::GpuContext::try_global().is_some()
+    }
+    #[cfg(not(feature = "cuda"))]
+    {
+        false
+    }
+}
+
+/// Get GPU device info as a dict, or None if no GPU available.
+///
+/// Returns dict with keys: name, compute_capability, total_memory_mb,
+/// cuda_compiled (bool — whether the binary has the cuda feature).
+#[pyfunction]
+pub fn gpu_info(py: Python<'_>) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new(py);
+
+    #[cfg(feature = "cuda")]
+    {
+        dict.set_item("cuda_compiled", true)?;
+        if let Some(ctx) = crate::forcefield::gpu::GpuContext::try_global() {
+            dict.set_item("available", true)?;
+            dict.set_item("name", ctx.device_name())?;
+            let (major, minor) = ctx.compute_capability();
+            dict.set_item("compute_capability", format!("{}.{}", major, minor))?;
+            dict.set_item("total_memory_mb", ctx.total_memory_mb())?;
+        } else {
+            dict.set_item("available", false)?;
+        }
+    }
+    #[cfg(not(feature = "cuda"))]
+    {
+        dict.set_item("cuda_compiled", false)?;
+        dict.set_item("available", false)?;
+    }
+
+    Ok(dict.into_any().unbind())
+}
+
+// ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
 
@@ -514,5 +565,7 @@ pub fn py_forcefield(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(batch_minimize_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(load_and_minimize_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(run_md, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu_available, m)?)?;
+    m.add_function(wrap_pyfunction!(gpu_info, m)?)?;
     Ok(())
 }

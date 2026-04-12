@@ -3,6 +3,14 @@
 Supports AMBER96 and CHARMM19+EEF1 force fields via the ForceField trait.
 Energy output defaults to kJ/mol (set units="kcal/mol" for legacy convention).
 
+GPU acceleration is automatic when the binary is compiled with the ``cuda``
+feature (``maturin develop --features cuda``). Use :func:`gpu_available` to
+check at runtime, and :func:`gpu_info` for device details. The GPU is used
+transparently for:
+  * **Energy + forces** in the minimizer (structures >= 2000 atoms)
+  * **SASA** in Shrake-Rupley (structures >= 500 atoms)
+No Python code changes are needed — the dispatch is in the Rust layer.
+
 Functions:
     compute_energy      — energy breakdown by component
     minimize_hydrogens  — optimize H positions (freeze heavy atoms)
@@ -10,6 +18,8 @@ Functions:
     batch_minimize_hydrogens — parallel minimization
     load_and_minimize_hydrogens — load + minimize in one call
     run_md              — molecular dynamics with Velocity Verlet
+    gpu_available       — check if GPU acceleration is available
+    gpu_info            — get GPU device details
 """
 
 from __future__ import annotations
@@ -285,3 +295,52 @@ def run_md(
     u = _validate_units(units)
     result = _ff.run_md(_get_ptr(structure), n_steps, dt, temperature, thermostat_tau, snapshot_freq, shake)
     return _convert_md_result(result, u)
+
+
+# ---------------------------------------------------------------------------
+# GPU status API
+# ---------------------------------------------------------------------------
+
+
+def gpu_available() -> bool:
+    """Check if GPU (CUDA) acceleration is available.
+
+    Returns True if:
+      1. The binary was compiled with the ``cuda`` feature
+         (``maturin develop --features cuda``), AND
+      2. A CUDA-capable GPU was detected at runtime.
+
+    When True, ``batch_prepare()`` and ``atom_sasa()`` automatically
+    dispatch large structures to the GPU. No additional configuration
+    needed.
+
+    Returns:
+        bool: True if GPU is available and ready.
+
+    Examples:
+        >>> ferritin.gpu_available()
+        True
+        >>> if ferritin.gpu_available():
+        ...     print("GPU will be used for structures >= 2000 atoms")
+    """
+    return _ff.gpu_available()
+
+
+def gpu_info() -> dict:
+    """Get GPU device information.
+
+    Returns a dict with:
+        - ``cuda_compiled`` (bool): whether the binary has CUDA support
+        - ``available`` (bool): whether a GPU was detected
+        - ``name`` (str): GPU device name (e.g. "NVIDIA GeForce RTX 5090")
+        - ``compute_capability`` (str): e.g. "12.0"
+        - ``total_memory_mb`` (int): total GPU memory in MB
+
+    If no GPU is available, only ``cuda_compiled`` and ``available`` are present.
+
+    Examples:
+        >>> ferritin.gpu_info()
+        {'cuda_compiled': True, 'available': True, 'name': 'NVIDIA GeForce RTX 5090',
+         'compute_capability': '12.0', 'total_memory_mb': 32607}
+    """
+    return dict(_ff.gpu_info())
