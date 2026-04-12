@@ -211,18 +211,36 @@ def main() -> int:
     log(f"Output: {args.output}")
     log("-" * 60)
 
+    # Incremental JSONL output — one line per structure, written
+    # immediately. This is critical: the 2026-04-12 heavy-atom relax fix
+    # made per-structure minimization O(minutes) instead of O(seconds),
+    # so a 100-PDB run can take hours and any crash/kill mid-run loses
+    # data if we only write JSON at the end.
+    jsonl_path = args.output.with_suffix(".jsonl")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     t_start = time.perf_counter()
     records = []
-    for i, path in enumerate(sample, 1):
-        rec = run_one(str(path), args.minimize_steps)
-        records.append(rec)
-        if i % 10 == 0 or i == len(sample):
+    with open(jsonl_path, "w") as jsonl_fp:
+        for i, path in enumerate(sample, 1):
+            rec = run_one(str(path), args.minimize_steps)
+            records.append(rec)
+            jsonl_fp.write(json.dumps(rec, default=str) + "\n")
+            jsonl_fp.flush()
             elapsed = time.perf_counter() - t_start
             eta = elapsed / i * (len(sample) - i)
-            log(f"  [{i:3d}/{len(sample)}] elapsed={elapsed:6.1f}s  "
-                f"eta={eta:5.1f}s  last={rec['pdb']} "
-                f"status={rec.get('status')}")
+            atoms = rec.get("atom_count_pre_h", "?")
+            prep_ms = rec.get("prep_ms", "?")
+            prep_str = f"{prep_ms:.0f}" if isinstance(prep_ms, (int, float)) else str(prep_ms)
+            final = rec.get("final_energy", None)
+            final_str = f"{final:+.0f}" if isinstance(final, (int, float)) else "-"
+            log(
+                f"  [{i:3d}/{len(sample)}] elapsed={elapsed:6.1f}s  "
+                f"eta={eta:6.1f}s  {rec['pdb']:<12} atoms={atoms} "
+                f"prep_ms={prep_str:>6} final={final_str:>10} "
+                f"status={rec.get('status')}"
+            )
     t_wall = time.perf_counter() - t_start
+    log(f"JSONL checkpoint: {jsonl_path}")
 
     summary = summarize(records)
     summary["wall_seconds"] = t_wall
