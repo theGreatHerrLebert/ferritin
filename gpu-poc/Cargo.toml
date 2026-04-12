@@ -7,3 +7,11 @@ edition = "2021"
 cudarc = { version = "0.19", features = ["std", "driver", "nvrtc", "cuda-12050"] }
 ferritin-connector = { path = "../ferritin-connector" }
 pdbtbx = { git = "https://github.com/douweschulte/pdbtbx", branch = "main" }
+
+[[bin]]
+name = "gpu-poc"
+path = "src/main.rs"
+
+[[bin]]
+name = "bench-batch"
+path = "src/bench_batch.rs"
