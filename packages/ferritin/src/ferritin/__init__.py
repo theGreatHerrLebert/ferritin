@@ -133,4 +133,5 @@ from .io import (
     save_mmcif,
     save_pdb,
 )
+from .msa import MsaSearch
 from .structure import Atom, Chain, Model, Residue, Structure
