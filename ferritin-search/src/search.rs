@@ -252,6 +252,30 @@ impl SearchEngine {
     pub fn target_count(&self) -> usize {
         self.targets_full.len()
     }
+
+    /// Look up an indexed target's full-alphabet bytes by `seq_id`.
+    /// Used by [`crate::msa::assemble_msa`] to project hits into the
+    /// query coordinate frame.
+    pub fn target_bytes(&self, seq_id: u32) -> Option<&[u8]> {
+        self.targets_full.get(&seq_id).map(Vec::as_slice)
+    }
+
+    /// Convenience: run [`SearchEngine::search`] for the given query and
+    /// pipe the hits straight into [`crate::msa::assemble_msa`], returning
+    /// an AF2-style MSA tensor bundle. Equivalent to:
+    ///
+    /// ```ignore
+    /// let hits = engine.search(&query);
+    /// assemble_msa(&query, &hits, |id| engine.target_bytes(id), opts)
+    /// ```
+    pub fn search_and_build_msa(
+        &self,
+        query: &Sequence,
+        msa_opts: crate::msa::MsaOptions,
+    ) -> crate::msa::MsaAssembly {
+        let hits = self.search(query);
+        crate::msa::assemble_msa(query, &hits, |id| self.target_bytes(id), msa_opts)
+    }
 }
 
 #[cfg(test)]
