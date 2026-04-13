@@ -12,3 +12,4 @@ pub mod matrix;
 pub mod prefilter;
 pub mod reduced_alphabet;
 pub mod sequence;
+pub mod ungapped;
