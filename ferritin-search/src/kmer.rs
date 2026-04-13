@@ -16,7 +16,28 @@
 //! Phase 2.2 scope: plain k-mers, no similar-k-mer expansion, no reduced
 //! alphabet. Those arrive in phase 2.3 alongside the prefilter.
 
+use thiserror::Error;
+
 use crate::sequence::Sequence;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum KmerIndexError {
+    /// A k-mer start position in the indexed corpus exceeds the `u16`
+    /// range of [`KmerHit::pos`]. Upstream's `IndexEntryLocal` uses the
+    /// same 2-byte position field, so this port inherits the limit — but
+    /// unlike upstream we refuse to silently truncate. Hit coordinates
+    /// must be exact for the prefilter → alignment handoff, so long
+    /// sequences (nucleotide contigs, titin-scale proteins) need to be
+    /// chunked or indexed with a different entry layout before this
+    /// builder will accept them.
+    #[error(
+        "k-mer position {pos} in sequence {seq_id} exceeds u16::MAX ({limit}); \
+         sequence must be chunked before indexing"
+    )]
+    PositionOverflow { seq_id: u32, pos: usize, limit: usize },
+}
+
+pub type Result<T> = std::result::Result<T, KmerIndexError>;
 
 /// Polynomial k-mer hash over a fixed alphabet size and k.
 #[derive(Debug, Clone)]
@@ -135,18 +156,38 @@ impl KmerIndex {
     /// Build an index from an iterator of `(seq_id, &encoded_sequence)` pairs.
     /// `skip_idx` is the alphabet index treated as "unknown" and excluded
     /// from k-mer windows — normally the X index for proteins.
-    pub fn build<'a, I>(encoder: KmerEncoder, seqs: I, skip_idx: u8) -> Self
+    ///
+    /// Returns [`KmerIndexError::PositionOverflow`] if any indexed k-mer
+    /// position exceeds `u16::MAX`. See [`KmerHit::pos`] for the rationale.
+    pub fn build<'a, I>(encoder: KmerEncoder, seqs: I, skip_idx: u8) -> Result<Self>
     where
         I: IntoIterator<Item = (u32, &'a [u8])>,
     {
-        // Collect so we can make two passes without requiring a rewindable
-        // iterator from the caller. For large DBs the caller can stream
-        // via build_from_db (below) which iterates the DBReader directly.
         let seqs: Vec<(u32, &[u8])> = seqs.into_iter().collect();
         Self::build_two_pass(encoder, &seqs, skip_idx)
     }
 
-    fn build_two_pass(encoder: KmerEncoder, seqs: &[(u32, &[u8])], skip_idx: u8) -> Self {
+    fn build_two_pass(
+        encoder: KmerEncoder,
+        seqs: &[(u32, &[u8])],
+        skip_idx: u8,
+    ) -> Result<Self> {
+        // Upfront overflow guard: any sequence whose last valid k-mer start
+        // position exceeds u16::MAX is refused before we touch memory.
+        let pos_limit = u16::MAX as usize;
+        for &(seq_id, seq) in seqs {
+            if seq.len() >= encoder.kmer_size() {
+                let last_pos = seq.len() - encoder.kmer_size();
+                if last_pos > pos_limit {
+                    return Err(KmerIndexError::PositionOverflow {
+                        seq_id,
+                        pos: last_pos,
+                        limit: pos_limit,
+                    });
+                }
+            }
+        }
+
         let table_size = encoder.table_size() as usize;
         let mut offsets = vec![0u64; table_size + 1];
 
@@ -172,6 +213,8 @@ impl KmerIndex {
         for (seq_id, seq) in seqs {
             for (pos, h) in encoder.iter_kmers(seq, skip_idx) {
                 let dst = cursors[h as usize] as usize;
+                // Upfront guard ensures `pos <= u16::MAX` here; the `as u16`
+                // is now safe-by-construction rather than a silent wrap.
                 entries[dst] = KmerHit {
                     seq_id: *seq_id,
                     pos: pos as u16,
@@ -180,7 +223,7 @@ impl KmerIndex {
             }
         }
 
-        Self { encoder, offsets, entries }
+        Ok(Self { encoder, offsets, entries })
     }
 
     /// Lookup hits for a k-mer (slice of alphabet indices of length `kmer_size`).
@@ -190,11 +233,26 @@ impl KmerIndex {
     }
 
     /// Lookup hits for a precomputed k-mer hash.
+    ///
+    /// Out-of-range hashes (`>= encoder.table_size()`) return an empty
+    /// slice rather than panicking — a public API taking an arbitrary u64
+    /// must handle every value. For callers that want to distinguish "no
+    /// hits" from "invalid hash", see [`KmerIndex::checked_lookup_hash`].
     pub fn lookup_hash(&self, h: u64) -> &[KmerHit] {
+        self.checked_lookup_hash(h).unwrap_or(&[])
+    }
+
+    /// Like [`KmerIndex::lookup_hash`] but returns `None` for out-of-range
+    /// hashes. Useful for callers that treat invalid input as an error
+    /// rather than silently zero-hit.
+    pub fn checked_lookup_hash(&self, h: u64) -> Option<&[KmerHit]> {
+        if h >= self.encoder.table_size() {
+            return None;
+        }
         let k = h as usize;
         let start = self.offsets[k] as usize;
         let end = self.offsets[k + 1] as usize;
-        &self.entries[start..end]
+        Some(&self.entries[start..end])
     }
 
     /// Total number of (seq_id, pos) entries indexed.
@@ -218,7 +276,7 @@ pub fn build_index_from_sequences(
     encoder: KmerEncoder,
     seqs: &[(u32, &Sequence)],
     skip_idx: u8,
-) -> KmerIndex {
+) -> Result<KmerIndex> {
     let pairs: Vec<(u32, &[u8])> = seqs
         .iter()
         .map(|(id, s)| (*id, s.data.as_slice()))
@@ -288,7 +346,7 @@ mod tests {
         // Windows: (0,"AC")=0+1*4=4, (1,"CG")=1+2*4=9, (2,"GT")=2+3*4=14.
         let enc = KmerEncoder::new(4, 2);
         let seq: Vec<u8> = vec![0, 1, 2, 3];
-        let idx = KmerIndex::build(enc, [(42u32, seq.as_slice())], 99);
+        let idx = KmerIndex::build(enc, [(42u32, seq.as_slice())], 99).unwrap();
         assert_eq!(idx.total_hits(), 3);
         assert_eq!(idx.distinct_kmers(), 3);
         assert_eq!(idx.lookup_hash(4), &[KmerHit { seq_id: 42, pos: 0 }]);
@@ -302,7 +360,7 @@ mod tests {
         // A repeated k-mer must appear with each occurrence's (seq_id, pos).
         let enc = KmerEncoder::new(4, 2);
         let seq: Vec<u8> = vec![0, 1, 0, 1, 0]; // "ACACA": "AC" at 0, "CA" at 1, "AC" at 2, "CA" at 3
-        let idx = KmerIndex::build(enc, [(7u32, seq.as_slice())], 99);
+        let idx = KmerIndex::build(enc, [(7u32, seq.as_slice())], 99).unwrap();
         let ac_hash = 0 + 1 * 4; // =4
         let ca_hash = 1 + 0 * 4; // =1
         let ac_hits = idx.lookup_hash(ac_hash);
@@ -324,7 +382,8 @@ mod tests {
             enc.clone(),
             [(10u32, a.as_slice()), (20u32, b.as_slice())],
             99,
-        );
+        )
+        .unwrap();
         assert_eq!(idx.total_hits(), 3);
         let ac = idx.lookup_window(&[0, 1]);
         let seq_ids: Vec<u32> = ac.iter().map(|h| h.seq_id).collect();
@@ -347,7 +406,8 @@ mod tests {
                 (3, s3.as_slice()),
             ],
             99,
-        );
+        )
+        .unwrap();
         assert_eq!(idx.total_hits(), 3 + 0 + 2);
     }
 
@@ -355,7 +415,7 @@ mod tests {
     fn index_offsets_are_monotone_and_sum_to_total() {
         let enc = KmerEncoder::new(4, 2);
         let s = vec![0u8, 1, 2, 3, 0, 1];
-        let idx = KmerIndex::build(enc, [(0u32, s.as_slice())], 99);
+        let idx = KmerIndex::build(enc, [(0u32, s.as_slice())], 99).unwrap();
         // Offsets must be non-decreasing, start at 0, end at total_hits.
         assert_eq!(idx.offsets[0], 0);
         assert_eq!(*idx.offsets.last().unwrap() as usize, idx.total_hits());
@@ -365,13 +425,69 @@ mod tests {
     }
 
     #[test]
+    fn build_rejects_sequences_longer_than_u16_position_range() {
+        // A sequence with a k-mer start position at u16::MAX + 1 must fail
+        // loudly, not silently wrap. Using alphabet size 2 and k=1 so the
+        // sequence itself is cheap: we just need seq.len() > u16::MAX + 1.
+        let enc = KmerEncoder::new(2, 1);
+        let seq = vec![0u8; u16::MAX as usize + 2]; // last valid pos = 65536 > u16::MAX
+        let err = KmerIndex::build(enc, [(99u32, seq.as_slice())], u8::MAX).unwrap_err();
+        assert_eq!(
+            err,
+            KmerIndexError::PositionOverflow {
+                seq_id: 99,
+                pos: u16::MAX as usize + 1,
+                limit: u16::MAX as usize,
+            }
+        );
+    }
+
+    #[test]
+    fn build_accepts_sequences_exactly_at_u16_position_limit() {
+        // Boundary: last valid k-mer start pos == u16::MAX must succeed.
+        // For k=1, that means seq.len() == u16::MAX + 1 = 65536.
+        let enc = KmerEncoder::new(2, 1);
+        let seq = vec![0u8; u16::MAX as usize + 1];
+        let idx = KmerIndex::build(enc, [(1u32, seq.as_slice())], u8::MAX).unwrap();
+        assert_eq!(idx.total_hits(), u16::MAX as usize + 1);
+        // Last hit must be at position u16::MAX (not wrapped to 0).
+        let last_entries = idx.lookup_hash(0);
+        assert_eq!(last_entries.last().unwrap().pos, u16::MAX);
+    }
+
+    #[test]
+    fn lookup_hash_returns_empty_slice_on_out_of_range_hash() {
+        // Callers that pass arbitrary u64s (e.g., precomputed hashes from
+        // a different encoder or garbage input) must not panic.
+        let enc = KmerEncoder::new(4, 2);
+        let seq = vec![0u8, 1, 2, 3];
+        let idx = KmerIndex::build(enc, [(0u32, seq.as_slice())], 99).unwrap();
+        // table_size = 4^2 = 16, so hash 16 is just past the end, and
+        // u64::MAX is absurdly far past. Both must return an empty slice.
+        assert_eq!(idx.lookup_hash(16), &[]);
+        assert_eq!(idx.lookup_hash(u64::MAX), &[]);
+    }
+
+    #[test]
+    fn checked_lookup_hash_distinguishes_no_hits_from_invalid() {
+        let enc = KmerEncoder::new(4, 2);
+        let seq = vec![0u8, 1]; // one hit: "AC" at pos 0
+        let idx = KmerIndex::build(enc, [(0u32, seq.as_slice())], 99).unwrap();
+        // Valid hash with no hits: Some([]).
+        assert_eq!(idx.checked_lookup_hash(0), Some(&[] as &[KmerHit]));
+        // Invalid hash (>= table_size): None.
+        assert_eq!(idx.checked_lookup_hash(16), None);
+        assert_eq!(idx.checked_lookup_hash(u64::MAX), None);
+    }
+
+    #[test]
     fn index_over_protein_alphabet_with_real_sequence() {
         // End-to-end: protein alphabet → encoded sequence → index → lookup.
         let alpha = Alphabet::protein();
         let seq = Sequence::from_ascii(alpha.clone(), b"MKLV");
         let enc = KmerEncoder::new(alpha.size() as u32, 3);
         let x = alpha.encode(b'X');
-        let idx = build_index_from_sequences(enc.clone(), &[(1, &seq)], x);
+        let idx = build_index_from_sequences(enc.clone(), &[(1, &seq)], x).unwrap();
         assert_eq!(idx.total_hits(), 2); // windows MKL and KLV
 
         // Looking up the k-mer "MKL" should find exactly one hit at seq_id=1, pos=0.
