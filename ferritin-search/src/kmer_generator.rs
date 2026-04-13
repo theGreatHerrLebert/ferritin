@@ -35,9 +35,16 @@ pub type ScoreMatrix<'a> = &'a [i32];
 /// The query k-mer itself is included in the output iff its self-score
 /// passes the threshold (which is the typical case).
 ///
-/// Panics if `query_kmer.len() != encoder.kmer_size()`, or if `scores.len()`
-/// is not `alphabet_size^2`. Both are caller-contract violations, not
-/// runtime conditions.
+/// # Panics
+///
+/// All three panics are caller-contract violations, not runtime conditions:
+///
+/// - `query_kmer.len() != encoder.kmer_size()`
+/// - `scores.len() != alphabet_size^2`
+/// - any byte in `query_kmer` is `>= alphabet_size` — caller must pass
+///   already-alphabet-encoded bytes (typically produced via
+///   [`crate::alphabet::Alphabet::encode`] or
+///   [`crate::sequence::Sequence::from_ascii`]). Raw ASCII won't work.
 pub fn generate_similar_kmers(
     encoder: &KmerEncoder,
     query_kmer: &[u8],
@@ -52,6 +59,15 @@ pub fn generate_similar_kmers(
         a * a,
         "scores length must equal alphabet_size^2"
     );
+    // Upfront validation avoids the less-helpful slice-OOB panic deep in
+    // the DFS. Cost is O(k) against the caller's usual k <= 16.
+    for (i, &b) in query_kmer.iter().enumerate() {
+        assert!(
+            (b as usize) < a,
+            "query_kmer[{i}] = {b} is out of range for alphabet size {a}; \
+             callers must pass alphabet-encoded bytes, not raw ASCII",
+        );
+    }
 
     // Precompute per-position maximum remaining score: max_remaining[i] is
     // the upper bound on additional score achievable starting from
@@ -298,6 +314,18 @@ mod tests {
         for &(_, s) in &results {
             assert!(s >= 15, "score {s} below threshold 15");
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range for alphabet size")]
+    fn panics_with_clear_message_on_out_of_range_query_byte() {
+        // Alphabet size 4, but we pass a byte with value 99 (a common mistake:
+        // using the X "skip index" sentinel as an alphabet byte, or passing
+        // raw ASCII instead of alphabet-encoded data).
+        let enc = KmerEncoder::new(4, 3);
+        let scores = identity_matrix(4, 2, -1);
+        let bad = vec![0u8, 99, 1];
+        let _ = generate_similar_kmers(&enc, &bad, &scores, 0);
     }
 
     #[test]
