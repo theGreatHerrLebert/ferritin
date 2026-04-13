@@ -114,6 +114,17 @@ pub struct AmberParams {
     pub scee: f64,
     /// 1-4 vdW scaling factor
     pub scnb: f64,
+    /// Optional runtime override for the nonbonded cutoff (Å). When
+    /// `None`, the trait default (15 Å for AMBER96) is used. Override
+    /// is intended for oracle-style cross-tool comparisons where both
+    /// tools must see the same pair set — e.g. setting this to 1e6
+    /// effectively disables the cutoff so ferritin matches an OpenMM
+    /// `NoCutoff` oracle.
+    pub cutoff_override: Option<f64>,
+    /// Optional runtime override for the switching-on distance (Å).
+    /// If `cutoff_override` is set but this is not, switching is disabled
+    /// by setting the on-distance to `cutoff_override - 1e-9`.
+    pub switching_on_override: Option<f64>,
 }
 
 fn sorted_pair(a: &str, b: &str) -> (String, String) {
@@ -146,6 +157,8 @@ impl AmberParams {
             lj: HashMap::new(),
             scee: 1.2,
             scnb: 2.0,
+            cutoff_override: None,
+            switching_on_override: None,
         };
 
         let mut section = String::new();
@@ -473,6 +486,14 @@ impl ForceField for AmberParams {
     }
     fn scee(&self) -> f64 { self.scee }
     fn scnb(&self) -> f64 { self.scnb }
+    fn nonbonded_cutoff(&self) -> f64 {
+        self.cutoff_override.unwrap_or(15.0)
+    }
+    fn switching_on(&self) -> f64 {
+        self.switching_on_override
+            .or_else(|| self.cutoff_override.map(|c| c - 1e-9))
+            .unwrap_or(13.0)
+    }
 }
 
 /// Load the embedded AMBER96 parameter set.

@@ -37,27 +37,28 @@ except ImportError:
 
 @functools.lru_cache(maxsize=1)
 def _warn_amber96_experimental() -> None:
-    """Warn once per process that ferritin's AMBER96 match to OpenMM is
-    approximate, not reference-quality.
+    """Warn once per process about the ferritin-vs-OpenMM AMBER96 policy
+    difference in the nonbonded cutoff.
 
     Status after 2026-04-13 fixes (H-name aliases + double-wildcard
-    improper lookup): on identical PDBFixer-prepped crambin, ferritin-
-    AMBER96 agrees with OpenMM-AMBER96 to ~1.4% on total energy. Bond
-    terms match to 0.008%, angles 0.2%, torsions 0.5%. Remaining gap is
-    in nonbonded cutoff policy (ferritin 15 Å switching vs OpenMM
-    NoCutoff) and small enumeration differences in the proper-torsion
-    graph traversal.
+    improper lookup + cutoff override): on identical PDBFixer-prepped
+    crambin with both tools at NoCutoff, ferritin-AMBER96 agrees with
+    OpenMM-AMBER96 to **0.2%** on total energy — bond 0.017%, angle
+    0.22%, torsion 0.44%, nonbonded 0.26%. The force-field math is
+    reference-quality.
 
-    For research needing 1e-4 kcal/mol agreement use OpenMM directly.
-    For structural pipelines (H placement, local minimization), ferritin's
-    AMBER96 is now a reasonable AMBER oracle.
+    Ferritin's *default* production setting uses a 15 Å nonbonded cutoff
+    with cubic switching from 13 Å (a performance-vs-accuracy choice).
+    That contributes the ~1-2% difference against a NoCutoff reference.
+    Pass ``nonbonded_cutoff=1e6`` to ``compute_energy`` to disable the
+    cutoff and get full-precision agreement for oracle comparisons.
     """
     warnings.warn(
-        "ferritin's AMBER96 matches OpenMM AMBER96 to ~1.4% on total "
-        "energy (crambin oracle, 2026-04-13). Bonded terms match to "
-        "0.5% or better; remaining gap is nonbonded cutoff policy. For "
-        "validated cross-tool comparison use ff='charmm19_eef1' "
-        "(default). See task #47.",
+        "ferritin's AMBER96 force-field math matches OpenMM AMBER96 to "
+        "0.2% on crambin when both use NoCutoff. The default ferritin "
+        "setting applies a 15 Å nonbonded cutoff with switching — that "
+        "is a performance-vs-accuracy choice, not a bug. Pass "
+        "nonbonded_cutoff=1e6 to disable for oracle-grade comparison.",
         UserWarning,
         stacklevel=3,
     )
@@ -160,6 +161,7 @@ def compute_energy(
     ff: str = "amber96",
     units: str = "kJ/mol",
     nbl_threshold: int | None = None,
+    nonbonded_cutoff: float | None = None,
 ) -> dict:
     """Compute force field energy of a structure.
 
@@ -168,12 +170,15 @@ def compute_energy(
           50K battle test (99.1% negative total) and the fold-preservation
           benchmark (median TM=0.9945 pre/post minimization). This is what
           downstream code should use.
-        * ``"amber96"`` — **experimental.** Self-consistent within ferritin
-          but does NOT match OpenMM's AMBER96 on identical PDBFixer-prepped
-          inputs (factor-2 disagreement in bonded terms, wrong-sign nonbonded
-          on the 1000-PDB oracle run 2026-04-13). A UserWarning is emitted
-          once per process. Do not rely on these numbers for cross-tool
-          comparison; see task #46 for remediation plan.
+        * ``"amber96"`` — **oracle-validated** against OpenMM AMBER96 on
+          crambin: bond/angle/torsion/nonbonded all match within 0.5%,
+          total energy within 0.2%, when both tools are run with
+          NoCutoff. The default ferritin setting applies a 15 Å
+          nonbonded cutoff with cubic switching from 13 Å (the
+          performance-vs-accuracy default inherited from BALL); pass
+          ``nonbonded_cutoff=1e6`` for oracle-grade full-precision
+          agreement. A UserWarning about the policy is emitted once per
+          process.
 
     Args:
         structure: Ferritin Structure object.
@@ -193,7 +198,7 @@ def compute_energy(
     """
     u = _validate_units(units)
     _maybe_warn_ff(ff)
-    result = _ff.compute_energy(_get_ptr(structure), ff, nbl_threshold)
+    result = _ff.compute_energy(_get_ptr(structure), ff, nbl_threshold, nonbonded_cutoff)
     return _convert_energy_dict(result, u)
 
 

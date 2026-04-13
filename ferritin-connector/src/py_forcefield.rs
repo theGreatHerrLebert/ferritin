@@ -75,18 +75,25 @@ fn build_pool(n_threads: usize) -> rayon::ThreadPool {
 ///         Primarily intended for regression testing — exposing the two
 ///         paths so cross-path parity can be verified from Python.
 #[pyfunction]
-#[pyo3(signature = (pdb, ff="amber96", nbl_threshold=None))]
+#[pyo3(signature = (pdb, ff="amber96", nbl_threshold=None, nonbonded_cutoff=None))]
 pub fn compute_energy(
     py: Python<'_>,
     pdb: &PyPDB,
     ff: &str,
     nbl_threshold: Option<usize>,
+    nonbonded_cutoff: Option<f64>,
 ) -> PyResult<PyObject> {
     let (topo, result) = match ff {
         "charmm" | "charmm19" | "charmm19_eef1" => {
             let charmm = params::charmm19_eef1();
             let topo = topology::build_topology(&pdb.inner, &charmm);
             let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
+            // Cutoff override not supported for CHARMM19 yet.
+            if nonbonded_cutoff.is_some() {
+                return Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                    "nonbonded_cutoff override is only implemented for ff='amber96'",
+                ));
+            }
             let result = py.allow_threads(|| match nbl_threshold {
                 Some(t) => energy::compute_energy_auto(&coords, &topo, &charmm, t),
                 None => energy::compute_energy(&coords, &topo, &charmm),
@@ -94,7 +101,10 @@ pub fn compute_energy(
             (topo, result)
         }
         "amber" | "amber96" => {
-            let amber = params::amber96();
+            let mut amber = params::amber96();
+            if let Some(c) = nonbonded_cutoff {
+                amber.cutoff_override = Some(c);
+            }
             let topo = topology::build_topology(&pdb.inner, &amber);
             let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
             let result = py.allow_threads(|| match nbl_threshold {
