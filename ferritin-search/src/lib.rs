@@ -6,6 +6,7 @@
 
 pub mod alphabet;
 pub mod db;
+pub mod gapped;
 pub mod kmer;
 pub mod kmer_generator;
 pub mod matrix;
