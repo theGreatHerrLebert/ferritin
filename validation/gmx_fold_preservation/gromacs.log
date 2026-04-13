@@ -1,0 +1,51 @@
+Sample: 1000 PDBs
+Available locally: 1000
+Workers: 16 (1 gmx thread each)
+Output: /scratch/TMAlign/ferritin/validation/gmx_fold_preservation/tm_fold_gromacs.jsonl
+[25/1000] ok=5 fail=20 rate=8.22/s eta=2.0min
+[50/1000] ok=14 fail=36 rate=3.52/s eta=4.5min
+[75/1000] ok=24 fail=51 rate=2.78/s eta=5.6min
+[100/1000] ok=32 fail=68 rate=1.99/s eta=7.5min
+[125/1000] ok=41 fail=84 rate=1.97/s eta=7.4min
+[150/1000] ok=51 fail=99 rate=1.60/s eta=8.8min
+[175/1000] ok=54 fail=121 rate=1.72/s eta=8.0min
+[200/1000] ok=63 fail=137 rate=1.58/s eta=8.5min
+[225/1000] ok=74 fail=151 rate=1.52/s eta=8.5min
+[250/1000] ok=80 fail=170 rate=1.54/s eta=8.1min
+[275/1000] ok=90 fail=185 rate=1.43/s eta=8.5min
+[300/1000] ok=103 fail=197 rate=1.23/s eta=9.5min
+[325/1000] ok=114 fail=211 rate=1.05/s eta=10.8min
+[350/1000] ok=124 fail=226 rate=1.01/s eta=10.8min
+[375/1000] ok=133 fail=242 rate=1.02/s eta=10.2min
+[400/1000] ok=143 fail=257 rate=1.03/s eta=9.7min
+[425/1000] ok=153 fail=272 rate=1.01/s eta=9.4min
+[450/1000] ok=165 fail=285 rate=1.01/s eta=9.1min
+[475/1000] ok=173 fail=302 rate=1.04/s eta=8.5min
+[500/1000] ok=187 fail=313 rate=1.05/s eta=7.9min
+[525/1000] ok=190 fail=335 rate=1.06/s eta=7.4min
+[550/1000] ok=199 fail=351 rate=1.06/s eta=7.1min
+[575/1000] ok=207 fail=368 rate=1.07/s eta=6.6min
+[600/1000] ok=216 fail=384 rate=1.08/s eta=6.2min
+[625/1000] ok=230 fail=395 rate=1.05/s eta=5.9min
+[650/1000] ok=237 fail=413 rate=1.06/s eta=5.5min
+[675/1000] ok=245 fail=430 rate=1.01/s eta=5.3min
+[700/1000] ok=253 fail=447 rate=1.00/s eta=5.0min
+[725/1000] ok=262 fail=463 rate=0.99/s eta=4.6min
+[750/1000] ok=273 fail=477 rate=0.98/s eta=4.2min
+[775/1000] ok=283 fail=492 rate=0.98/s eta=3.8min
+[800/1000] ok=289 fail=511 rate=0.95/s eta=3.5min
+[825/1000] ok=294 fail=531 rate=0.96/s eta=3.0min
+[850/1000] ok=301 fail=549 rate=0.96/s eta=2.6min
+[875/1000] ok=309 fail=566 rate=0.96/s eta=2.2min
+[900/1000] ok=320 fail=580 rate=0.96/s eta=1.7min
+[925/1000] ok=326 fail=599 rate=0.96/s eta=1.3min
+[950/1000] ok=337 fail=613 rate=0.94/s eta=0.9min
+[975/1000] ok=345 fail=630 rate=0.94/s eta=0.4min
+[1000/1000] ok=363 fail=637 rate=0.82/s eta=0.0min
+
+Done. ok=363 fail=637 in 20.3 min (0.30 struct/s)
+
+GROMACS AMBER96 TM-score (n=363):
+  mean=0.9957  median=0.9995
+  min=0.3472  p05=0.9960
+RMSD: mean=0.490  median=0.170  max=103.461
