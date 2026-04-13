@@ -6,5 +6,6 @@
 
 pub mod alphabet;
 pub mod db;
+pub mod kmer;
 pub mod matrix;
 pub mod sequence;
