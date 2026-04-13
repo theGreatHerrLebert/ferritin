@@ -111,18 +111,25 @@ pub fn ungapped_alignment(
 
 /// Compute the inclusive..exclusive range of query positions whose
 /// target counterpart at the given diagonal is in-bounds.
+///
+/// All arithmetic is done in `i64` so that the extreme `diagonal`
+/// value `i32::MIN` — whose negation overflows `i32` — is handled as
+/// an ordinary "no overlap" case and returns an empty range rather
+/// than panicking.
 fn overlap_range(query_len: usize, target_len: usize, diagonal: i32) -> (usize, usize) {
-    // q in [max(0, -diag), min(query_len, target_len - diag))
-    let q_lo = diagonal.max(0).min(i32::MAX); // when diag >= 0, q_lo = 0
-    let q_start = if diagonal < 0 {
-        (-diagonal) as usize
-    } else {
-        0
-    };
-    let _ = q_lo; // just for clarity
-    let q_end_by_target = (target_len as i64 - diagonal as i64).max(0) as usize;
-    let q_end = query_len.min(q_end_by_target);
-    (q_start.min(q_end), q_end)
+    let q_len = query_len as i64;
+    let t_len = target_len as i64;
+    let diag = diagonal as i64;
+
+    // q_pos valid when 0 <= q_pos < query_len AND 0 <= q_pos + diag < target_len.
+    // So q_pos in [max(0, -diag), min(query_len, target_len - diag)).
+    let q_start_i = 0i64.max(-diag);
+    let q_end_i = q_len.min(t_len - diag);
+
+    if q_start_i >= q_end_i || q_start_i < 0 {
+        return (0, 0);
+    }
+    (q_start_i as usize, q_end_i as usize)
 }
 
 #[cfg(test)]
@@ -229,6 +236,20 @@ mod tests {
         assert_eq!(ungapped_alignment(&q, &t, 5, &scores, 4), None);
         // diag <= -query.len() → no overlap
         assert_eq!(ungapped_alignment(&q, &t, -5, &scores, 4), None);
+    }
+
+    #[test]
+    fn extreme_diagonal_i32_min_returns_none_without_panic() {
+        // Regression: -i32::MIN overflows i32, so the previous
+        // `(-diagonal) as usize` path panicked in debug builds. i64-based
+        // overlap_range handles it as "no overlap" like any other out-of-
+        // range diagonal. Test both MIN and MAX since they're symmetric
+        // public-API edges.
+        let scores = identity_matrix(4, 2, -1);
+        let q: Vec<u8> = vec![0, 1, 2];
+        let t: Vec<u8> = vec![0, 1, 2];
+        assert_eq!(ungapped_alignment(&q, &t, i32::MIN, &scores, 4), None);
+        assert_eq!(ungapped_alignment(&q, &t, i32::MAX, &scores, 4), None);
     }
 
     #[test]
