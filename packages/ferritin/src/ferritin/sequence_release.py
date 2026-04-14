@@ -1,0 +1,153 @@
+"""Release-oriented wrappers around sequence example exports."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence
+
+from .sequence_example import SequenceExample, build_sequence_example
+from .sequence_export import SEQUENCE_EXPORT_FORMAT, export_sequence_examples
+from .supervision_release import FailureRecord
+
+
+@dataclass
+class SequenceReleaseManifest:
+    release_id: str
+    artifact_type: str = "release_manifest"
+    format: str = SEQUENCE_EXPORT_FORMAT
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    code_rev: Optional[str] = None
+    config_rev: Optional[str] = None
+    count_examples: int = 0
+    count_failures: int = 0
+    example_export_dir: str = "examples"
+    examples_file: str = "examples/examples.jsonl"
+    tensor_file: str = "examples/tensors.npz"
+    failure_file: str = "failures.jsonl"
+    lengths: Dict[str, float] = field(default_factory=dict)
+    provenance: Dict[str, object] = field(default_factory=dict)
+
+
+def build_sequence_release(
+    examples: Iterable[SequenceExample],
+    out_dir: str | Path,
+    *,
+    release_id: str,
+    failures: Optional[Iterable[FailureRecord]] = None,
+    code_rev: Optional[str] = None,
+    config_rev: Optional[str] = None,
+    provenance: Optional[Dict[str, object]] = None,
+    overwrite: bool = False,
+) -> Path:
+    examples = list(examples)
+    failures = list(failures or [])
+    root = Path(out_dir)
+    if root.exists() and not overwrite:
+        raise FileExistsError(f"{root} already exists")
+    root.mkdir(parents=True, exist_ok=True)
+    export_sequence_examples(examples, root / "examples", overwrite=True)
+    with (root / "failures.jsonl").open("w", encoding="utf-8") as handle:
+        for failure in failures:
+            handle.write(json.dumps(asdict(failure), separators=(",", ":")))
+            handle.write("\n")
+    lengths = [ex.length for ex in examples]
+    manifest = SequenceReleaseManifest(
+        release_id=release_id,
+        code_rev=code_rev,
+        config_rev=config_rev,
+        count_examples=len(examples),
+        count_failures=len(failures),
+        lengths=_length_summary(lengths),
+        provenance=dict(provenance or {}),
+    )
+    (root / "release_manifest.json").write_text(json.dumps(asdict(manifest), indent=2), encoding="utf-8")
+    return root
+
+
+def build_sequence_dataset(
+    structures: Sequence,
+    out_dir: str | Path,
+    *,
+    release_id: str,
+    record_ids: Optional[Sequence[Optional[str]]] = None,
+    source_ids: Optional[Sequence[Optional[str]]] = None,
+    chain_ids: Optional[Sequence[Optional[str]]] = None,
+    code_rev: Optional[str] = None,
+    config_rev: Optional[str] = None,
+    msas: Optional[Sequence[Optional[Sequence[str]]]] = None,
+    deletion_matrices: Optional[Sequence[Optional[Sequence[Sequence[float]]]]] = None,
+    template_masks: Optional[Sequence[Optional[Sequence[float]]]] = None,
+    provenance: Optional[Dict[str, object]] = None,
+    overwrite: bool = False,
+) -> Path:
+    n = len(structures)
+    record_ids = _expand_optional(record_ids, n)
+    source_ids = _expand_optional(source_ids, n)
+    chain_ids = _expand_optional(chain_ids, n)
+    msas = _expand_optional(msas, n)
+    deletion_matrices = _expand_optional(deletion_matrices, n)
+    template_masks = _expand_optional(template_masks, n)
+
+    examples: List[SequenceExample] = []
+    failures: List[FailureRecord] = []
+    for i, structure in enumerate(structures):
+        record_id = record_ids[i] or _default_record_id(structure, chain_ids[i])
+        try:
+            examples.append(
+                build_sequence_example(
+                    structure,
+                    record_id=record_id,
+                    source_id=source_ids[i],
+                    chain_id=chain_ids[i],
+                    code_rev=code_rev,
+                    config_rev=config_rev,
+                    msa=msas[i],
+                    deletion_matrix=deletion_matrices[i],
+                    template_mask=template_masks[i],
+                )
+            )
+        except Exception as exc:
+            failures.append(
+                FailureRecord(
+                    record_id=record_id,
+                    stage="sequence_example",
+                    failure_class="internal_pipeline_error",
+                    message=str(exc),
+                    source_id=source_ids[i],
+                    code_rev=code_rev,
+                    config_rev=config_rev,
+                    provenance={"exception_type": type(exc).__name__},
+                )
+            )
+    return build_sequence_release(
+        examples,
+        out_dir,
+        release_id=release_id,
+        failures=failures,
+        code_rev=code_rev,
+        config_rev=config_rev,
+        provenance=provenance,
+        overwrite=overwrite,
+    )
+
+
+def _length_summary(lengths: List[int]) -> Dict[str, float]:
+    if not lengths:
+        return {"min": 0.0, "max": 0.0, "mean": 0.0}
+    return {"min": float(min(lengths)), "max": float(max(lengths)), "mean": float(sum(lengths) / len(lengths))}
+
+
+def _default_record_id(structure, chain_id: Optional[str]) -> str:
+    ident = getattr(structure, "identifier", None) or "structure"
+    return f"{ident}:{chain_id}" if chain_id else str(ident)
+
+
+def _expand_optional(values, n: int) -> list:
+    if values is None:
+        return [None] * n
+    if len(values) != n:
+        raise ValueError(f"expected {n} items, got {len(values)}")
+    return list(values)
