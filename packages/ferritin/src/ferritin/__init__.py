@@ -130,6 +130,16 @@ from .search import (
     warm_search_db,
 )
 from .msa import MsaSearch
+from .msa_backend import (
+    batch_build_sequence_examples_with_msa,
+    build_sequence_example_with_msa,
+    rust_msa_available,
+)
+from .templates import (
+    TEMPLATE_GAP_INDEX,
+    TemplateFeatures,
+    build_template_features,
+)
 from .sequence_example import (
     SequenceExample,
     batch_build_sequence_examples,
@@ -163,11 +173,14 @@ from .corpus_validation import (
 )
 from .corpus_smoke import build_local_corpus_smoke_release
 from .io import (
+    LoadRescueResult,
     batch_load,
     batch_load_tolerant,
+    batch_load_tolerant_with_rescue,
     load,
     load_mmcif,
     load_pdb,
+    load_with_rescue,
     save,
     save_mmcif,
     save_pdb,
@@ -187,6 +200,14 @@ from .supervision_export import (
 from .failure_taxonomy import (
     ALL_FAILURE_CLASSES,
     classify_exception,
+)
+from .loader_failure_analysis import (
+    LoaderFailureBucket,
+    LoaderFailureSummary,
+    bucket_loader_failure,
+    load_failure_rows,
+    summarize_loader_failures,
+    summaries_to_markdown,
 )
 from .supervision_release import (
     FailureRecord,
