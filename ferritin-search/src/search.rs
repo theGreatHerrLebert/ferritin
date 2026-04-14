@@ -339,21 +339,48 @@ impl SearchEngine {
 
         let surviving_targets: Vec<&[u8]> = surviving.iter().map(|(i, _)| candidates[*i].target).collect();
 
-        // Batched SW score+endpoint. Err → CPU fallback for just the survivors.
-        let sw_scores = match sw::smith_waterman_score_batch_gpu(
-            query,
-            &surviving_targets,
-            &self.matrix_int,
-            self.full_alphabet_size,
-            self.opts.gap_open,
-            self.opts.gap_extend,
-        ) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!(
-                    "[ferritin-search] GPU SW batch failed; CPU fallback: {e:#}"
-                );
-                return self.search_cpu(query, prefilter_hits);
+        // Batched SW score+endpoint. For queries that fit the warp
+        // kernel's singletile budget (≤ 256 residues) use the warp-
+        // collaborative kernel (4.5a); it uses a full warp per pair
+        // with register-tiled DP and shuffle-based wavefront, giving
+        // real intra-pair parallelism. For longer queries fall back
+        // to the thread-per-pair score kernel (one DP per thread).
+        //
+        // Any GPU infrastructure error → CPU fallback for correctness.
+        use crate::gpu::pssm_sw_warp::{self, MAX_QUERY_LEN as WARP_MAX_Q};
+        use crate::pssm::Pssm;
+        let sw_scores = if query.len() <= WARP_MAX_Q {
+            let pssm = Pssm::build(query, &self.matrix_int, self.full_alphabet_size);
+            match pssm_sw_warp::pssm_sw_warp_batch_gpu(
+                &pssm,
+                &surviving_targets,
+                self.opts.gap_open,
+                self.opts.gap_extend,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!(
+                        "[ferritin-search] GPU warp SW batch failed; CPU fallback: {e:#}"
+                    );
+                    return self.search_cpu(query, prefilter_hits);
+                }
+            }
+        } else {
+            match sw::smith_waterman_score_batch_gpu(
+                query,
+                &surviving_targets,
+                &self.matrix_int,
+                self.full_alphabet_size,
+                self.opts.gap_open,
+                self.opts.gap_extend,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!(
+                        "[ferritin-search] GPU SW batch failed; CPU fallback: {e:#}"
+                    );
+                    return self.search_cpu(query, prefilter_hits);
+                }
             }
         };
 
