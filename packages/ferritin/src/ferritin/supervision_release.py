@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+from .failure_taxonomy import ALL_FAILURE_CLASSES, INTERNAL_PIPELINE_ERROR
 from .supervision import StructureSupervisionExample
 from .supervision_export import (
     SUPERVISION_EXPORT_FORMAT,
@@ -17,13 +18,19 @@ from .supervision_export import (
 
 @dataclass
 class FailureRecord:
-    """Structured failure row for supervision/release pipelines."""
+    """Structured failure row for supervision/release pipelines.
+
+    `failure_class` must be one of the canonical values in
+    `ferritin.failure_taxonomy.ALL_FAILURE_CLASSES` — dataset quality
+    trends are only measurable if the class set stays closed. Writing
+    free-text classes raises ValueError at construction time.
+    """
 
     record_id: str
     artifact_type: str = "failure_record"
     stage: str = "structure_supervision"
     status: str = "failed"
-    failure_class: str = "internal_pipeline_error"
+    failure_class: str = INTERNAL_PIPELINE_ERROR
     message: str = ""
     source_id: Optional[str] = None
     prep_run_id: Optional[str] = None
@@ -31,6 +38,13 @@ class FailureRecord:
     config_rev: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     provenance: Dict[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.failure_class not in ALL_FAILURE_CLASSES:
+            raise ValueError(
+                f"failure_class={self.failure_class!r} is not in the canonical "
+                f"taxonomy; allowed values: {ALL_FAILURE_CLASSES}"
+            )
 
 
 @dataclass

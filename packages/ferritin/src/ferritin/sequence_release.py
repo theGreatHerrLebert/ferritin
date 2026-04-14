@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
+from .failure_taxonomy import classify_exception
 from .sequence_example import SequenceExample, build_sequence_example
 from .sequence_export import SEQUENCE_EXPORT_FORMAT, export_sequence_examples
 from .supervision_release import FailureRecord
@@ -114,7 +115,7 @@ def build_sequence_dataset(
                 FailureRecord(
                     record_id=record_id,
                     stage="sequence_example",
-                    failure_class="internal_pipeline_error",
+                    failure_class=classify_exception(exc),
                     message=str(exc),
                     source_id=source_ids[i],
                     code_rev=code_rev,

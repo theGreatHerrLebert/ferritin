@@ -184,6 +184,10 @@ from .supervision_export import (
     export_structure_supervision_examples,
     load_structure_supervision_examples,
 )
+from .failure_taxonomy import (
+    ALL_FAILURE_CLASSES,
+    classify_exception,
+)
 from .supervision_release import (
     FailureRecord,
     StructureSupervisionReleaseManifest,

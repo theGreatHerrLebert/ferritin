@@ -138,12 +138,10 @@ def build_structure_supervision_dataset_from_prepared(
 
 
 def _classify_failure(exc: Exception) -> str:
-    message = str(exc).lower()
-    if "requires a protein chain" in message:
-        return "missing_required_atoms"
-    if "chain-level" in message or "chain_id" in message:
-        return "internal_pipeline_error"
-    return "internal_pipeline_error"
+    # Delegates to the shared roadmap-Section-7 taxonomy. Kept as a
+    # thin wrapper so existing call sites don't need to change.
+    from .failure_taxonomy import classify_exception
+    return classify_exception(exc)
 
 
 def _default_record_id(structure, chain_id: Optional[str]) -> str:
