@@ -34,6 +34,7 @@ pub mod diagonal;
 pub mod pssm_diagonal;
 pub mod pssm_sw;
 pub mod pssm_sw_warp;
+pub mod pssm_sw_warp_multitile;
 pub mod sw;
 
 /// Process-global GPU context. Holds the CUDA device + a stream pool

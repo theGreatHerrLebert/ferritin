@@ -339,17 +339,19 @@ impl SearchEngine {
 
         let surviving_targets: Vec<&[u8]> = surviving.iter().map(|(i, _)| candidates[*i].target).collect();
 
-        // Batched SW score+endpoint. For queries that fit the warp
-        // kernel's singletile budget (≤ 256 residues) use the warp-
-        // collaborative kernel (4.5a); it uses a full warp per pair
-        // with register-tiled DP and shuffle-based wavefront, giving
-        // real intra-pair parallelism. For longer queries fall back
-        // to the thread-per-pair score kernel (one DP per thread).
+        // Batched SW score+endpoint. Dispatch by query length:
+        //   query_len ≤ 256              → warp singletile (4.5a), fastest
+        //   256 < query_len ≤ 2048       → warp multitile (4.5b)
+        //   query_len > 2048             → thread-per-pair kernel (sw)
         //
-        // Any GPU infrastructure error → CPU fallback for correctness.
-        use crate::gpu::pssm_sw_warp::{self, MAX_QUERY_LEN as WARP_MAX_Q};
+        // All three are batched GPU kernels; any infrastructure error
+        // falls the whole query back to the CPU path for correctness.
+        use crate::gpu::pssm_sw_warp::{self, MAX_QUERY_LEN as SINGLETILE_MAX_Q};
+        use crate::gpu::pssm_sw_warp_multitile::{
+            self, MAX_QUERY_LEN as MULTITILE_MAX_Q,
+        };
         use crate::pssm::Pssm;
-        let sw_scores = if query.len() <= WARP_MAX_Q {
+        let sw_scores = if query.len() <= SINGLETILE_MAX_Q {
             let pssm = Pssm::build(query, &self.matrix_int, self.full_alphabet_size);
             match pssm_sw_warp::pssm_sw_warp_batch_gpu(
                 &pssm,
@@ -360,7 +362,23 @@ impl SearchEngine {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!(
-                        "[ferritin-search] GPU warp SW batch failed; CPU fallback: {e:#}"
+                        "[ferritin-search] GPU warp singletile SW failed; CPU fallback: {e:#}"
+                    );
+                    return self.search_cpu(query, prefilter_hits);
+                }
+            }
+        } else if query.len() <= MULTITILE_MAX_Q {
+            let pssm = Pssm::build(query, &self.matrix_int, self.full_alphabet_size);
+            match pssm_sw_warp_multitile::pssm_sw_warp_multitile_batch_gpu(
+                &pssm,
+                &surviving_targets,
+                self.opts.gap_open,
+                self.opts.gap_extend,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!(
+                        "[ferritin-search] GPU warp multitile SW failed; CPU fallback: {e:#}"
                     );
                     return self.search_cpu(query, prefilter_hits);
                 }
