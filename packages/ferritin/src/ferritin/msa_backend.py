@@ -49,12 +49,19 @@ def build_search_engine(
     min_score: int = 0,
     max_prefilter_hits: Optional[int] = 1000,
     max_results: Optional[int] = None,
+    use_gpu: bool = True,
 ):
     """Construct a Rust SearchEngine over a target corpus.
 
     `targets` is a list of `(seq_id, sequence_str)` pairs. Sequences are
     ASCII protein letters (FASTA-style). The engine builds the k-mer
     index up-front; per-query search uses the cached index.
+
+    `use_gpu` controls GPU dispatch when the connector is compiled with
+    the `cuda` feature and a device is present; silent CPU fallback
+    otherwise. Pass `False` to force the CPU path for debugging or
+    bit-reproducible runs even on GPU hosts. The CPU and GPU paths are
+    parity-tested to return identical `SearchHit` ordering.
 
     Returns the raw connector object. Most callers should prefer
     `search_and_build_msa(...)` below.
@@ -71,6 +78,7 @@ def build_search_engine(
         min_score=min_score,
         max_prefilter_hits=max_prefilter_hits,
         max_results=max_results,
+        use_gpu=use_gpu,
     )
 
 

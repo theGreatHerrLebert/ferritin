@@ -64,12 +64,19 @@ class MsaSearch(RustWrapperObject):
         min_score: int = 0,
         max_prefilter_hits: Optional[int] = 1000,
         max_results: Optional[int] = None,
+        use_gpu: bool = True,
     ) -> "MsaSearch":
         """Build a search engine over a target corpus.
 
         `targets` is a sequence of `(seq_id, sequence_str)` pairs.
         Sequences are FASTA-style ASCII protein letters. Defaults
         match upstream MMseqs2 protein-search settings.
+
+        `use_gpu=False` forces the CPU path even when the connector
+        is compiled with CUDA and a device is available — useful for
+        debugging GPU issues or reproducing upstream CPU bit-exact
+        output on a GPU host. With `use_gpu=True` (default) the engine
+        silently falls back to CPU when no GPU is present.
         """
         if not rust_msa_available():
             raise RuntimeError(
@@ -86,6 +93,7 @@ class MsaSearch(RustWrapperObject):
             min_score=min_score,
             max_prefilter_hits=max_prefilter_hits,
             max_results=max_results,
+            use_gpu=use_gpu,
         )
         return cls(ptr)
 

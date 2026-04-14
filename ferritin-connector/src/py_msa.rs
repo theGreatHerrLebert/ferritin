@@ -49,6 +49,7 @@ impl PySearchEngine {
         min_score = 0,
         max_prefilter_hits = Some(1000),
         max_results = None,
+        use_gpu = true,
     ))]
     fn new(
         targets: Vec<(u32, String)>,
@@ -60,6 +61,7 @@ impl PySearchEngine {
         min_score: i32,
         max_prefilter_hits: Option<usize>,
         max_results: Option<usize>,
+        use_gpu: bool,
     ) -> PyResult<Self> {
         let alphabet = Alphabet::protein();
         let matrix = SubstitutionMatrix::blosum62();
@@ -73,7 +75,7 @@ impl PySearchEngine {
             gap_extend,
             min_score,
             max_results,
-            use_gpu: true,
+            use_gpu,
         };
         let target_seqs: Vec<(u32, Sequence)> = targets
             .into_iter()
