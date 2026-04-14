@@ -116,8 +116,16 @@ def load_prepared_structure_manifest(path: str | Path) -> List[PreparedStructure
 
 
 def _sequence_length(structure) -> Optional[int]:
-    if hasattr(structure, "residue_count"):
-        return int(getattr(structure, "residue_count"))
+    """Amino-acid residue count across all chains.
+
+    Deliberately does NOT use `structure.residue_count` — that field is
+    documented (io.py docstring) to include waters and ligands, so
+    using it would overreport sequence length for any structure with
+    HETATM content and skew release-summary statistics. Walks chains
+    explicitly and filters on `residue.is_amino_acid`, which matches
+    what the structure-supervision and sequence-example builders
+    consume downstream.
+    """
     chains = getattr(structure, "chains", None)
     if chains is None:
         return None

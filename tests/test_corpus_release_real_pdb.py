@@ -24,14 +24,26 @@ import numpy as np
 import pytest
 
 import ferritin
+from ferritin import io as _ferritin_io
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CRAMBIN_PDB = REPO_ROOT / "test-pdbs" / "1crn.pdb"
 
 
+# Skip when either the PDB fixture is missing OR the Rust I/O backend
+# isn't importable. In source-only environments without
+# ferritin_connector, `ferritin.io._io` is None and
+# `ferritin.batch_load_tolerant()` raises AttributeError on first call.
+# The structure-supervision tests can run on hand-built namespaces,
+# but this file is explicitly a "real PDB through real I/O" smoke —
+# no fake-structure shortcut applies.
 pytestmark = pytest.mark.skipif(
-    not CRAMBIN_PDB.exists(),
-    reason="test-pdbs/1crn.pdb fixture missing (repo checkout may be partial)",
+    not CRAMBIN_PDB.exists() or _ferritin_io._io is None,
+    reason=(
+        "real-PDB smoke requires both test-pdbs/1crn.pdb and the Rust "
+        "I/O backend (ferritin_connector.py_io). Skipping; run the "
+        "source-only Layer 5 tests via tests/test_supervision.py etc."
+    ),
 )
 
 

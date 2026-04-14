@@ -31,6 +31,7 @@ class CorpusReleaseManifest:
     count_sequence_examples: int = 0
     count_structure_examples: int = 0
     count_training_examples: int = 0
+    count_ingestion_failures: int = 0
     failure_breakdown: Dict[str, int] = field(default_factory=dict)
     split_counts: Dict[str, int] = field(default_factory=dict)
     sequence_lengths: Dict[str, float] = field(default_factory=dict)
@@ -46,6 +47,7 @@ def build_corpus_release_manifest(
     sequence_release: str | Path | None = None,
     structure_release: str | Path | None = None,
     training_release: str | Path | None = None,
+    ingestion_failures: str | Path | None = None,
     code_rev: Optional[str] = None,
     config_rev: Optional[str] = None,
     prep_policy_version: Optional[str] = None,
@@ -55,7 +57,14 @@ def build_corpus_release_manifest(
     provenance: Optional[Dict[str, object]] = None,
     overwrite: bool = False,
 ) -> Path:
-    """Write a top-level manifest linking the child release layers."""
+    """Write a top-level manifest linking the child release layers.
+
+    `ingestion_failures` points to a `FailureRecord` JSONL captured
+    during raw intake (files that failed to parse / load). These are
+    counted into `count_ingestion_failures` and merged into
+    `failure_breakdown` by class — so a release that silently drops
+    bad inputs can't look "clean" in the top-level manifest.
+    """
     root = Path(out_dir)
     if root.exists() and not overwrite:
         raise FileExistsError(f"{root} already exists")
@@ -71,6 +80,10 @@ def build_corpus_release_manifest(
         _merge_failure_breakdown(failure_breakdown, Path(sequence_release) / "failures.jsonl")
     if structure_release is not None:
         _merge_failure_breakdown(failure_breakdown, Path(structure_release) / "failures.jsonl")
+    ingestion_count = 0
+    if ingestion_failures is not None:
+        _merge_failure_breakdown(failure_breakdown, Path(ingestion_failures))
+        ingestion_count = _count_jsonl_rows(ingestion_failures)
 
     manifest = CorpusReleaseManifest(
         release_id=release_id,
@@ -88,6 +101,7 @@ def build_corpus_release_manifest(
         count_sequence_examples=int((seq_manifest or {}).get("count_examples", 0)),
         count_structure_examples=int((struc_manifest or {}).get("count_examples", 0)),
         count_training_examples=int((train_manifest or {}).get("count_examples", 0)),
+        count_ingestion_failures=ingestion_count,
         failure_breakdown=failure_breakdown,
         split_counts=dict((train_manifest or {}).get("split_counts", {})),
         sequence_lengths=dict((seq_manifest or {}).get("lengths", {})),
