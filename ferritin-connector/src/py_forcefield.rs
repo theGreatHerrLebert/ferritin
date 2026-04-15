@@ -35,18 +35,23 @@ pub fn dump_topology<'py>(py: Python<'py>, pdb: &PyPDB, ff: &str) -> PyResult<Py
         topo.torsions.iter().map(|t| (t.i, t.j, t.k, t.l)).collect();
     let impropers: Vec<(usize, usize, usize, usize)> =
         topo.improper_torsions.iter().map(|t| (t.i, t.j, t.k, t.l)).collect();
-    // Map each topology atom back to its (residue_idx, atom_name) so the
-    // diff tool can print human-readable identities.
+    // Map each topology atom back to its (residue_idx, residue_name,
+    // atom_name, amber_type, charge) so diff tools can print both
+    // identity and the assigned force-field class.
     let atom_identities: Vec<(usize, String, String)> = topo
         .atoms
         .iter()
         .map(|a| (a.residue_idx, a.residue_name.clone(), a.atom_name.clone()))
         .collect();
+    let atom_types: Vec<String> = topo.atoms.iter().map(|a| a.amber_type.clone()).collect();
+    let atom_charges: Vec<f64> = topo.atoms.iter().map(|a| a.charge).collect();
     dict.set_item("bonds", bonds)?;
     dict.set_item("angles", angles)?;
     dict.set_item("torsions", torsions)?;
     dict.set_item("impropers", impropers)?;
     dict.set_item("atom_identities", atom_identities)?;
+    dict.set_item("atom_types", atom_types)?;
+    dict.set_item("atom_charges", atom_charges)?;
     Ok(dict.into_any().unbind())
 }
 

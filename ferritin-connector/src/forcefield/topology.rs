@@ -122,6 +122,16 @@ pub(crate) fn alt_h_name_candidates(name: &str) -> Vec<String> {
         if d > 1 {
             out.push(format!("{}{head}", (d - 1)));
         }
+    } else if name == "H" {
+        // PDBFixer names the first NH3+ proton on the N-terminal residue
+        // just `H` (alongside `H2`, `H3`). BALL's amber96.ini keys that
+        // atom as `1H` in the per-residue N-terminal template (e.g.
+        // `THR-N:1H`). With no trailing digit to rotate, the generic
+        // PDB v3 ↔ BALL alt-name machinery misses it and the lookup falls
+        // back to the interior amide `*:H` charge (+0.272e instead of
+        // +0.193e on crambin), which blows up GB by ~0.08e of excess
+        // charge on the N-terminus. Mapping `H` → `1H` restores parity.
+        out.push("1H".to_string());
     }
     out
 }
@@ -268,10 +278,30 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
         }
     }
 
-    // Note: CYS-S (disulfide) variant is NOT applied automatically.
-    // BALL only applies CYS-S when explicitly flagged during preprocessing,
-    // not from raw PDB geometry. Applying it here would change charges and
-    // diverge from BALL's behavior.
+    // Auto-apply the CYS-S (disulfide) variant when two SG atoms are within
+    // 2.5 Å (same threshold used for disulfide bond detection in Phase C
+    // below). AMBER/OpenMM's `amber96.xml` detects disulfides from PDB
+    // geometry and uses CYX charges in this case (SG q=-0.108 vs
+    // CYS-SH q=-0.312) — without this, the 6 cysteines in crambin carry a
+    // total of ~1.2e excess negative charge, which is invisible to the
+    // vacuum oracle (charges mostly cancel in long-range Coulomb) but
+    // blows up GB by ~16% on crambin. If a disulfide CYS is also chain-
+    // terminal, the terminal variant wins (we don't carry a combined
+    // CYS-S-N / CYS-S-C template). This differs from BALL, which only
+    // applies CYS-S when explicitly flagged during preprocessing.
+    for i in 0..sg_positions.len() {
+        for j in (i + 1)..sg_positions.len() {
+            let (ri, pi) = &sg_positions[i];
+            let (rj, pj) = &sg_positions[j];
+            let dx = pi[0] - pj[0];
+            let dy = pi[1] - pj[1];
+            let dz = pi[2] - pj[2];
+            if dx * dx + dy * dy + dz * dz < 2.5_f64 * 2.5_f64 {
+                residue_variants.entry(*ri).or_insert_with(|| "CYS-S".to_string());
+                residue_variants.entry(*rj).or_insert_with(|| "CYS-S".to_string());
+            }
+        }
+    }
 
     // Step 1: Extract atoms with type assignment using variant names.
     //
