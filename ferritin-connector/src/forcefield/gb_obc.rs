@@ -239,9 +239,26 @@ pub(crate) fn compute_born_radii(
 
 /// OBC GB solvation energy (energy only, no forces).
 ///
-/// Mirrors the EEF1 entry-point signature so `energy.rs` can dispatch to
-/// this the same way. Phase B fills in the self + pair terms.
-#[allow(dead_code)]
+/// Implements the canonical Still/OBC polar-solvation energy:
+///
+/// ```text
+/// G_pol = -½ · τ · k_C · Σ_{i,j}  q_i · q_j / f_GB(r_ij, R_eff_i, R_eff_j)
+/// ```
+///
+/// where
+/// - τ = 1/ε_in − 1/ε_out (positive for water),
+/// - k_C is the Coulomb constant (332.0 kcal·Å/(mol·e²) in ferritin's units),
+/// - f_GB(r, a, b) = √(r² + a·b · exp(−r²/(4·a·b))),
+/// - f_GB(0, R, R) = R (so the diagonal terms are the self-energies
+///   `q_i² / R_eff_i` with a ½ factor out front).
+///
+/// The sum runs over every ordered (i,j) pair including `i==j`. The result
+/// is added to `*solvation` in **kcal/mol** (same unit convention as the
+/// rest of `energy.rs`; conversion to kJ/mol happens in the Python wrapper).
+///
+/// Phase B leaves `include_self_term = false` on `ObcGbParams` as a
+/// diagnostic hook: when set, the self term is dropped so the pair
+/// contribution can be unit-tested in isolation.
 pub(crate) fn gb_obc_energy(
     coords: &[[f64; 3]],
     topo: &Topology,
@@ -249,9 +266,58 @@ pub(crate) fn gb_obc_energy(
     obc: &ObcGbParams,
     solvation: &mut f64,
 ) {
-    let _ = (coords, topo, params, obc);
-    // TODO(Phase B): E_self + E_pair via f_GB; add to *solvation.
-    let _ = solvation;
+    if coords.is_empty() {
+        return;
+    }
+    let n = coords.len();
+    assert_eq!(
+        n,
+        topo.atoms.len(),
+        "gb_obc_energy: coords/topology length mismatch ({} vs {})",
+        n,
+        topo.atoms.len()
+    );
+
+    let born = compute_born_radii(coords, topo, params, obc);
+    // Coulomb constant consistent with the rest of energy.rs
+    // (kcal·Å / (mol·e²)). τ = 1/ε_in − 1/ε_out.
+    const K_COULOMB_KCAL: f64 = 332.0;
+    let tau = obc.tau();
+    let charges: Vec<f64> = topo.atoms.iter().map(|a| a.charge).collect();
+
+    // Upper-triangular accumulation of Σ_{i<=j} (counting diagonal once
+    // and off-diagonal once with an explicit 2× factor to replay the
+    // full double sum). Matches OpenMM's ReferenceObc loop shape.
+    let mut sum = 0.0_f64;
+
+    // Self terms (i==j): f_GB(0, R, R) = R.
+    if obc.include_self_term {
+        for i in 0..n {
+            let r_eff = born[i];
+            if r_eff > 0.0 {
+                sum += charges[i] * charges[i] / r_eff;
+            }
+        }
+    }
+
+    // Off-diagonal terms (i < j), multiplied by 2 to cover both (i,j) and (j,i).
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let dx = coords[i][0] - coords[j][0];
+            let dy = coords[i][1] - coords[j][1];
+            let dz = coords[i][2] - coords[j][2];
+            let r2 = dx * dx + dy * dy + dz * dz;
+            let alpha2 = born[i] * born[j];
+            if alpha2 <= 0.0 {
+                continue;
+            }
+            let d_ij = r2 / (4.0 * alpha2);
+            let f_gb = (r2 + alpha2 * (-d_ij).exp()).sqrt();
+            sum += 2.0 * charges[i] * charges[j] / f_gb;
+        }
+    }
+
+    *solvation += -0.5 * tau * K_COULOMB_KCAL * sum;
 }
 
 /// OBC GB solvation energy + forces (all-pair).
@@ -313,10 +379,14 @@ mod tests {
     }
 
     fn ff_atom(amber_type: &str, element: &str, pos: [f64; 3]) -> FFAtom {
+        ff_atom_q(amber_type, element, pos, 0.0)
+    }
+
+    fn ff_atom_q(amber_type: &str, element: &str, pos: [f64; 3], charge: f64) -> FFAtom {
         FFAtom {
             pos,
             amber_type: amber_type.to_string(),
-            charge: 0.0,
+            charge,
             residue_name: "XXX".into(),
             atom_name: "X".into(),
             element: element.into(),
@@ -403,6 +473,92 @@ mod tests {
         let coords = vec![[0.0, 0.0, 0.0]];
         let topo = topo_of(vec![ff_atom("BOGUS", "C", coords[0])]);
         let _ = compute_born_radii(&coords, &topo, &params, &obc);
+    }
+
+    #[test]
+    fn single_ion_matches_born_formula() {
+        // For a single charged atom, G_Born = -½·τ·k_C·q²/R_eff.
+        // Here R_eff = offsetRadius = ρ - 0.09 since sum = 0 → tanh = 0.
+        let params = amber96_obc();
+        let obc = ObcGbParams::obc1();
+        let charge = 1.0_f64;
+        let coords = vec![[0.0, 0.0, 0.0]];
+        let topo = topo_of(vec![ff_atom_q("CT", "C", coords[0], charge)]);
+        let r_eff = params.get_obc_gb("CT").unwrap().radius - obc.offset; // 1.81
+        let expected = -0.5 * obc.tau() * 332.0 * charge * charge / r_eff;
+
+        let mut solvation = 0.0;
+        gb_obc_energy(&coords, &topo, &params, &obc, &mut solvation);
+        assert!(
+            (solvation - expected).abs() < 1e-9,
+            "single ion: got {}, expected {}",
+            solvation,
+            expected
+        );
+        // Sanity: solvation energy must be negative (favorable) for τ > 0.
+        assert!(solvation < 0.0);
+    }
+
+    #[test]
+    fn zero_charges_give_zero_solvation() {
+        let params = amber96_obc();
+        let obc = ObcGbParams::obc1();
+        let coords = vec![[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]];
+        let topo = topo_of(vec![
+            ff_atom("CT", "C", coords[0]),
+            ff_atom("CT", "C", coords[1]),
+        ]);
+        let mut solvation = 0.0;
+        gb_obc_energy(&coords, &topo, &params, &obc, &mut solvation);
+        assert!(solvation.abs() < 1e-12, "expected 0, got {}", solvation);
+    }
+
+    #[test]
+    fn opposite_charges_at_distance_sum_is_self_minus_pair() {
+        // Two opposite charges far apart: pair term → ε · q·(−q) / r (Coulomb-like),
+        // self terms → two Born-ion self-energies. Compare to hand formula.
+        let params = amber96_obc();
+        let obc = ObcGbParams::obc1();
+        let coords = vec![[0.0, 0.0, 0.0], [50.0, 0.0, 0.0]];
+        let topo = topo_of(vec![
+            ff_atom_q("CT", "C", coords[0], 1.0),
+            ff_atom_q("CT", "C", coords[1], -1.0),
+        ]);
+        let r = 50.0;
+        let r_eff = params.get_obc_gb("CT").unwrap().radius - obc.offset;
+        // At 50 Å separation, born radii are ≈ r_eff (far-field regime),
+        // so this is a tight bound.
+        let alpha2 = r_eff * r_eff;
+        let d = r * r / (4.0 * alpha2);
+        let f_gb = (r * r + alpha2 * (-d).exp()).sqrt();
+        let self_pair = 2.0 * 1.0 * 1.0 / r_eff; // q² / R, summed for i and j (both q²=1)
+        let cross_pair = 2.0 * 1.0 * (-1.0) / f_gb; // 2·q_i·q_j / f_GB
+        let expected = -0.5 * obc.tau() * 332.0 * (self_pair + cross_pair);
+
+        let mut solvation = 0.0;
+        gb_obc_energy(&coords, &topo, &params, &obc, &mut solvation);
+        let rel = (solvation - expected).abs() / expected.abs().max(1e-12);
+        assert!(
+            rel < 0.01,
+            "expected ~{}, got {} ({}% off)",
+            expected,
+            solvation,
+            rel * 100.0
+        );
+    }
+
+    #[test]
+    fn include_self_term_toggle_drops_self_energy() {
+        // With include_self_term = false, a single-atom system has
+        // zero solvation (no pair partner, no self term).
+        let params = amber96_obc();
+        let mut obc = ObcGbParams::obc1();
+        obc.include_self_term = false;
+        let coords = vec![[0.0, 0.0, 0.0]];
+        let topo = topo_of(vec![ff_atom_q("CT", "C", coords[0], 1.0)]);
+        let mut solvation = 0.0;
+        gb_obc_energy(&coords, &topo, &params, &obc, &mut solvation);
+        assert!(solvation.abs() < 1e-12, "expected 0 (self off), got {}", solvation);
     }
 
     #[test]
