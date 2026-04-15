@@ -43,3 +43,4 @@ foldseek/
 foldseek.tar.gz
 foldseek-src/
 gpu-poc/target/
+.codex
