@@ -151,6 +151,25 @@ pub(crate) fn compute_born_radii(
     params: &impl ForceField,
     obc: &ObcGbParams,
 ) -> Vec<f64> {
+    compute_born_radii_with_chain(coords, topo, params, obc).0
+}
+
+/// Same math as [`compute_born_radii`] but also returns `obc_chain`, the
+/// per-atom derivative factor needed for force back-propagation through
+/// the Born-radii chain rule.
+///
+/// `obc_chain[i] = (1 − tanh²) · offsetRadiusI · (α − 2β·ψ + 3γ·ψ²) / ρ_i`
+///
+/// In the force pass, OpenMM multiplies `bornForces[i]` (i.e. ∂E/∂R_eff_i)
+/// by `R_eff_i² · obc_chain[i]` before spreading it through the HCT
+/// integrand derivative. Cache it here to avoid recomputing on the force
+/// side.
+pub(crate) fn compute_born_radii_with_chain(
+    coords: &[[f64; 3]],
+    topo: &Topology,
+    params: &impl ForceField,
+    obc: &ObcGbParams,
+) -> (Vec<f64>, Vec<f64>) {
     let n = coords.len();
     assert_eq!(
         n,
@@ -178,6 +197,7 @@ pub(crate) fn compute_born_radii(
         .collect();
 
     let mut born_radii = vec![0.0_f64; n];
+    let mut obc_chain = vec![0.0_f64; n];
 
     for i in 0..n {
         let (radius_i, _) = per_atom[i];
@@ -232,9 +252,15 @@ pub(crate) fn compute_born_radii(
         let tanh_arg = obc.alpha * sum - obc.beta * sum2 + obc.gamma * sum3;
         let tanh_sum = tanh_arg.tanh();
         born_radii[i] = 1.0 / (1.0 / offset_radius_i - tanh_sum / radius_i);
+
+        // Chain-rule factor used by gb_obc_energy_and_forces. Follows
+        // OpenMM's identical two-line form so the force port is
+        // line-traceable.
+        let chain = offset_radius_i * (obc.alpha - 2.0 * obc.beta * sum + 3.0 * obc.gamma * sum2);
+        obc_chain[i] = (1.0 - tanh_sum * tanh_sum) * chain / radius_i;
     }
 
-    born_radii
+    (born_radii, obc_chain)
 }
 
 /// OBC GB solvation energy (energy only, no forces).
@@ -343,7 +369,27 @@ pub(crate) fn gb_obc_energy(
 }
 
 /// OBC GB solvation energy + forces (all-pair).
-#[allow(dead_code)]
+///
+/// Port of OpenMM's `ReferenceObc::computeBornEnergyForces`
+/// (`platforms/reference/src/SimTKReference/ReferenceObc.cpp`). Follows
+/// the same three-phase structure:
+///
+///   1. Build Born radii + obcChain via `compute_born_radii_with_chain`.
+///   2. Upper-triangular loop: accumulate energy + direct pair forces
+///      (`dGpol/dr` at fixed R_eff) + bornForces[i] += ∂Gpol/∂(R_i·R_j)·R_j
+///      and symmetric for j. For i==j the 0.5 prefactor folds in the
+///      self-energy contribution without double-counting.
+///   3. Transform: `bornForces[i] *= R_eff_i² · obcChain[i]`.
+///   4. Full double loop: spread bornForces through the HCT integrand
+///      derivative `t3` to get the indirect per-atom force on j due to
+///      atom i's Born radius changing when j moves.
+///
+/// Sign convention: `forces[i]` accumulates the physical force
+/// (F = −∇E) consistent with the rest of `energy.rs`. Energy is added
+/// to `*solvation` in kcal/mol.
+///
+/// Finite-difference verified against `gb_obc_energy` in the unit tests
+/// on simple 2–6 atom systems.
 pub(crate) fn gb_obc_energy_and_forces(
     coords: &[[f64; 3]],
     topo: &Topology,
@@ -352,12 +398,163 @@ pub(crate) fn gb_obc_energy_and_forces(
     solvation: &mut f64,
     forces: &mut [[f64; 3]],
 ) {
-    let _ = (coords, topo, params, obc);
-    // TODO(Phase B): analytical derivatives of E_pair + E_self through the
-    // Born-radii chain rule. This is the most error-prone part — port
-    // against OpenMM's ReferenceObc.cpp and verify via finite-difference
-    // before calling done.
-    let _ = (solvation, forces);
+    let n = coords.len();
+    if n == 0 {
+        return;
+    }
+    assert_eq!(
+        n,
+        topo.atoms.len(),
+        "gb_obc_energy_and_forces: coords/topology length mismatch ({} vs {})",
+        n,
+        topo.atoms.len()
+    );
+    assert_eq!(forces.len(), n, "forces buffer length {} != atoms {}", forces.len(), n);
+
+    let (born, obc_chain) = compute_born_radii_with_chain(coords, topo, params, obc);
+
+    // Per-atom (intrinsic radius, HCT scale) for the second loop's HCT
+    // integrand rebuild.
+    let per_atom: Vec<(f64, f64)> = topo
+        .atoms
+        .iter()
+        .map(|a| {
+            let p = params.get_obc_gb(&a.amber_type).expect("OBC params checked in born radii");
+            (p.radius, p.scale)
+        })
+        .collect();
+
+    // Pre-factor for the Still-formula loop. OpenMM literally uses
+    // `preFactor = 2·electricConstant·τ` but OpenMM's reported `obcEnergy`
+    // ends up matching a factor of 2× Still's `-½·τ·k·Σ_{ij} q_i·q_j/f_GB`
+    // — which is the implementation detail that produces the observed
+    // numerical values. Ferritin's [`gb_obc_energy`] stays in Still's
+    // form (oracle-matched at ≤5% on crambin), so the force loop needs
+    // `pre_factor = -τ·k_C` (half of OpenMM's) to accumulate the SAME
+    // energy via the upper-triangular-with-0.5-diagonal loop structure:
+    //   Σ_i [0.5·pre·q_i²/R_i] + Σ_{i<j} [pre·q_i·q_j/f_ij]
+    //   = (-τ·k_C/2)·Σ q²/R + (-τ·k_C)·Σ_{i<j} q·q/f
+    //   = -½·τ·k_C·[Σ q²/R + 2·Σ_{i<j} q·q/f]    (matches gb_obc_energy).
+    // Direct and bornForces-chain gradients then fall out of the same
+    // pre_factor automatically.
+    const K_COULOMB_KCAL: f64 = 332.0;
+    let pre_factor = -K_COULOMB_KCAL * obc.tau();
+
+    let charges: Vec<f64> = topo.atoms.iter().map(|a| a.charge).collect();
+
+    let mut obc_energy = 0.0_f64;
+    let mut born_forces = vec![0.0_f64; n];
+
+    // --- First loop: energy + direct-pair forces + bornForces accumulator.
+    for i in 0..n {
+        let pqi = pre_factor * charges[i];
+        for j in i..n {
+            let dx = coords[j][0] - coords[i][0];
+            let dy = coords[j][1] - coords[i][1];
+            let dz = coords[j][2] - coords[i][2];
+            let r2 = dx * dx + dy * dy + dz * dz;
+
+            let alpha2 = born[i] * born[j];
+            // If ever zero, the pair contributes nothing (guard against
+            // degenerate Born radii; in practice both > 0).
+            if alpha2 <= 0.0 {
+                continue;
+            }
+            let d_ij = r2 / (4.0 * alpha2);
+            let exp_term = (-d_ij).exp();
+            let denom2 = r2 + alpha2 * exp_term;
+            let denom = denom2.sqrt();
+
+            let gpol = pqi * charges[j] / denom;
+            let d_gpol_dr = -gpol * (1.0 - 0.25 * exp_term) / denom2;
+            let d_gpol_dalpha2 = -0.5 * gpol * exp_term * (1.0 + d_ij) / denom2;
+
+            let mut energy = gpol;
+            if i != j {
+                // Direct pair gradient (R_eff held fixed): F_i = +r·dGpol_dr.
+                // Sign note: OpenMM does inputForces[i] += deltaR*dGpol_dr
+                // where deltaR = r_j − r_i. Our `forces` array accumulates
+                // the physical force (−∇E), so the same sign works here.
+                let fx = dx * d_gpol_dr;
+                let fy = dy * d_gpol_dr;
+                let fz = dz * d_gpol_dr;
+                forces[i][0] += fx;
+                forces[i][1] += fy;
+                forces[i][2] += fz;
+                forces[j][0] -= fx;
+                forces[j][1] -= fy;
+                forces[j][2] -= fz;
+                born_forces[j] += d_gpol_dalpha2 * born[i];
+            } else {
+                energy *= 0.5;
+            }
+            obc_energy += energy;
+            born_forces[i] += d_gpol_dalpha2 * born[j];
+        }
+    }
+
+    // --- Transform bornForces through dR_eff/dI chain factor.
+    for i in 0..n {
+        born_forces[i] *= born[i] * born[i] * obc_chain[i];
+    }
+
+    // --- Second loop: spread bornForces through the HCT integrand
+    // derivative. For every ordered pair (i, j), j != i, the derivative
+    // of I_i wrt r_ij (with L_ij, U_ij treated as constants — their
+    // contributions cancel analytically, see OpenMM comment).
+    for i in 0..n {
+        let (radius_i, _) = per_atom[i];
+        let offset_radius_i = radius_i - obc.offset;
+        for j in 0..n {
+            if i == j {
+                continue;
+            }
+            let (radius_j, scale_j) = per_atom[j];
+            let offset_radius_j = radius_j - obc.offset;
+            let scaled_radius_j = scale_j * offset_radius_j;
+            let scaled_radius_j2 = scaled_radius_j * scaled_radius_j;
+
+            let dx = coords[j][0] - coords[i][0];
+            let dy = coords[j][1] - coords[i][1];
+            let dz = coords[j][2] - coords[i][2];
+            let r2 = dx * dx + dy * dy + dz * dz;
+            let r = r2.sqrt();
+            let r_scaled_radius_j = r + scaled_radius_j;
+
+            if offset_radius_i >= r_scaled_radius_j {
+                continue;
+            }
+
+            let diff = (r - scaled_radius_j).abs();
+            let l_ij_denom = if offset_radius_i > diff { offset_radius_i } else { diff };
+            let l_ij = 1.0 / l_ij_denom;
+            let u_ij = 1.0 / r_scaled_radius_j;
+            let l_ij2 = l_ij * l_ij;
+            let u_ij2 = u_ij * u_ij;
+
+            let r_inverse = 1.0 / r;
+            let r2_inverse = r_inverse * r_inverse;
+
+            let t3 = 0.125 * (1.0 + scaled_radius_j2 * r2_inverse) * (l_ij2 - u_ij2)
+                + 0.25 * (u_ij / l_ij).ln() * r2_inverse;
+            let de = born_forces[i] * t3 * r_inverse;
+
+            let fx = dx * de;
+            let fy = dy * de;
+            let fz = dz * de;
+            // OpenMM: inputForces[i] -= deltaR·de; inputForces[j] += deltaR·de.
+            // ferritin's `forces` is the same (-∇E) convention, so signs
+            // carry over unchanged.
+            forces[i][0] -= fx;
+            forces[i][1] -= fy;
+            forces[i][2] -= fz;
+            forces[j][0] += fx;
+            forces[j][1] += fy;
+            forces[j][2] += fz;
+        }
+    }
+
+    *solvation += obc_energy;
 }
 
 /// OBC GB solvation energy + forces (neighbor-list).
@@ -581,6 +778,138 @@ mod tests {
         let mut solvation = 0.0;
         gb_obc_energy(&coords, &topo, &params, &obc, &mut solvation);
         assert!(solvation.abs() < 1e-12, "expected 0 (self off), got {}", solvation);
+    }
+
+    /// Central-differences estimate of -∂E/∂r_i (the force on atom i) by
+    /// perturbing each coordinate by ±h.
+    fn fd_forces(
+        coords: &[[f64; 3]],
+        topo: &Topology,
+        params: &impl ForceField,
+        obc: &ObcGbParams,
+        h: f64,
+    ) -> Vec<[f64; 3]> {
+        let n = coords.len();
+        let mut out = vec![[0.0; 3]; n];
+        let mut local = coords.to_vec();
+        for i in 0..n {
+            for k in 0..3 {
+                let saved = local[i][k];
+                local[i][k] = saved + h;
+                let mut e_plus = 0.0;
+                gb_obc_energy(&local, topo, params, obc, &mut e_plus);
+                local[i][k] = saved - h;
+                let mut e_minus = 0.0;
+                gb_obc_energy(&local, topo, params, obc, &mut e_minus);
+                local[i][k] = saved;
+                out[i][k] = -(e_plus - e_minus) / (2.0 * h); // F = -dE/dx
+            }
+        }
+        out
+    }
+
+    fn max_force_err(analytic: &[[f64; 3]], numeric: &[[f64; 3]]) -> f64 {
+        let mut err = 0.0_f64;
+        for (a, n) in analytic.iter().zip(numeric.iter()) {
+            for k in 0..3 {
+                err = err.max((a[k] - n[k]).abs());
+            }
+        }
+        err
+    }
+
+    #[test]
+    fn forces_match_finite_difference_opposite_charges() {
+        // Two opposite charges on CT type at 3 Å. Strong coupling, should
+        // exercise both direct pair force and Born-radii chain rule.
+        let params = amber96_obc();
+        let obc = ObcGbParams::obc1();
+        let coords = vec![[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]];
+        let topo = topo_of(vec![
+            ff_atom_q("CT", "C", coords[0], 1.0),
+            ff_atom_q("CT", "C", coords[1], -1.0),
+        ]);
+
+        let mut e = 0.0;
+        let mut f = vec![[0.0; 3]; 2];
+        gb_obc_energy_and_forces(&coords, &topo, &params, &obc, &mut e, &mut f);
+
+        // Energy from the dedicated path must match.
+        let mut e_ref = 0.0;
+        gb_obc_energy(&coords, &topo, &params, &obc, &mut e_ref);
+        assert!(
+            (e - e_ref).abs() < 1e-6,
+            "energy path disagree: forces-path={}, energy-path={}",
+            e,
+            e_ref
+        );
+
+        let fd = fd_forces(&coords, &topo, &params, &obc, 1e-5);
+        let err = max_force_err(&f, &fd);
+        assert!(err < 1e-4, "max force error {:.3e} exceeds 1e-4\nanalytic={:?}\nnumeric={:?}", err, f, fd);
+    }
+
+    #[test]
+    fn forces_match_finite_difference_six_atom_mixed() {
+        // 6 atoms, mixed AMBER classes, mixed charges, in a non-symmetric
+        // geometry so the chain-rule forces don't accidentally cancel.
+        let params = amber96_obc();
+        let obc = ObcGbParams::obc1();
+        let coords = vec![
+            [0.0, 0.0, 0.0],
+            [1.55, 0.2, 0.1],
+            [2.8, 1.3, -0.4],
+            [0.1, 2.0, 1.1],
+            [3.5, 0.0, 0.5],
+            [1.2, -1.5, 0.7],
+        ];
+        let atoms = vec![
+            ff_atom_q("CT", "C", coords[0], 0.3),
+            ff_atom_q("N", "N", coords[1], -0.4),
+            ff_atom_q("CT", "C", coords[2], 0.1),
+            ff_atom_q("O", "O", coords[3], -0.5),
+            ff_atom_q("H", "H", coords[4], 0.25),
+            ff_atom_q("HC", "H", coords[5], 0.15),
+        ];
+        let topo = topo_of(atoms);
+
+        let mut e = 0.0;
+        let mut f = vec![[0.0; 3]; 6];
+        gb_obc_energy_and_forces(&coords, &topo, &params, &obc, &mut e, &mut f);
+
+        let mut e_ref = 0.0;
+        gb_obc_energy(&coords, &topo, &params, &obc, &mut e_ref);
+        assert!((e - e_ref).abs() < 1e-6, "energy mismatch: {} vs {}", e, e_ref);
+
+        let fd = fd_forces(&coords, &topo, &params, &obc, 1e-5);
+        let err = max_force_err(&f, &fd);
+        assert!(err < 1e-3, "max force error {:.3e} exceeds 1e-3", err);
+    }
+
+    #[test]
+    fn newtons_third_law_holds() {
+        // Net force on an isolated system must sum to zero: Σ F_i = 0.
+        let params = amber96_obc();
+        let obc = ObcGbParams::obc1();
+        let coords = vec![
+            [0.0, 0.0, 0.0],
+            [2.0, 0.3, 0.0],
+            [1.0, 1.5, -0.5],
+        ];
+        let topo = topo_of(vec![
+            ff_atom_q("CT", "C", coords[0], 0.5),
+            ff_atom_q("N", "N", coords[1], -0.4),
+            ff_atom_q("H", "H", coords[2], 0.3),
+        ]);
+        let mut e = 0.0;
+        let mut f = vec![[0.0; 3]; 3];
+        gb_obc_energy_and_forces(&coords, &topo, &params, &obc, &mut e, &mut f);
+        let sum: [f64; 3] = f.iter().fold([0.0; 3], |acc, v| {
+            [acc[0] + v[0], acc[1] + v[1], acc[2] + v[2]]
+        });
+        for k in 0..3 {
+            assert!(sum[k].abs() < 1e-9, "net force component {} = {:e}", k, sum[k]);
+        }
     }
 
     #[test]

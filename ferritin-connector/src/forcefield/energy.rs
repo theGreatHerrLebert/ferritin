@@ -497,6 +497,19 @@ fn compute_energy_and_forces_impl(
         eef1_energy_and_forces(coords, topo, params, &mut result.solvation, &mut forces);
     }
 
+    // --- OBC GB implicit solvent (if enabled) ---
+    if params.has_obc_gb() {
+        let obc = super::gb_obc::ObcGbParams::obc2();
+        super::gb_obc::gb_obc_energy_and_forces(
+            coords,
+            topo,
+            params,
+            &obc,
+            &mut result.solvation,
+            &mut forces,
+        );
+    }
+
     result.total = result.bond_stretch
         + result.angle_bend
         + result.torsion
@@ -641,6 +654,23 @@ pub fn compute_energy_and_forces_nbl(
     // minimization on large proteins tractable.
     if params.has_eef1() {
         eef1_energy_and_forces_nbl(coords, topo, params, &mut result.solvation, &mut forces, nbl);
+    }
+
+    // --- OBC GB implicit solvent (if enabled) ---
+    // NBL path uses the all-pair GB for now (the only real performance
+    // concern is on systems >>2000 atoms; a neighbor-list GB path is a
+    // Phase C follow-up). The math is identical, so cross-path parity is
+    // automatic for this step.
+    if params.has_obc_gb() {
+        let obc = super::gb_obc::ObcGbParams::obc2();
+        super::gb_obc::gb_obc_energy_and_forces(
+            coords,
+            topo,
+            params,
+            &obc,
+            &mut result.solvation,
+            &mut forces,
+        );
     }
 
     result.total = result.bond_stretch
@@ -1197,7 +1227,7 @@ mod gradient_tests {
     //! bugs that silently broke the minimizer. Any future refactor of the force
     //! computation should keep these passing.
     use super::*;
-    use crate::forcefield::params::amber96;
+    use crate::forcefield::params::{amber96, amber96_obc};
     use crate::forcefield::topology::build_topology;
     use crate::add_hydrogens;
     use pdbtbx;
@@ -1292,6 +1322,64 @@ mod gradient_tests {
         // Check a few heavy atoms too — these exercise different force terms
         // (bonds, more angles, more torsions involving backbone/sidechain).
         check_gradient_on_atoms(&[0, 4, 10, 25, 50]);
+    }
+
+    /// Same gradient check but with the AMBER96+OBC GB force field. This is
+    /// the Phase B force parity guard: it catches any sign error in the
+    /// OBC force port (first-loop direct pair force vs second-loop Born-
+    /// radii-chain back-propagation through the HCT integrand).
+    fn check_amber96_obc_gradient_on_atoms(indices: &[usize]) {
+        let pdb = crambin_with_h();
+        let ff = amber96_obc();
+        let topo = build_topology(pdb, &ff);
+        let coords = collect_coords(pdb);
+        let (_, forces) = compute_energy_and_forces_impl(&coords, &topo, &ff, false);
+
+        let eps = 1e-5;
+        for &idx in indices {
+            for d in 0..3 {
+                let mut shifted = coords.clone();
+                shifted[idx][d] += eps;
+                let ep = compute_energy_impl(&shifted, &topo, &ff, false).total;
+                shifted[idx][d] -= 2.0 * eps;
+                let em = compute_energy_impl(&shifted, &topo, &ff, false).total;
+                let num_grad = (ep - em) / (2.0 * eps);
+                let ana_grad = -forces[idx][d];
+
+                let axis = ['x', 'y', 'z'][d];
+                // GB adds long-range coupling so absolute gradient magnitudes
+                // are larger than AMBER96 vacuum; keep the same 0.1% relative
+                // tolerance as the base gradient test.
+                let tol = 1e-3 + 1e-3 * ana_grad.abs();
+                let diff = (num_grad - ana_grad).abs();
+                assert!(
+                    diff < tol,
+                    "AMBER96+OBC gradient mismatch on atom {} axis {}: analytical={:.6}, numerical={:.6}, diff={:.2e}, tol={:.2e}",
+                    idx, axis, ana_grad, num_grad, diff, tol
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn amber96_obc_gradient_matches_numerical_on_hydrogens() {
+        let pdb = crambin_with_h();
+        let ff = amber96_obc();
+        let topo = build_topology(pdb, &ff);
+        let h_indices: Vec<usize> = topo
+            .atoms
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| if a.is_hydrogen { Some(i) } else { None })
+            .take(5)
+            .collect();
+        assert!(!h_indices.is_empty(), "no hydrogens found in topology");
+        check_amber96_obc_gradient_on_atoms(&h_indices);
+    }
+
+    #[test]
+    fn amber96_obc_gradient_matches_numerical_on_heavy_atoms() {
+        check_amber96_obc_gradient_on_atoms(&[0, 4, 10, 25, 50]);
     }
 
     /// Same gradient check but going through the neighbor-list (NBL) code path.
