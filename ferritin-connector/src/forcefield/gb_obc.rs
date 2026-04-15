@@ -216,7 +216,18 @@ pub(crate) fn compute_born_radii_with_chain(
             let dx = coords[i][0] - coords[j][0];
             let dy = coords[i][1] - coords[j][1];
             let dz = coords[i][2] - coords[j][2];
-            let r = (dx * dx + dy * dy + dz * dz).sqrt();
+            let r2 = dx * dx + dy * dy + dz * dz;
+            // Skip coincident / near-coincident atom pairs. The HCT
+            // integrand below divides by r and log(u_ij/l_ij), both of
+            // which diverge as r→0. Matches the r²<0.01 policy used
+            // elsewhere in nonbonded terms (energy.rs:200, :424, :820).
+            // Malformed inputs or mid-minimization overlaps would
+            // otherwise produce NaN Born radii that poison everything
+            // downstream.
+            if r2 < 0.01 {
+                continue;
+            }
+            let r = r2.sqrt();
             let r_scaled_radius_j = r + scaled_radius_j;
 
             // Atom j's scaled sphere doesn't reach i's offset sphere.
@@ -449,6 +460,15 @@ pub(crate) fn gb_obc_energy_and_forces(
     for i in 0..n {
         let pqi = pre_factor * charges[i];
         for j in i..n {
+            // Skip the self term when disabled, so the forces path
+            // mirrors the `include_self_term` semantics of the energy
+            // path. Without this, the two APIs disagree on the same
+            // `ObcGbParams` — which makes oracle debugging painful when
+            // someone flips the toggle to isolate the pair contribution.
+            if i == j && !obc.include_self_term {
+                continue;
+            }
+
             let dx = coords[j][0] - coords[i][0];
             let dy = coords[j][1] - coords[i][1];
             let dz = coords[j][2] - coords[i][2];
@@ -466,6 +486,12 @@ pub(crate) fn gb_obc_energy_and_forces(
             let denom = denom2.sqrt();
 
             let gpol = pqi * charges[j] / denom;
+            // Note: at r=0 with i != j we have denom = sqrt(alpha2) > 0
+            // (both Born radii strictly positive), so the energy and
+            // force expressions below are finite even for coincident
+            // atoms. The explicit r² < 0.01 skip is reserved for the
+            // HCT integrand in the second loop which genuinely has a
+            // 1/r singularity.
             let d_gpol_dr = -gpol * (1.0 - 0.25 * exp_term) / denom2;
             let d_gpol_dalpha2 = -0.5 * gpol * exp_term * (1.0 + d_ij) / denom2;
 
@@ -518,6 +544,12 @@ pub(crate) fn gb_obc_energy_and_forces(
             let dy = coords[j][1] - coords[i][1];
             let dz = coords[j][2] - coords[i][2];
             let r2 = dx * dx + dy * dy + dz * dz;
+            // Same r²<0.01 guard as compute_born_radii_with_chain —
+            // the integrand derivative t3 below uses 1/r and 1/r² and
+            // would NaN on a coincident pair.
+            if r2 < 0.01 {
+                continue;
+            }
             let r = r2.sqrt();
             let r_scaled_radius_j = r + scaled_radius_j;
 
@@ -884,6 +916,71 @@ mod tests {
         let fd = fd_forces(&coords, &topo, &params, &obc, 1e-5);
         let err = max_force_err(&f, &fd);
         assert!(err < 1e-3, "max force error {:.3e} exceeds 1e-3", err);
+    }
+
+    #[test]
+    fn include_self_term_toggle_also_affects_forces_path() {
+        // When include_self_term is flipped, the forces-path energy must
+        // track the energy-path's output exactly. Without the toggle in
+        // the forces path, the two APIs disagree on the same params.
+        let params = amber96_obc();
+        let mut obc = ObcGbParams::obc1();
+        obc.include_self_term = false;
+        let coords = vec![[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]];
+        let topo = topo_of(vec![
+            ff_atom_q("CT", "C", coords[0], 1.0),
+            ff_atom_q("CT", "C", coords[1], -1.0),
+        ]);
+
+        let mut e_energy = 0.0;
+        gb_obc_energy(&coords, &topo, &params, &obc, &mut e_energy);
+
+        let mut e_forces = 0.0;
+        let mut f = vec![[0.0; 3]; 2];
+        gb_obc_energy_and_forces(&coords, &topo, &params, &obc, &mut e_forces, &mut f);
+
+        assert!(
+            (e_energy - e_forces).abs() < 1e-9,
+            "self-term toggle mismatch: energy-path={}, forces-path={}",
+            e_energy,
+            e_forces
+        );
+        // Also: with self off and pair on, FD must still match analytical.
+        let fd = fd_forces(&coords, &topo, &params, &obc, 1e-5);
+        let err = max_force_err(&f, &fd);
+        assert!(err < 1e-4, "self-off FD err {:.2e}", err);
+    }
+
+    #[test]
+    fn zero_separation_pair_does_not_blow_up() {
+        // Two distinct atoms at the same coordinate would normally
+        // produce NaN Born radii and NaN forces via 1/r. The r²<0.01
+        // guard must keep everything finite even in this pathological
+        // configuration.
+        let params = amber96_obc();
+        let obc = ObcGbParams::obc1();
+        let coords = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
+        let topo = topo_of(vec![
+            ff_atom_q("CT", "C", coords[0], 1.0),
+            ff_atom_q("CT", "C", coords[1], -1.0),
+        ]);
+
+        // Born radii should be finite (falls back to the isolated-atom
+        // limit when the pair is skipped).
+        let (born, _) = compute_born_radii_with_chain(&coords, &topo, &params, &obc);
+        for b in &born {
+            assert!(b.is_finite() && *b > 0.0, "non-finite born radius: {}", b);
+        }
+
+        let mut e = 0.0;
+        let mut f = vec![[0.0; 3]; 2];
+        gb_obc_energy_and_forces(&coords, &topo, &params, &obc, &mut e, &mut f);
+        assert!(e.is_finite(), "non-finite energy: {}", e);
+        for atom_f in &f {
+            for k in 0..3 {
+                assert!(atom_f[k].is_finite(), "non-finite force component: {}", atom_f[k]);
+            }
+        }
     }
 
     #[test]

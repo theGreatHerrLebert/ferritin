@@ -118,10 +118,17 @@ pub fn compute_energy(
             });
             (topo, result)
         }
-        "amber96_obc" | "amber96+obc" | "amber96_obc1" => {
-            // AMBER96 with OBC1 implicit solvent (matches OpenMM's
-            // ForceField("amber96.xml", "amber96_obc.xml")). Energy path
-            // only — forces through OBC are deferred to Phase B step 5.
+        "amber96_obc" | "amber96+obc" | "amber96_obc2" => {
+            // AMBER96 with OBC2 implicit solvent (α=1.0, β=0.8, γ=4.85).
+            // This matches OpenMM's ForceField("amber96.xml",
+            // "amber96_obc.xml") + AMBER's gbsa=OBC2 setting: the OpenMM
+            // kernel hardcodes `ObcParameters::ObcTypeII` regardless of
+            // whether the XML is named amber96_obc.xml or charmm36_obc2.xml,
+            // because the XML only serializes per-atom (radius, scale)
+            // and leaves α/β/γ to the code. If/when ferritin grows
+            // genuine OBC1 support it will ship as a distinct ff string
+            // ("amber96_obc1") routed through a separate params loader,
+            // NOT as an alias here.
             let mut amber = params::amber96_obc();
             if let Some(c) = nonbonded_cutoff {
                 amber.cutoff_override = Some(c);
@@ -137,8 +144,8 @@ pub fn compute_energy(
         _ => {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 format!(
-                    "Unknown force field '{}'. Use 'amber96', 'amber96_obc', or 'charmm19_eef1'.",
-                    ff
+                    "Unknown force field '{ff}'. Use 'amber96', 'amber96_obc' \
+                     (alias: 'amber96+obc', 'amber96_obc2'), or 'charmm19_eef1'."
                 )
             ));
         }
