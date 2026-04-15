@@ -21,8 +21,6 @@ def export_sequence_examples(
     overwrite: bool = False,
 ) -> Path:
     examples = list(examples)
-    if not examples:
-        raise ValueError("expected at least one sequence example")
 
     root = Path(out_dir)
     if root.exists() and not overwrite:
@@ -34,19 +32,19 @@ def export_sequence_examples(
             handle.write(json.dumps(_example_metadata(ex), separators=(",", ":")))
             handle.write("\n")
 
-    # Tensors first so the manifest can carry a digest that actually
-    # corresponds to the on-disk payload (same ordering as the
-    # supervision exporter).
-    tensor_path = root / "tensors.npz"
-    np.savez_compressed(tensor_path, **_stack_tensor_payload(examples))
-
     manifest = {
         "format": SEQUENCE_EXPORT_FORMAT,
         "count": len(examples),
         "examples_file": "examples.jsonl",
-        "tensor_file": "tensors.npz",
-        "tensor_sha256": sha256_file(tensor_path),
     }
+    if examples:
+        # Tensors first so the manifest can carry a digest that actually
+        # corresponds to the on-disk payload (same ordering as the
+        # supervision exporter).
+        tensor_path = root / "tensors.npz"
+        np.savez_compressed(tensor_path, **_stack_tensor_payload(examples))
+        manifest["tensor_file"] = "tensors.npz"
+        manifest["tensor_sha256"] = sha256_file(tensor_path)
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return root
 
@@ -62,6 +60,8 @@ def load_sequence_examples(
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("format") != SEQUENCE_EXPORT_FORMAT:
         raise ValueError(f"unsupported sequence export format: {manifest.get('format')!r}")
+    if int(manifest.get("count", 0)) == 0:
+        return []
     if verify_checksum:
         expected = manifest.get("tensor_sha256")
         if expected:

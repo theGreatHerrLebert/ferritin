@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Ferritin validation report — 2026-04-13</title>
+<title>Ferritin validation report — 2026-04-14</title>
 <style>
 :root {
   --ferritin: #0a7e8c;
@@ -176,7 +176,7 @@ footer {
 
 <header>
   <h1>Ferritin validation report</h1>
-  <div class="meta">Structural bioinformatics compute kernel · generated 2026-04-13</div>
+  <div class="meta">Structural bioinformatics compute kernel · generated 2026-04-14</div>
 </header>
 
 <p class="lede">
@@ -434,6 +434,59 @@ in, ferritin returns ≈47,000 minimized structures, OpenMM returns ≈46,000,
 GROMACS returns ≈18,000. For archive-scale workflows this is the
 dominant filter on the other end of the pipeline.
 </div>
+
+<h3>What looks rescuable inside ferritin's remaining parse errors?</h3>
+
+<p>
+The remaining ferritin failures are not all equally hard. Most are concentrated
+in a small number of malformed-record buckets, which makes them good candidates
+for an explicit rescue pass rather than a broader parser rewrite.
+</p>
+
+
+<div class="callout">
+<strong>Rescue potential inside ferritin's parse failures:</strong>
+31/32 current loader failures (96.9%)
+match deterministic rescue buckets in the first-pass rescue layer. These are primarily metadata cleanup
+or fixed-width PDB field repairs, not ambiguous structural reconstruction.
+</div>
+
+<table class='stats'>
+  <tr>
+    <th>Rescue bucket</th>
+    <th>Count</th>
+    <th>Example PDBs</th>
+    <th>Deterministic fix</th>
+  </tr>
+  <tr><td><code>seqadv_invalid_field</code></td><td>16</td><td>9l05.pdb, 7f24.pdb, 7ktf.pdb, 5st4.pdb, 5st0.pdb</td><td>strip SEQADV records or parse them permissively before retry</td></tr><tr><td><code>atom_charge_suffix</code></td><td>11</td><td>7zdy.pdb, 8b48.pdb, 9caj.pdb, 7erx.pdb, 9f7b.pdb</td><td>rewrite malformed element/charge columns and retry parse</td></tr><tr><td><code>solitary_dbref1_definition</code></td><td>2</td><td>8a14.pdb, 8ftw.pdb</td><td>drop incomplete DBREF metadata records before retry</td></tr><tr><td><code>seqres_total_invalid</code></td><td>1</td><td>2lxd.pdb</td><td>ignore SEQRES/DBREF count mismatches during rescue load</td></tr><tr><td><code>ssbond_missing_partner</code></td><td>1</td><td>7g0b.pdb</td><td>drop invalid SSBOND annotations and retry parse</td></tr>
+</table>
+
+
+<h3>What has actually been rescued on a real-file benchmark slice?</h3>
+
+<p>
+Potential buckets are useful, but realized rescue yield matters more. When a
+local benchmark artifact is present, the report also shows the buckets that
+were actually recovered by the explicit rescue path on that slice.
+</p>
+
+
+<div class="callout">
+<strong>Realized rescue yield on the local benchmark slice:</strong>
+2/2 available failed inputs
+loaded successfully through the explicit rescue path.
+</div>
+
+<div class='callout warn'><strong>Caveat:</strong> Only 2/32 original failure files are present in this workspace.</div>
+
+<table class='stats'>
+  <tr>
+    <th>Realized rescue bucket</th>
+    <th>Count</th>
+  </tr>
+  <tr><td><code>seqres_total_invalid</code></td><td>1</td></tr><tr><td><code>solitary_dbref1_definition</code></td><td>1</td></tr>
+</table>
+
 </section>
 
 <!-- ==================================================================== -->
@@ -468,7 +521,7 @@ GROMACS benchmark:        local — 16 cores, CPU only</pre>
 
 <footer>
 <p>Generated from jsonl data by <code>validation/report/build_report.py</code>
-on 2026-04-13. Re-run after any benchmark update to pick up fresh numbers.</p>
+on 2026-04-14. Re-run after any benchmark update to pick up fresh numbers.</p>
 </footer>
 
 </main>

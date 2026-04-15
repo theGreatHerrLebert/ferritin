@@ -1,0 +1,106 @@
+Stage 3 FULL: 47183 PDBs, chunks of 500, 50 steps, GPU + 128 cores
+[ferritin-gpu] CUDA initialized: NVIDIA GeForce RTX 5090 (CC 12.0)
+  [  500/47183] elapsed=   62.0s eta= 5787.1s ok=486 neg=484 neg%=99.6 chunk=58409ms
+  [ 1000/47183] elapsed=  124.4s eta= 5744.5s ok=975 neg=969 neg%=99.4 chunk=58838ms
+  [ 1500/47183] elapsed=  191.0s eta= 5818.0s ok=1462 neg=1452 neg%=99.3 chunk=63400ms
+  [ 2000/47183] elapsed=  284.8s eta= 6434.6s ok=1949 neg=1931 neg%=99.1 chunk=86812ms
+  [ 2500/47183] elapsed=  433.0s eta= 7739.9s ok=2440 neg=2420 neg%=99.2 chunk=89655ms
+  [ 3000/47183] elapsed=  493.2s eta= 7263.2s ok=2924 neg=2895 neg%=99.0 chunk=56383ms
+  [ 3500/47183] elapsed=  580.0s eta= 7238.6s ok=3412 neg=3375 neg%=98.9 chunk=82773ms
+  [ 4000/47183] elapsed=  663.7s eta= 7165.3s ok=3902 neg=3859 neg%=98.9 chunk=79638ms
+  [ 4500/47183] elapsed=  732.7s eta= 6949.8s ok=4386 neg=4337 neg%=98.9 chunk=63581ms
+  [ 5000/47183] elapsed=  799.3s eta= 6743.3s ok=4878 neg=4828 neg%=99.0 chunk=62657ms
+  [ 5500/47183] elapsed=  876.4s eta= 6641.7s ok=5364 neg=5311 neg%=99.0 chunk=71742ms
+  [ 6000/47183] elapsed=  941.1s eta= 6459.9s ok=5858 neg=5801 neg%=99.0 chunk=61016ms
+  [ 6500/47183] elapsed= 1031.3s eta= 6455.1s ok=6349 neg=6290 neg%=99.1 chunk=86309ms
+  [ 7000/47183] elapsed= 1105.3s eta= 6344.9s ok=6842 neg=6779 neg%=99.1 chunk=68524ms
+  [ 7500/47183] elapsed= 1290.6s eta= 6828.9s ok=7338 neg=7274 neg%=99.1 chunk=72896ms
+  [ 8000/47183] elapsed= 1369.3s eta= 6706.7s ok=7830 neg=7764 neg%=99.2 chunk=74324ms
+  [ 8500/47183] elapsed= 1502.1s eta= 6835.9s ok=8324 neg=8257 neg%=99.2 chunk=51215ms
+  [ 9000/47183] elapsed= 1574.2s eta= 6678.6s ok=8780 neg=8711 neg%=99.2 chunk=31587ms
+  [ 9500/47183] elapsed= 1658.9s eta= 6580.3s ok=9266 neg=9196 neg%=99.2 chunk=77830ms
+  [10000/47183] elapsed= 1995.4s eta= 7419.4s ok=9750 neg=9673 neg%=99.2 chunk=70095ms
+  [10500/47183] elapsed= 2078.9s eta= 7262.8s ok=10242 neg=10159 neg%=99.2 chunk=76986ms
+  [11000/47183] elapsed= 2205.6s eta= 7255.1s ok=10734 neg=10648 neg%=99.2 chunk=119582ms
+  [11500/47183] elapsed= 2303.7s eta= 7148.0s ok=11225 neg=11136 neg%=99.2 chunk=93427ms
+  [12000/47183] elapsed= 2402.4s eta= 7043.6s ok=11717 neg=11623 neg%=99.2 chunk=93785ms
+  [12500/47183] elapsed= 2482.9s eta= 6889.0s ok=12211 neg=12115 neg%=99.2 chunk=77238ms
+  [13000/47183] elapsed= 2580.5s eta= 6785.3s ok=12702 neg=12601 neg%=99.2 chunk=94076ms
+  [13500/47183] elapsed= 2698.3s eta= 6732.3s ok=13195 neg=13093 neg%=99.2 chunk=114242ms
+  [14000/47183] elapsed= 2850.7s eta= 6756.8s ok=13684 neg=13573 neg%=99.2 chunk=147645ms
+  [14500/47183] elapsed= 2959.6s eta= 6671.0s ok=14171 neg=14055 neg%=99.2 chunk=104125ms
+  [15000/47183] elapsed= 3080.4s eta= 6609.2s ok=14659 neg=14538 neg%=99.2 chunk=114686ms
+  [15500/47183] elapsed= 3190.3s eta= 6521.2s ok=15153 neg=15032 neg%=99.2 chunk=104080ms
+  [16000/47183] elapsed= 3302.7s eta= 6436.7s ok=15645 neg=15520 neg%=99.2 chunk=106330ms
+  [16500/47183] elapsed= 3406.5s eta= 6334.7s ok=16134 neg=16008 neg%=99.2 chunk=97774ms
+  [17000/47183] elapsed= 3539.4s eta= 6284.1s ok=16622 neg=16492 neg%=99.2 chunk=126061ms
+  [17500/47183] elapsed= 3631.1s eta= 6158.9s ok=17112 neg=16975 neg%=99.2 chunk=84774ms
+  [18000/47183] elapsed= 3730.9s eta= 6048.8s ok=17604 neg=17455 neg%=99.2 chunk=90629ms
+  [18500/47183] elapsed= 3829.7s eta= 5937.7s ok=18097 neg=17946 neg%=99.2 chunk=92194ms
+  [19000/47183] elapsed= 3934.2s eta= 5835.6s ok=18590 neg=18439 neg%=99.2 chunk=98555ms
+  [19500/47183] elapsed= 4056.0s eta= 5758.1s ok=19070 neg=18914 neg%=99.2 chunk=111958ms
+  [20000/47183] elapsed= 4168.4s eta= 5665.5s ok=19556 neg=19397 neg%=99.2 chunk=103481ms
+  [20500/47183] elapsed= 4257.6s eta= 5541.7s ok=20046 neg=19885 neg%=99.2 chunk=83037ms
+  [21000/47183] elapsed= 4400.1s eta= 5486.1s ok=20536 neg=20371 neg%=99.2 chunk=134603ms
+  [21500/47183] elapsed= 4541.7s eta= 5425.3s ok=21021 neg=20846 neg%=99.2 chunk=118094ms
+  [22000/47183] elapsed= 4667.2s eta= 5342.4s ok=21499 neg=21323 neg%=99.2 chunk=108581ms
+  [22500/47183] elapsed= 4801.4s eta= 5267.3s ok=21985 neg=21801 neg%=99.2 chunk=127619ms
+  [23000/47183] elapsed= 4912.3s eta= 5165.0s ok=22467 neg=22279 neg%=99.2 chunk=104151ms
+  [23500/47183] elapsed= 5008.0s eta= 5047.0s ok=22951 neg=22758 neg%=99.2 chunk=89745ms
+  [24000/47183] elapsed= 5138.4s eta= 4963.5s ok=23432 neg=23233 neg%=99.2 chunk=122907ms
+  [24500/47183] elapsed= 5254.7s eta= 4865.0s ok=23922 neg=23721 neg%=99.2 chunk=107512ms
+  [25000/47183] elapsed= 5424.3s eta= 4813.1s ok=24406 neg=24200 neg%=99.2 chunk=153599ms
+  [25500/47183] elapsed= 5552.3s eta= 4721.2s ok=24890 neg=24679 neg%=99.2 chunk=119135ms
+  [26000/47183] elapsed= 5622.9s eta= 4581.1s ok=25383 neg=25172 neg%=99.2 chunk=65616ms
+  [26500/47183] elapsed= 5682.8s eta= 4435.3s ok=25874 neg=25660 neg%=99.2 chunk=56269ms
+  [27000/47183] elapsed= 5801.2s eta= 4336.5s ok=26345 neg=26119 neg%=99.1 chunk=111525ms
+  [27500/47183] elapsed= 5948.5s eta= 4257.6s ok=26828 neg=26599 neg%=99.1 chunk=132906ms
+  [28000/47183] elapsed= 6076.7s eta= 4163.2s ok=27316 neg=27082 neg%=99.1 chunk=121901ms
+  [28500/47183] elapsed= 6211.3s eta= 4071.8s ok=27804 neg=27568 neg%=99.2 chunk=127184ms
+  [29000/47183] elapsed= 6396.1s eta= 4010.4s ok=28290 neg=28050 neg%=99.2 chunk=114299ms
+  [29500/47183] elapsed= 6554.7s eta= 3929.0s ok=28776 neg=28531 neg%=99.1 chunk=150389ms
+  [30000/47183] elapsed= 6690.9s eta= 3832.4s ok=29261 neg=29011 neg%=99.1 chunk=129019ms
+  [30500/47183] elapsed= 6861.5s eta= 3753.1s ok=29748 neg=29491 neg%=99.1 chunk=162636ms
+  [31000/47183] elapsed= 6992.6s eta= 3650.4s ok=30229 neg=29966 neg%=99.1 chunk=122156ms
+  [31500/47183] elapsed= 7131.8s eta= 3550.7s ok=30712 neg=30444 neg%=99.1 chunk=132641ms
+  [32000/47183] elapsed= 7281.4s eta= 3454.8s ok=31191 neg=30921 neg%=99.1 chunk=141791ms
+  [32500/47183] elapsed= 7473.1s eta= 3376.2s ok=31685 neg=31410 neg%=99.1 chunk=183660ms
+  [33000/47183] elapsed= 7631.4s eta= 3279.9s ok=32170 neg=31890 neg%=99.1 chunk=150126ms
+  [33500/47183] elapsed= 7791.8s eta= 3182.5s ok=32657 neg=32374 neg%=99.1 chunk=150529ms
+  [34000/47183] elapsed= 7951.7s eta= 3083.2s ok=33138 neg=32855 neg%=99.1 chunk=152361ms
+  [34500/47183] elapsed= 8154.6s eta= 2997.8s ok=33619 neg=33331 neg%=99.1 chunk=193554ms
+  [35000/47183] elapsed= 8282.9s eta= 2883.1s ok=34101 neg=33807 neg%=99.1 chunk=120342ms
+  [35500/47183] elapsed= 8437.4s eta= 2776.7s ok=34549 neg=34248 neg%=99.1 chunk=147579ms
+  [36000/47183] elapsed= 8489.1s eta= 2637.1s ok=35024 neg=34723 neg%=99.1 chunk=47490ms
+  [36500/47183] elapsed= 8661.9s eta= 2535.2s ok=35496 neg=35193 neg%=99.1 chunk=163285ms
+  [37000/47183] elapsed= 8830.6s eta= 2430.3s ok=35962 neg=35648 neg%=99.1 chunk=158706ms
+  [37500/47183] elapsed= 9012.2s eta= 2327.1s ok=36430 neg=36109 neg%=99.1 chunk=173195ms
+  [38000/47183] elapsed= 9213.3s eta= 2226.5s ok=36891 neg=36567 neg%=99.1 chunk=192196ms
+  [38500/47183] elapsed= 9369.4s eta= 2113.1s ok=37351 neg=37017 neg%=99.1 chunk=148452ms
+  [39000/47183] elapsed= 9550.4s eta= 2003.9s ok=37793 neg=37457 neg%=99.1 chunk=173772ms
+  [39500/47183] elapsed= 9714.4s eta= 1889.5s ok=38256 neg=37917 neg%=99.1 chunk=156248ms
+  [40000/47183] elapsed= 9871.6s eta= 1772.7s ok=38696 neg=38351 neg%=99.1 chunk=147923ms
+  [40500/47183] elapsed=10071.9s eta= 1662.0s ok=39133 neg=38783 neg%=99.1 chunk=189785ms
+  [41000/47183] elapsed=10271.3s eta= 1549.0s ok=39598 neg=39237 neg%=99.1 chunk=190306ms
+  [41500/47183] elapsed=10419.1s eta= 1426.8s ok=40064 neg=39701 neg%=99.1 chunk=141252ms
+  [42000/47183] elapsed=10639.6s eta= 1313.0s ok=40512 neg=40143 neg%=99.1 chunk=199907ms
+  [42500/47183] elapsed=10789.3s eta= 1188.9s ok=40954 neg=40582 neg%=99.1 chunk=141019ms
+  [43000/47183] elapsed=11004.8s eta= 1070.5s ok=41414 neg=41034 neg%=99.1 chunk=206140ms
+  [43500/47183] elapsed=11165.3s eta=  945.3s ok=41873 neg=41490 neg%=99.1 chunk=151183ms
+  [44000/47183] elapsed=11412.9s eta=  825.6s ok=42317 neg=41933 neg%=99.1 chunk=237648ms
+  [44500/47183] elapsed=11604.0s eta=  699.6s ok=42780 neg=42395 neg%=99.1 chunk=181816ms
+  [45000/47183] elapsed=11793.8s eta=  572.1s ok=43231 neg=42842 neg%=99.1 chunk=180753ms
+  [45500/47183] elapsed=11990.9s eta=  443.5s ok=43679 neg=43285 neg%=99.1 chunk=187402ms
+  [46000/47183] elapsed=12136.2s eta=  312.1s ok=44149 neg=43754 neg%=99.1 chunk=137436ms
+  [46500/47183] elapsed=12359.7s eta=  181.5s ok=44619 neg=44220 neg%=99.1 chunk=215535ms
+  [47000/47183] elapsed=12536.6s eta=   48.8s ok=45068 neg=44664 neg%=99.1 chunk=167028ms
+  [47183/47183] elapsed=12631.1s eta=    0.0s ok=45242 neg=44837 neg%=99.1 chunk=90615ms
+
+=== Stage 3 FULL 50K GPU Summary ===
+Total:     47183
+Errors:    1697 (3.6%)
+Skipped:   244
+Processed: 45242
+Negative:  44837/45242 (99.1%)
+Wall time: 12631.1s (210.5 min)
+Throughput: 3.6 structures/s

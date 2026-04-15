@@ -1,0 +1,631 @@
+{
+  "by_op": {
+    "energy_charmm": {
+      "by_impl": {
+        "openmm_charmm36": {
+          "by_pdb": {
+            "1ake": {
+              "ferritin_status": "ok",
+              "other_status": "ok",
+              "metrics": {
+                "_n_atoms_diff": {
+                  "value": -2622,
+                  "band": "INFO"
+                },
+                "total_log10_ratio": {
+                  "value": 0.2659408789896732,
+                  "band": "PASS"
+                },
+                "total_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "bond_stretch_log10_ratio": {
+                  "value": -0.09606518980405318,
+                  "band": "PASS"
+                },
+                "angle_bend_log10_ratio": {
+                  "value": 0.09673731084614863,
+                  "band": "PASS"
+                },
+                "nonbonded_log10_ratio": {
+                  "value": 0.3244137197999788,
+                  "band": "PASS"
+                },
+                "nonbonded_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "solvation_log10_ratio": {
+                  "value": -0.18286743842027317,
+                  "band": "PASS"
+                },
+                "solvation_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                }
+              }
+            },
+            "1aki": {
+              "ferritin_status": "ok",
+              "other_status": "ok",
+              "metrics": {
+                "_n_atoms_diff": {
+                  "value": -696,
+                  "band": "INFO"
+                },
+                "total_log10_ratio": {
+                  "value": 0.2026406940472661,
+                  "band": "PASS"
+                },
+                "total_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "bond_stretch_log10_ratio": {
+                  "value": -0.1382663473581471,
+                  "band": "PASS"
+                },
+                "angle_bend_log10_ratio": {
+                  "value": 0.11898035127327551,
+                  "band": "PASS"
+                },
+                "nonbonded_log10_ratio": {
+                  "value": 0.2315019408715965,
+                  "band": "PASS"
+                },
+                "nonbonded_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "solvation_log10_ratio": {
+                  "value": -0.15848484480076006,
+                  "band": "PASS"
+                },
+                "solvation_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                }
+              }
+            },
+            "1bpi": {
+              "ferritin_status": "ok",
+              "other_status": "ok",
+              "metrics": {
+                "_n_atoms_diff": {
+                  "value": -323,
+                  "band": "INFO"
+                },
+                "total_log10_ratio": {
+                  "value": 0.22364993329758004,
+                  "band": "PASS"
+                },
+                "total_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "bond_stretch_log10_ratio": {
+                  "value": -0.41620124307893464,
+                  "band": "PASS"
+                },
+                "angle_bend_log10_ratio": {
+                  "value": 0.009844491123944876,
+                  "band": "PASS"
+                },
+                "nonbonded_log10_ratio": {
+                  "value": 0.3135239748808461,
+                  "band": "PASS"
+                },
+                "nonbonded_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "solvation_log10_ratio": {
+                  "value": -0.29407407165910826,
+                  "band": "PASS"
+                },
+                "solvation_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                }
+              }
+            },
+            "1crn": {
+              "ferritin_status": "ok",
+              "other_status": "ok",
+              "metrics": {
+                "_n_atoms_diff": {
+                  "value": -245,
+                  "band": "INFO"
+                },
+                "total_log10_ratio": {
+                  "value": 0.5191960087795382,
+                  "band": "WARN"
+                },
+                "total_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "bond_stretch_log10_ratio": {
+                  "value": -0.24699755072993151,
+                  "band": "PASS"
+                },
+                "angle_bend_log10_ratio": {
+                  "value": 0.1447764906098385,
+                  "band": "PASS"
+                },
+                "nonbonded_log10_ratio": {
+                  "value": 0.37396836763830266,
+                  "band": "PASS"
+                },
+                "nonbonded_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "solvation_log10_ratio": {
+                  "value": 0.07212133230414283,
+                  "band": "PASS"
+                },
+                "solvation_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                }
+              }
+            },
+            "1pgb": {
+              "ferritin_status": "ok",
+              "other_status": "ok",
+              "metrics": {
+                "_n_atoms_diff": {
+                  "value": -319,
+                  "band": "INFO"
+                },
+                "total_log10_ratio": {
+                  "value": 0.40567918526742475,
+                  "band": "PASS"
+                },
+                "total_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "bond_stretch_log10_ratio": {
+                  "value": -0.1967557138434451,
+                  "band": "PASS"
+                },
+                "angle_bend_log10_ratio": {
+                  "value": 0.19492859134582213,
+                  "band": "PASS"
+                },
+                "nonbonded_log10_ratio": {
+                  "value": 0.5264092895002803,
+                  "band": "WARN"
+                },
+                "nonbonded_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "solvation_log10_ratio": {
+                  "value": -0.24259177609579435,
+                  "band": "PASS"
+                },
+                "solvation_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                }
+              }
+            },
+            "1ubq": {
+              "ferritin_status": "ok",
+              "other_status": "ok",
+              "metrics": {
+                "_n_atoms_diff": {
+                  "value": 1,
+                  "band": "INFO"
+                },
+                "total_log10_ratio": {
+                  "value": 0.2516164376761962,
+                  "band": "PASS"
+                },
+                "total_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "bond_stretch_log10_ratio": {
+                  "value": -0.07191549749386018,
+                  "band": "PASS"
+                },
+                "angle_bend_log10_ratio": {
+                  "value": 0.3036642670543378,
+                  "band": "PASS"
+                },
+                "nonbonded_log10_ratio": {
+                  "value": 0.3268589697234738,
+                  "band": "PASS"
+                },
+                "nonbonded_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                },
+                "solvation_log10_ratio": {
+                  "value": -0.15738931305838347,
+                  "band": "PASS"
+                },
+                "solvation_sign_agree": {
+                  "value": 1.0,
+                  "band": "PASS"
+                }
+              }
+            }
+          },
+          "n_pdbs": 6,
+          "totals": {
+            "PASS": 46,
+            "WARN": 2
+          },
+          "distribution": {
+            "total_log10_ratio": {
+              "n": 6,
+              "n_dropped": 0,
+              "mean": 0.3114538563429464,
+              "median": 0.2587786583329347,
+              "p50": 0.2587786583329347,
+              "p90": 0.4624375970234815,
+              "p99": 0.5135201676039325,
+              "min": 0.2026406940472661,
+              "max": 0.5191960087795382,
+              "std": 0.12428756613685575
+            },
+            "total_sign_agree": {
+              "n": 6,
+              "n_dropped": 0,
+              "mean": 1.0,
+              "median": 1.0,
+              "p50": 1.0,
+              "p90": 1.0,
+              "p99": 1.0,
+              "min": 1.0,
+              "max": 1.0,
+              "std": 0.0
+            },
+            "bond_stretch_log10_ratio": {
+              "n": 6,
+              "n_dropped": 0,
+              "mean": -0.19436692371806197,
+              "median": -0.16751103060079608,
+              "p50": -0.16751103060079608,
+              "p90": -0.08399034364895669,
+              "p99": -0.07312298210936984,
+              "min": -0.41620124307893464,
+              "max": -0.07191549749386018,
+              "std": 0.1263257786890575
+            },
+            "angle_bend_log10_ratio": {
+              "n": 6,
+              "n_dropped": 0,
+              "mean": 0.1448219170422279,
+              "median": 0.131878420941557,
+              "p50": 0.131878420941557,
+              "p90": 0.24929642920007997,
+              "p99": 0.298227483268912,
+              "min": 0.009844491123944876,
+              "max": 0.3036642670543378,
+              "std": 0.09893472030854038
+            },
+            "nonbonded_log10_ratio": {
+              "n": 6,
+              "n_dropped": 0,
+              "mean": 0.34944604373574634,
+              "median": 0.3256363447617263,
+              "p50": 0.3256363447617263,
+              "p90": 0.4501888285692915,
+              "p99": 0.5187872434071815,
+              "min": 0.2315019408715965,
+              "max": 0.5264092895002803,
+              "std": 0.09823984355281432
+            },
+            "nonbonded_sign_agree": {
+              "n": 6,
+              "n_dropped": 0,
+              "mean": 1.0,
+              "median": 1.0,
+              "p50": 1.0,
+              "p90": 1.0,
+              "p99": 1.0,
+              "min": 1.0,
+              "max": 1.0,
+              "std": 0.0
+            },
+            "solvation_log10_ratio": {
+              "n": 6,
+              "n_dropped": 0,
+              "mean": -0.16054768528836275,
+              "median": -0.1706761416105166,
+              "p50": -0.1706761416105166,
+              "p90": -0.04263399037712032,
+              "p99": 0.060645800036016564,
+              "min": -0.29407407165910826,
+              "max": 0.07212133230414283,
+              "std": 0.1258632610788384
+            },
+            "solvation_sign_agree": {
+              "n": 6,
+              "n_dropped": 0,
+              "mean": 1.0,
+              "median": 1.0,
+              "p50": 1.0,
+              "p90": 1.0,
+              "p99": 1.0,
+              "min": 1.0,
+              "max": 1.0,
+              "std": 0.0
+            }
+          },
+          "outliers": {
+            "total_log10_ratio": [
+              {
+                "pdb_id": "1crn",
+                "value": 0.5191960087795382,
+                "band": "WARN"
+              },
+              {
+                "pdb_id": "1pgb",
+                "value": 0.40567918526742475,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ake",
+                "value": 0.2659408789896732,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ubq",
+                "value": 0.2516164376761962,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1bpi",
+                "value": 0.22364993329758004,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1aki",
+                "value": 0.2026406940472661,
+                "band": "PASS"
+              }
+            ],
+            "total_sign_agree": [
+              {
+                "pdb_id": "1ake",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1aki",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1bpi",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1crn",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1pgb",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ubq",
+                "value": 1.0,
+                "band": "PASS"
+              }
+            ],
+            "bond_stretch_log10_ratio": [
+              {
+                "pdb_id": "1bpi",
+                "value": -0.41620124307893464,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1crn",
+                "value": -0.24699755072993151,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1pgb",
+                "value": -0.1967557138434451,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1aki",
+                "value": -0.1382663473581471,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ake",
+                "value": -0.09606518980405318,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ubq",
+                "value": -0.07191549749386018,
+                "band": "PASS"
+              }
+            ],
+            "angle_bend_log10_ratio": [
+              {
+                "pdb_id": "1ubq",
+                "value": 0.3036642670543378,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1pgb",
+                "value": 0.19492859134582213,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1crn",
+                "value": 0.1447764906098385,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1aki",
+                "value": 0.11898035127327551,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ake",
+                "value": 0.09673731084614863,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1bpi",
+                "value": 0.009844491123944876,
+                "band": "PASS"
+              }
+            ],
+            "nonbonded_log10_ratio": [
+              {
+                "pdb_id": "1pgb",
+                "value": 0.5264092895002803,
+                "band": "WARN"
+              },
+              {
+                "pdb_id": "1crn",
+                "value": 0.37396836763830266,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ubq",
+                "value": 0.3268589697234738,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ake",
+                "value": 0.3244137197999788,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1bpi",
+                "value": 0.3135239748808461,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1aki",
+                "value": 0.2315019408715965,
+                "band": "PASS"
+              }
+            ],
+            "nonbonded_sign_agree": [
+              {
+                "pdb_id": "1ake",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1aki",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1bpi",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1crn",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1pgb",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ubq",
+                "value": 1.0,
+                "band": "PASS"
+              }
+            ],
+            "solvation_log10_ratio": [
+              {
+                "pdb_id": "1bpi",
+                "value": -0.29407407165910826,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1pgb",
+                "value": -0.24259177609579435,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ake",
+                "value": -0.18286743842027317,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1aki",
+                "value": -0.15848484480076006,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ubq",
+                "value": -0.15738931305838347,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1crn",
+                "value": 0.07212133230414283,
+                "band": "PASS"
+              }
+            ],
+            "solvation_sign_agree": [
+              {
+                "pdb_id": "1ake",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1aki",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1bpi",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1crn",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1pgb",
+                "value": 1.0,
+                "band": "PASS"
+              },
+              {
+                "pdb_id": "1ubq",
+                "value": 1.0,
+                "band": "PASS"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "global_totals": {
+    "PASS": 46,
+    "WARN": 2
+  },
+  "n_pdbs": 6,
+  "n_ops": 1
+}

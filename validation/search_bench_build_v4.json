@@ -1,0 +1,23 @@
+{
+  "corpus": {
+    "pdb_dir": "/scratch/TMAlign/ferritin/validation/pdbs_10k",
+    "n_input_files": 10000,
+    "n_indexed": 9646,
+    "n_skipped": 354,
+    "db_path": "/tmp/ferritin_search_10k_v4",
+    "db_size_mb": 85.467,
+    "k": 6,
+    "version": 4
+  },
+  "build": {
+    "elapsed_s": 368.026,
+    "load_s": 194.106,
+    "encode_s": 120.784,
+    "index_s": 0.0,
+    "save_s": 0.079,
+    "structures_per_s": 26.21
+  },
+  "queries": null,
+  "prefilter": null,
+  "rerank": null
+}

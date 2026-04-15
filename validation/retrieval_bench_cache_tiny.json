@@ -1,0 +1,133 @@
+{
+  "corpus": {
+    "pdb_dir": "/scratch/TMAlign/ferritin/validation/pdbs_10k",
+    "db_path": "/tmp/ferritin_retrieval_cache_tiny",
+    "n_targets": 29,
+    "n_queries": 3,
+    "k": 6,
+    "top_k": 10,
+    "rerank_top_k": 10,
+    "thresholds": [
+      0.5,
+      0.7,
+      0.9
+    ],
+    "truth_cache": "/scratch/TMAlign/ferritin/validation/retrieval_truth_cache_tiny.json",
+    "truth_cache_hit": false
+  },
+  "timing": {
+    "build_s": 0.86,
+    "warm_s": 0.0,
+    "compile_s": 0.178,
+    "brute_force_s": 6.998,
+    "prefilter_s": 0.094,
+    "rerank_s": 5.041
+  },
+  "metrics": {
+    "top1_exact_nonself_prefilter": 0,
+    "top1_exact_nonself_rerank": 0,
+    "recall_at_k": {
+      "0.5": {
+        "prefilter_mean": 1.0,
+        "rerank_mean": 1.0
+      },
+      "0.7": {
+        "prefilter_mean": 1.0,
+        "rerank_mean": 1.0
+      },
+      "0.9": {
+        "prefilter_mean": 1.0,
+        "rerank_mean": 1.0
+      }
+    }
+  },
+  "per_query": [
+    {
+      "query": "1ia6.pdb",
+      "best_truth_nonself": {
+        "source_path": "1iuk.pdb",
+        "tm_score": 0.4012
+      },
+      "prefilter_top_nonself": {
+        "source_path": "2zgo.pdb",
+        "prefilter_score": 0.0015
+      },
+      "rerank_top_nonself": {
+        "source_path": "1kg2.pdb",
+        "tm_score": 0.3407
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "2zgo.pdb",
+      "best_truth_nonself": {
+        "source_path": "8tzy.pdb",
+        "tm_score": 0.366
+      },
+      "prefilter_top_nonself": {
+        "source_path": "4o9m.pdb",
+        "prefilter_score": 0.0042
+      },
+      "rerank_top_nonself": {
+        "source_path": "2dxn.pdb",
+        "tm_score": 0.3518
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "7hgy.pdb",
+      "best_truth_nonself": {
+        "source_path": "2k5n.pdb",
+        "tm_score": 0.3437
+      },
+      "prefilter_top_nonself": {
+        "source_path": "9l14.pdb",
+        "prefilter_score": 0.0021
+      },
+      "rerank_top_nonself": {
+        "source_path": "4fva.pdb",
+        "tm_score": 0.3119
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    }
+  ]
+}

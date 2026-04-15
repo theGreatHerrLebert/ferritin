@@ -26,6 +26,7 @@ dump/
 validation/pdbs/
 validation/pdbs_10k/
 validation/pdbs_1k_sample/
+validation/gmx_fold_preservation/pdbs_1k/
 validation/results.json
 validation/results_*.json
 validation/report.html

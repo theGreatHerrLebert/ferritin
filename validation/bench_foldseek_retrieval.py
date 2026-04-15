@@ -174,7 +174,57 @@ def load_truth_cache(path: Path, expected_key: str) -> dict[str, list[dict]] | N
 
 def save_truth_cache(path: Path, *, cache_key: str, truth: dict[str, list[dict]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"cache_key": cache_key, "truth": truth}, indent=2), encoding="utf-8")
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(json.dumps({"cache_key": cache_key, "truth": truth}, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def retrieval_cache_key(
+    *,
+    pdb_dir: Path,
+    target_paths: list[Path],
+    query_paths: list[Path],
+    foldseek: Path,
+    foldseek_args: list[str],
+    sensitivity: float,
+    max_seqs: int,
+    compare_ferritin: bool,
+    ferritin_db_path: str | None,
+    ferritin_k: int,
+    ferritin_candidate_top_k: int,
+    ferritin_diagonal_top_k: int,
+) -> str:
+    payload = {
+        "pdb_dir": str(pdb_dir),
+        "targets": [str(path) for path in target_paths],
+        "queries": [str(path) for path in query_paths],
+        "foldseek": str(foldseek),
+        "foldseek_args": foldseek_args,
+        "foldseek_sensitivity": sensitivity,
+        "foldseek_max_seqs": max_seqs,
+        "compare_ferritin": compare_ferritin,
+        "ferritin_db_path": ferritin_db_path,
+        "ferritin_k": ferritin_k,
+        "ferritin_candidate_top_k": ferritin_candidate_top_k,
+        "ferritin_diagonal_top_k": ferritin_diagonal_top_k,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def load_retrieval_cache(path: Path, expected_key: str) -> dict | None:
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("cache_key") != expected_key:
+        return None
+    return payload.get("state")
+
+
+def save_retrieval_cache(path: Path, *, cache_key: str, state: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(json.dumps({"cache_key": cache_key, "state": state}, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def run_foldseek(
@@ -331,6 +381,8 @@ def main() -> None:
     parser.add_argument("--ferritin-k", type=int, default=6)
     parser.add_argument("--ferritin-candidate-top-k", type=int, default=100)
     parser.add_argument("--ferritin-diagonal-top-k", type=int, default=200)
+    parser.add_argument("--diagnostic-top-k", type=int, default=50)
+    parser.add_argument("--retrieval-cache", default=None)
     parser.add_argument("--truth-cache", default=None)
     parser.add_argument("--reuse-truth", action="store_true")
     parser.add_argument("--thresholds", nargs="*", type=float, default=[0.5, 0.7, 0.9])
@@ -362,6 +414,31 @@ def main() -> None:
         f"Sampled {len(target_paths)} targets and {len(query_paths)} queries from {pdb_dir}",
         flush=True,
     )
+    ferritin_db_path = (
+        str(Path(args.ferritin_db_path))
+        if args.ferritin_db_path
+        else str(Path(str(Path(args.output).with_suffix("")) + ".ferritin_db"))
+    )
+    retrieval_cache_path = (
+        Path(args.retrieval_cache)
+        if args.retrieval_cache
+        else Path(str(args.output) + ".retrieval.json")
+    )
+    retrieval_key = retrieval_cache_key(
+        pdb_dir=pdb_dir,
+        target_paths=target_paths,
+        query_paths=query_paths,
+        foldseek=foldseek,
+        foldseek_args=args.foldseek_args,
+        sensitivity=args.sensitivity,
+        max_seqs=args.max_seqs,
+        compare_ferritin=args.compare_ferritin,
+        ferritin_db_path=ferritin_db_path if args.compare_ferritin else None,
+        ferritin_k=args.ferritin_k,
+        ferritin_candidate_top_k=args.ferritin_candidate_top_k,
+        ferritin_diagonal_top_k=args.ferritin_diagonal_top_k,
+    )
+    retrieval_state = load_retrieval_cache(retrieval_cache_path, retrieval_key)
 
     work_context = None if args.keep_work_dir else (
         tempfile.TemporaryDirectory(prefix="ferritin_foldseek_")
@@ -389,65 +466,92 @@ def main() -> None:
     print(f"Corpus sample: {len(target_paths)} targets from {pdb_dir}")
     print(f"Queries: {len(query_paths)}")
     print(f"Work dir: {work_root}")
-    print("Running Foldseek easy-search...", flush=True)
-
-    foldseek_s = run_foldseek(
-        foldseek=foldseek,
-        query_dir=query_dir,
-        target_dir=target_dir,
-        output_path=foldseek_out,
-        tmp_dir=tmp_dir,
-        threads=args.threads,
-        sensitivity=args.sensitivity,
-        max_seqs=args.max_seqs,
-        extra_args=args.foldseek_args,
-    )
-
-    stem_to_path = {path.stem: path for path in target_paths}
-    hits_by_query = parse_foldseek_hits(foldseek_out, stem_to_path)
 
     ferritin_db = None
-    ferritin_hits_by_query: dict[str, list[dict]] = {}
     ferritin_build_s = 0.0
     ferritin_compile_s = 0.0
     ferritin_warm_s = 0.0
     ferritin_search_s = 0.0
+    hits_by_query: dict[str, list[dict]]
+    ferritin_hits_by_query: dict[str, list[dict]] = {}
     skipped_ferritin_queries: dict[str, str] = {}
-    if args.compare_ferritin:
-        db_path = Path(args.ferritin_db_path) if args.ferritin_db_path else Path(str(Path(args.output).with_suffix("")) + ".ferritin_db")
-        print(f"Ferritin DB: {db_path}", flush=True)
-        t0 = time.time()
-        if args.reuse_ferritin_db and db_path.exists():
-            ferritin_db = ferritin.load_search_db(db_path)
-        else:
-            ferritin_db = ferritin.build_search_db(target_paths, out=db_path, k=args.ferritin_k, n_threads=-1)
-        ferritin_build_s = time.time() - t0
-        if args.warm_ferritin_db:
+    if retrieval_state is not None:
+        print(f"Retrieval cache hit: {retrieval_cache_path}", flush=True)
+        foldseek_s = float(retrieval_state.get("foldseek_s", 0.0))
+        ferritin_build_s = float(retrieval_state.get("ferritin_build_s", 0.0))
+        ferritin_compile_s = float(retrieval_state.get("ferritin_compile_s", 0.0))
+        ferritin_warm_s = float(retrieval_state.get("ferritin_warm_s", 0.0))
+        ferritin_search_s = float(retrieval_state.get("ferritin_search_s", 0.0))
+        hits_by_query = retrieval_state.get("hits_by_query", {})
+        ferritin_hits_by_query = retrieval_state.get("ferritin_hits_by_query", {})
+        skipped_ferritin_queries = retrieval_state.get("skipped_ferritin_queries", {})
+    else:
+        print("Running Foldseek easy-search...", flush=True)
+        foldseek_s = run_foldseek(
+            foldseek=foldseek,
+            query_dir=query_dir,
+            target_dir=target_dir,
+            output_path=foldseek_out,
+            tmp_dir=tmp_dir,
+            threads=args.threads,
+            sensitivity=args.sensitivity,
+            max_seqs=args.max_seqs,
+            extra_args=args.foldseek_args,
+        )
+
+        stem_to_path = {path.stem: path for path in target_paths}
+        hits_by_query = parse_foldseek_hits(foldseek_out, stem_to_path)
+
+        if args.compare_ferritin:
+            db_path = Path(ferritin_db_path)
+            print(f"Ferritin DB: {db_path}", flush=True)
             t0 = time.time()
-            ferritin.warm_search_db(ferritin_db, posting_cache_max_size=128)
-            ferritin_warm_s = time.time() - t0
-        if args.compile_ferritin_db:
-            t0 = time.time()
-            ferritin_db = ferritin.compile_search_db(ferritin_db)
-            ferritin_compile_s = time.time() - t0
-        for query_idx, query_path in enumerate(query_paths, start=1):
-            print(f"Ferritin search {query_idx}/{len(query_paths)} {query_path.name}...", flush=True)
-            query_structure = load_query_or_none(query_path)
-            if query_structure is None:
-                ferritin_hits_by_query[str(query_path)] = []
-                skipped_ferritin_queries[str(query_path)] = "load_failed"
-                continue
-            t0 = time.time()
-            hits = ferritin.search(
-                query_structure,
-                ferritin_db,
-                top_k=args.ferritin_candidate_top_k,
-                rerank=False,
-                diagonal_rescore=True,
-                diagonal_top_k=args.ferritin_diagonal_top_k,
-            )
-            ferritin_search_s += time.time() - t0
-            ferritin_hits_by_query[str(query_path)] = ferritin_hits_to_rows(hits)
+            if args.reuse_ferritin_db and db_path.exists():
+                ferritin_db = ferritin.load_search_db(db_path)
+            else:
+                ferritin_db = ferritin.build_search_db(target_paths, out=db_path, k=args.ferritin_k, n_threads=-1)
+            ferritin_build_s = time.time() - t0
+            if args.warm_ferritin_db:
+                t0 = time.time()
+                ferritin.warm_search_db(ferritin_db, posting_cache_max_size=128)
+                ferritin_warm_s = time.time() - t0
+            if args.compile_ferritin_db:
+                t0 = time.time()
+                ferritin_db = ferritin.compile_search_db(ferritin_db)
+                ferritin_compile_s = time.time() - t0
+            for query_idx, query_path in enumerate(query_paths, start=1):
+                print(f"Ferritin search {query_idx}/{len(query_paths)} {query_path.name}...", flush=True)
+                query_structure = load_query_or_none(query_path)
+                if query_structure is None:
+                    ferritin_hits_by_query[str(query_path)] = []
+                    skipped_ferritin_queries[str(query_path)] = "load_failed"
+                    continue
+                t0 = time.time()
+                hits = ferritin.search(
+                    query_structure,
+                    ferritin_db,
+                    top_k=args.ferritin_candidate_top_k,
+                    rerank=False,
+                    diagonal_rescore=True,
+                    diagonal_top_k=args.ferritin_diagonal_top_k,
+                )
+                ferritin_search_s += time.time() - t0
+                ferritin_hits_by_query[str(query_path)] = ferritin_hits_to_rows(hits)
+        save_retrieval_cache(
+            retrieval_cache_path,
+            cache_key=retrieval_key,
+            state={
+                "foldseek_s": foldseek_s,
+                "ferritin_build_s": ferritin_build_s,
+                "ferritin_compile_s": ferritin_compile_s,
+                "ferritin_warm_s": ferritin_warm_s,
+                "ferritin_search_s": ferritin_search_s,
+                "hits_by_query": hits_by_query,
+                "ferritin_hits_by_query": ferritin_hits_by_query,
+                "skipped_ferritin_queries": skipped_ferritin_queries,
+            },
+        )
+        print(f"Retrieval checkpointed to {retrieval_cache_path}", flush=True)
 
     if args.truth_mode == "exhaustive":
         t0 = time.time()
@@ -545,8 +649,12 @@ def main() -> None:
             f"Truth {query_idx}/{len(query_paths)} done in {query_truth_s:.3f}s",
             flush=True,
         )
-    if not truth_cache_hit:
         save_truth_cache(truth_cache_path, cache_key=cache_key, truth=truth_cache)
+        print(
+            f"Truth {query_idx}/{len(query_paths)} checkpointed to {truth_cache_path}",
+            flush=True,
+        )
+    save_truth_cache(truth_cache_path, cache_key=cache_key, truth=truth_cache)
 
     threshold_metrics = {
         str(threshold): []
@@ -591,6 +699,35 @@ def main() -> None:
             },
             "thresholds": {},
         }
+        if args.diagnostic_top_k > 0:
+            row["truth_top_hits"] = [
+                {
+                    "source_path": Path(hit["source_path"]).name,
+                    "tm_score": round(hit["tm_score"], 4),
+                }
+                for hit in truth_rows
+                if Path(hit["source_path"]) != query_path
+            ][:args.diagnostic_top_k]
+            row["foldseek_top_hits"] = [
+                {
+                    "source_path": Path(hit["source_path"]).name,
+                    "tm_score": round(hit["tm_score"], 4),
+                    "bits": round(hit["bits"], 4),
+                    "evalue": hit["evalue"],
+                }
+                for hit in hits
+                if Path(hit["source_path"]) != query_path
+            ][:args.diagnostic_top_k]
+            row["ferritin_top_hits"] = [
+                {
+                    "source_path": Path(hit["source_path"]).name,
+                    "score": round(hit["score"], 4),
+                    "prefilter_score": round(hit["prefilter_score"], 4),
+                    "diagonal_score": hit["diagonal_score"],
+                }
+                for hit in ferritin_hits
+                if Path(hit["source_path"]) != query_path
+            ][:args.diagnostic_top_k]
         for threshold in args.thresholds:
             recall = recall_at_k(
                 hits,
@@ -647,6 +784,7 @@ def main() -> None:
             "truth_max_file_size_mb": args.truth_max_file_size_mb,
             "compare_ferritin": args.compare_ferritin,
             "ferritin_candidate_top_k": args.ferritin_candidate_top_k,
+            "diagnostic_top_k": args.diagnostic_top_k,
         },
         "foldseek": {
             "executable": str(foldseek),

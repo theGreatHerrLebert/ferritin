@@ -1,0 +1,46 @@
+Training VQ-VAE on 9422 structures
+PDB dir: validation/pdbs_10k/
+Embed dim: 2, Epochs: 1000
+
+Extracting geometric features...
+  [500/9422] 498 structures, 235032 residues, 40s
+  [1000/9422] 994 structures, 497393 residues, 87s
+  [1500/9422] 1493 structures, 754166 residues, 134s
+  [2000/9422] 1992 structures, 961735 residues, 174s
+  [2500/9422] 2490 structures, 1305290 residues, 238s
+  [3000/9422] 2989 structures, 1672657 residues, 312s
+  [3500/9422] 3489 structures, 2040350 residues, 380s
+  [4000/9422] 3989 structures, 2425620 residues, 447s
+  [4500/9422] 4486 structures, 2788256 residues, 511s
+  [5000/9422] 4986 structures, 3200620 residues, 588s
+  [5500/9422] 5486 structures, 3552461 residues, 651s
+  [6000/9422] 5986 structures, 3985644 residues, 730s
+  [6500/9422] 6486 structures, 4436676 residues, 813s
+  [7000/9422] 6986 structures, 4976608 residues, 923s
+  [7500/9422] 7486 structures, 5439384 residues, 1012s
+  [8000/9422] 7985 structures, 6044554 residues, 1131s
+  [8500/9422] 8485 structures, 6572004 residues, 1234s
+  [9000/9422] 8985 structures, 7202490 residues, 1359s
+
+  9407 structures, 7723530 residues (15 skipped) in 1462s
+  Feature shape: (7723530, 10)
+
+Training VQ-VAE (embed_dim=2, epochs=1000)...
+    Device: cuda
+    Epoch    1: train_recon=0.4332  val_recon=0.4192  usage=20/20  perplexity=16.5  lr=1.0e-03
+    Epoch  100: train_recon=0.3565  val_recon=0.3581  usage=20/20  perplexity=18.3  lr=9.8e-04
+    Epoch  200: train_recon=0.3883  val_recon=0.3817  usage=20/20  perplexity=18.6  lr=9.0e-04
+    Epoch  300: train_recon=0.3617  val_recon=0.3694  usage=20/20  perplexity=18.6  lr=7.9e-04
+    Epoch  400: train_recon=0.3648  val_recon=0.3670  usage=20/20  perplexity=18.3  lr=6.5e-04
+    Epoch  500: train_recon=0.3407  val_recon=0.3409  usage=20/20  perplexity=17.5  lr=5.0e-04
+    Epoch  600: train_recon=0.3466  val_recon=0.3470  usage=20/20  perplexity=18.7  lr=3.5e-04
+    Epoch  700: train_recon=0.3688  val_recon=0.3688  usage=19/20  perplexity=17.4  lr=2.1e-04
+    Epoch  800: train_recon=0.3557  val_recon=0.3554  usage=20/20  perplexity=18.6  lr=9.5e-05
+    Epoch  900: train_recon=0.3539  val_recon=0.3539  usage=20/20  perplexity=18.4  lr=2.4e-05
+    Epoch 1000: train_recon=0.3534  val_recon=0.3532  usage=20/20  perplexity=18.4  lr=0.0e+00
+
+    Final: val_recon=0.3335  usage=20/20  perplexity=17.8
+    State distribution: {0: 572882, 1: 429448, 2: 431994, 3: 153246, 4: 478049, 5: 535709, 6: 25300, 7: 197634, 8: 245137, 9: 294482, 10: 144586, 11: 383031, 12: 584607, 13: 576354, 14: 553785, 15: 220583, 16: 425065, 17: 620127, 18: 498515, 19: 352996}
+
+  Saved to validation/alphabet_vqvae.json
+  Rust code saved to validation/alphabet_vqvae_rust.txt

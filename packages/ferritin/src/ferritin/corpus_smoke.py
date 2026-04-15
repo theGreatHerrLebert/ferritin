@@ -10,7 +10,7 @@ from typing import Iterable, List, Optional, Sequence
 from .corpus_release import build_corpus_release_manifest
 from .corpus_validation import validate_corpus_release
 from .failure_taxonomy import PARSE_ERROR
-from .io import batch_load_tolerant
+from .io import LoadRescueResult, batch_load_tolerant, batch_load_tolerant_with_rescue
 from .prepare import batch_prepare
 from .sequence_release import build_sequence_dataset
 from .supervision_dataset import build_structure_supervision_dataset_from_prepared
@@ -28,6 +28,8 @@ def build_local_corpus_smoke_release(
     prep_policy_version: Optional[str] = None,
     split_policy_version: Optional[str] = None,
     n_threads: Optional[int] = None,
+    rescue_load: bool = False,
+    rescue_allow: Optional[Sequence[str]] = None,
     overwrite: bool = False,
 ) -> Path:
     """Build a small end-to-end corpus release from local structure files.
@@ -41,9 +43,22 @@ def build_local_corpus_smoke_release(
     root.mkdir(parents=True, exist_ok=True)
 
     path_list = [Path(p) for p in paths]
-    loaded_pairs = batch_load_tolerant(path_list, n_threads=n_threads)
-    loaded_indices = [idx for idx, _ in loaded_pairs]
-    loaded_structures = [structure for _, structure in loaded_pairs]
+    if rescue_load:
+        loaded_pairs = batch_load_tolerant_with_rescue(
+            path_list,
+            n_threads=n_threads,
+            allow=rescue_allow,
+        )
+        loaded_indices = [idx for idx, _ in loaded_pairs]
+        loaded_structures = [result.structure for _, result in loaded_pairs]
+        rescued_results = [
+            (idx, result) for idx, result in loaded_pairs if result.rescued
+        ]
+    else:
+        raw_pairs = batch_load_tolerant(path_list, n_threads=n_threads)
+        loaded_indices = [idx for idx, _ in raw_pairs]
+        loaded_structures = [structure for _, structure in raw_pairs]
+        rescued_results = []
     loaded_paths = [path_list[idx] for idx in loaded_indices]
     record_ids = [path.stem for path in loaded_paths]
     source_ids = [str(path) for path in loaded_paths]
@@ -58,6 +73,13 @@ def build_local_corpus_smoke_release(
     ingestion_failures_path = _write_ingestion_failures(
         root,
         [path_list[i] for i in dropped_indices],
+        code_rev=code_rev,
+        config_rev=config_rev,
+    )
+    rescued_inputs_path = _write_rescued_inputs(
+        root,
+        path_list,
+        rescued_results,
         code_rev=code_rev,
         config_rev=config_rev,
     )
@@ -107,6 +129,7 @@ def build_local_corpus_smoke_release(
         structure_release=prepared_root / "supervision_release",
         training_release=training_root,
         ingestion_failures=ingestion_failures_path,
+        rescued_inputs_manifest=rescued_inputs_path,
         code_rev=code_rev,
         config_rev=config_rev,
         prep_policy_version=prep_policy_version,
@@ -115,6 +138,9 @@ def build_local_corpus_smoke_release(
             "input_paths": [str(p) for p in path_list],
             "loaded_paths": [str(p) for p in loaded_paths],
             "dropped_paths": [str(path_list[i]) for i in dropped_indices],
+            "rescue_load": rescue_load,
+            "rescued_paths": [str(path_list[i]) for i, _ in rescued_results],
+            "rescue_allow": list(rescue_allow) if rescue_allow is not None else None,
         },
         overwrite=True,
     )
@@ -159,6 +185,39 @@ def _write_ingestion_failures(
             handle.write(json.dumps(asdict(record), separators=(",", ":")))
             handle.write("\n")
     return ingestion_path
+
+
+def _write_rescued_inputs(
+    root: Path,
+    path_list: Sequence[Path],
+    rescued_results: Sequence[tuple[int, LoadRescueResult]],
+    *,
+    code_rev: Optional[str],
+    config_rev: Optional[str],
+) -> Optional[Path]:
+    """Write JSONL provenance rows for inputs that only loaded after rescue."""
+    if not rescued_results:
+        return None
+    rescued_path = root / "rescued_inputs.jsonl"
+    with rescued_path.open("w", encoding="utf-8") as handle:
+        for idx, result in rescued_results:
+            row = {
+                "record_id": path_list[idx].stem,
+                "artifact_type": "rescued_input",
+                "status": "rescued",
+                "source_id": str(path_list[idx]),
+                "code_rev": code_rev,
+                "config_rev": config_rev,
+                "rescue_bucket": None if result.rescue_bucket is None else result.rescue_bucket.code,
+                "rescue_steps": list(result.rescue_steps),
+                "original_error": result.original_error,
+                "provenance": {
+                    "stage_entry_point": "corpus_smoke.batch_load_tolerant_with_rescue",
+                },
+            }
+            handle.write(json.dumps(row, separators=(",", ":")))
+            handle.write("\n")
+    return rescued_path
 
 
 def _default_split_assignments(record_ids: Iterable[str]) -> dict[str, str]:

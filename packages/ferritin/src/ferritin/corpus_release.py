@@ -32,10 +32,12 @@ class CorpusReleaseManifest:
     count_structure_examples: int = 0
     count_training_examples: int = 0
     count_ingestion_failures: int = 0
+    count_rescued_inputs: int = 0
     failure_breakdown: Dict[str, int] = field(default_factory=dict)
     split_counts: Dict[str, int] = field(default_factory=dict)
     sequence_lengths: Dict[str, float] = field(default_factory=dict)
     structure_lengths: Dict[str, float] = field(default_factory=dict)
+    rescued_inputs_manifest: Optional[str] = None
     provenance: Dict[str, object] = field(default_factory=dict)
 
 
@@ -48,6 +50,7 @@ def build_corpus_release_manifest(
     structure_release: str | Path | None = None,
     training_release: str | Path | None = None,
     ingestion_failures: str | Path | None = None,
+    rescued_inputs_manifest: str | Path | None = None,
     code_rev: Optional[str] = None,
     config_rev: Optional[str] = None,
     prep_policy_version: Optional[str] = None,
@@ -84,6 +87,7 @@ def build_corpus_release_manifest(
     if ingestion_failures is not None:
         _merge_failure_breakdown(failure_breakdown, Path(ingestion_failures))
         ingestion_count = _count_jsonl_rows(ingestion_failures)
+    rescued_count = _count_jsonl_rows(rescued_inputs_manifest)
 
     manifest = CorpusReleaseManifest(
         release_id=release_id,
@@ -102,10 +106,14 @@ def build_corpus_release_manifest(
         count_structure_examples=int((struc_manifest or {}).get("count_examples", 0)),
         count_training_examples=int((train_manifest or {}).get("count_examples", 0)),
         count_ingestion_failures=ingestion_count,
+        count_rescued_inputs=rescued_count,
         failure_breakdown=failure_breakdown,
         split_counts=dict((train_manifest or {}).get("split_counts", {})),
         sequence_lengths=dict((seq_manifest or {}).get("lengths", {})),
         structure_lengths=dict((struc_manifest or {}).get("lengths", {})),
+        rescued_inputs_manifest=(
+            None if rescued_inputs_manifest is None else str(Path(rescued_inputs_manifest))
+        ),
         provenance=dict(provenance or {}),
     )
     (root / "corpus_release_manifest.json").write_text(

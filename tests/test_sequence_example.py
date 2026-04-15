@@ -98,3 +98,23 @@ class TestSequenceExample:
         failures = ferritin.load_failure_records(root / "failures.jsonl")
         assert len(failures) == 1
         assert failures[0].stage == "sequence_example"
+
+    def test_sequence_release_allows_failure_only_release(self, tmp_path):
+        failure = ferritin.FailureRecord(
+            record_id="bad:A",
+            stage="sequence_example",
+            failure_class="missing_required_atoms",
+            message="missing CA atom",
+            source_id="bad",
+        )
+        root = ferritin.build_sequence_release(
+            [],
+            tmp_path / "sequence_fail_only",
+            release_id="seq-fail-only-v0",
+            failures=[failure],
+        )
+
+        manifest = json.loads((root / "release_manifest.json").read_text(encoding="utf-8"))
+        assert manifest["count_examples"] == 0
+        assert manifest["count_failures"] == 1
+        assert ferritin.load_sequence_examples(root / "examples") == []

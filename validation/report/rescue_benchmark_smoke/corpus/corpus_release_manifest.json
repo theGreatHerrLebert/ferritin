@@ -1,0 +1,54 @@
+{
+  "release_id": "rescue-benchmark-v0",
+  "artifact_type": "release_manifest",
+  "format": "ferritin.corpus_release.v0",
+  "created_at": "2026-04-14T08:22:32.132065+00:00",
+  "code_rev": null,
+  "config_rev": null,
+  "prep_policy_version": null,
+  "filter_policy_version": null,
+  "clustering_policy_version": null,
+  "split_policy_version": null,
+  "prepared_manifest": "/scratch/TMAlign/ferritin/validation/report/rescue_benchmark_smoke/prepared/prepared_structures.jsonl",
+  "sequence_release": "/scratch/TMAlign/ferritin/validation/report/rescue_benchmark_smoke/sequence",
+  "structure_release": "/scratch/TMAlign/ferritin/validation/report/rescue_benchmark_smoke/prepared/supervision_release",
+  "training_release": "/scratch/TMAlign/ferritin/validation/report/rescue_benchmark_smoke/training",
+  "count_prepared": 2,
+  "count_sequence_examples": 0,
+  "count_structure_examples": 0,
+  "count_training_examples": 0,
+  "count_ingestion_failures": 0,
+  "count_rescued_inputs": 2,
+  "failure_breakdown": {
+    "internal_pipeline_error": 4
+  },
+  "split_counts": {},
+  "sequence_lengths": {
+    "min": 0.0,
+    "max": 0.0,
+    "mean": 0.0
+  },
+  "structure_lengths": {
+    "min": 0.0,
+    "max": 0.0,
+    "mean": 0.0
+  },
+  "rescued_inputs_manifest": "/scratch/TMAlign/ferritin/validation/report/rescue_benchmark_smoke/rescued_inputs.jsonl",
+  "provenance": {
+    "input_paths": [
+      "/scratch/TMAlign/ferritin/validation/pdbs_10k/8a14.pdb",
+      "/scratch/TMAlign/ferritin/validation/pdbs_10k/9l05.pdb"
+    ],
+    "loaded_paths": [
+      "/scratch/TMAlign/ferritin/validation/pdbs_10k/8a14.pdb",
+      "/scratch/TMAlign/ferritin/validation/pdbs_10k/9l05.pdb"
+    ],
+    "dropped_paths": [],
+    "rescue_load": true,
+    "rescued_paths": [
+      "/scratch/TMAlign/ferritin/validation/pdbs_10k/8a14.pdb",
+      "/scratch/TMAlign/ferritin/validation/pdbs_10k/9l05.pdb"
+    ],
+    "rescue_allow": null
+  }
+}

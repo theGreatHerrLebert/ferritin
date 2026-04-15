@@ -1,0 +1,287 @@
+{
+  "corpus": {
+    "pdb_dir": "/scratch/TMAlign/ferritin/validation/pdbs_10k",
+    "db_path": "/tmp/ferritin_retrieval_new_k56",
+    "n_targets": 115,
+    "n_queries": 8,
+    "k": 6,
+    "k_values": [
+      5,
+      6
+    ],
+    "top_k": 10,
+    "rerank_top_k": 10,
+    "diagonal_top_k": 50,
+    "alphabet_weight": 0.7,
+    "aa_weight": 0.3,
+    "diagonal_rescore": true,
+    "rerank": true,
+    "thresholds": [
+      0.5,
+      0.7,
+      0.9
+    ],
+    "truth_cache": "/scratch/TMAlign/ferritin/validation/retrieval_truth_cache_120x8.json",
+    "truth_cache_hit": true
+  },
+  "timing": {
+    "build_s": 2.86,
+    "warm_s": 0.0,
+    "compile_s": 1.894,
+    "brute_force_s": 0.0,
+    "prefilter_s": 0.939,
+    "rerank_s": 9.713
+  },
+  "metrics": {
+    "top1_exact_nonself_prefilter": 0.125,
+    "top1_exact_nonself_rerank": 0.125,
+    "recall_at_k": {
+      "0.5": {
+        "prefilter_mean": 0.7083,
+        "rerank_mean": 0.7083
+      },
+      "0.7": {
+        "prefilter_mean": 1.0,
+        "rerank_mean": 1.0
+      },
+      "0.9": {
+        "prefilter_mean": 1.0,
+        "rerank_mean": 1.0
+      }
+    }
+  },
+  "per_query": [
+    {
+      "query": "1kg2.pdb",
+      "best_truth_nonself": {
+        "source_path": "2bby.pdb",
+        "tm_score": 0.4023
+      },
+      "prefilter_top_nonself": {
+        "source_path": "3i06.pdb",
+        "prefilter_score": 0.0022
+      },
+      "rerank_top_nonself": {
+        "source_path": "5b6v.pdb",
+        "tm_score": 0.3377
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "2g8l.pdb",
+      "best_truth_nonself": {
+        "source_path": "1iuk.pdb",
+        "tm_score": 0.5306
+      },
+      "prefilter_top_nonself": {
+        "source_path": "3fkq.pdb",
+        "prefilter_score": 0.0084
+      },
+      "rerank_top_nonself": {
+        "source_path": "6qzg.pdb",
+        "tm_score": 0.4118
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 0.0,
+          "rerank_recall_at_k": 0.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "3iey.pdb",
+      "best_truth_nonself": {
+        "source_path": "5xht.pdb",
+        "tm_score": 0.4122
+      },
+      "prefilter_top_nonself": {
+        "source_path": "1sts.pdb",
+        "prefilter_score": 0.0074
+      },
+      "rerank_top_nonself": {
+        "source_path": "5b6h.pdb",
+        "tm_score": 0.3403
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "4fva.pdb",
+      "best_truth_nonself": {
+        "source_path": "3h1e.pdb",
+        "tm_score": 0.4731
+      },
+      "prefilter_top_nonself": {
+        "source_path": "4ihb.pdb",
+        "prefilter_score": 0.0082
+      },
+      "rerank_top_nonself": {
+        "source_path": "6rr9.pdb",
+        "tm_score": 0.3701
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "4xlv.pdb",
+      "best_truth_nonself": {
+        "source_path": "3efk.pdb",
+        "tm_score": 0.7494
+      },
+      "prefilter_top_nonself": {
+        "source_path": "3efk.pdb",
+        "prefilter_score": 0.0349
+      },
+      "rerank_top_nonself": {
+        "source_path": "3efk.pdb",
+        "tm_score": 0.7494
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 0.6667,
+          "rerank_recall_at_k": 0.6667
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "6qzg.pdb",
+      "best_truth_nonself": {
+        "source_path": "1iuk.pdb",
+        "tm_score": 0.568
+      },
+      "prefilter_top_nonself": {
+        "source_path": "3iey.pdb",
+        "prefilter_score": 0.0044
+      },
+      "rerank_top_nonself": {
+        "source_path": "3h1e.pdb",
+        "tm_score": 0.4336
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 0.0,
+          "rerank_recall_at_k": 0.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "6yu5.pdb",
+      "best_truth_nonself": {
+        "source_path": "2rqq.pdb",
+        "tm_score": 0.438
+      },
+      "prefilter_top_nonself": {
+        "source_path": "3h4l.pdb",
+        "prefilter_score": 0.0034
+      },
+      "rerank_top_nonself": {
+        "source_path": "2gnw.pdb",
+        "tm_score": 0.3458
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "7xmw.pdb",
+      "best_truth_nonself": {
+        "source_path": "6k3f.pdb",
+        "tm_score": 0.3833
+      },
+      "prefilter_top_nonself": {
+        "source_path": "4x09.pdb",
+        "prefilter_score": 0.0195
+      },
+      "rerank_top_nonself": {
+        "source_path": "6yy6.pdb",
+        "tm_score": 0.3159
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    }
+  ]
+}

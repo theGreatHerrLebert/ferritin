@@ -120,6 +120,11 @@ def _check_structure_tensor_completeness(manifest: CorpusReleaseManifest, report
     if manifest.structure_release is None:
         report.issues.append(ValidationIssue("warning", "missing_structure_release", "no structure release linked"))
         return
+    if manifest.count_structure_examples == 0:
+        report.issues.append(
+            ValidationIssue("warning", "no_structure_examples", "structure release contains no supervision examples")
+        )
+        return
     tensor_path = Path(manifest.structure_release) / "examples" / "tensors.npz"
     if not tensor_path.exists():
         report.issues.append(ValidationIssue("error", "missing_structure_tensors", "structure tensors.npz is missing"))

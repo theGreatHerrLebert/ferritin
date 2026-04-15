@@ -315,3 +315,25 @@ class TestStructureSupervisionExample:
         examples = ferritin.load_structure_supervision_examples(root / "supervision_release" / "examples")
         assert len(examples) == 1
         assert examples[0].record_id == "fake:A"
+
+    def test_release_builder_allows_failure_only_release(self, tmp_path):
+        failures = [
+            ferritin.FailureRecord(
+                record_id="bad:A",
+                failure_class="missing_required_atoms",
+                message="missing CA atom",
+                source_id="bad",
+            )
+        ]
+        release_dir = ferritin.build_structure_supervision_release(
+            [],
+            tmp_path / "release_fail_only",
+            release_id="fail-only-v0",
+            failures=failures,
+        )
+
+        manifest = json.loads((release_dir / "release_manifest.json").read_text(encoding="utf-8"))
+        assert manifest["count_examples"] == 0
+        assert manifest["count_failures"] == 1
+        examples = ferritin.load_structure_supervision_examples(release_dir / "examples")
+        assert examples == []

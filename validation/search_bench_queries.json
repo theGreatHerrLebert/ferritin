@@ -1,0 +1,101 @@
+{
+  "corpus": {
+    "pdb_dir": "validation/pdbs_10k",
+    "n_input_files": 10000,
+    "n_indexed": 9646,
+    "n_skipped": 354,
+    "db_path": "/tmp/ferritin_search_10k",
+    "db_size_mb": 78.461,
+    "k": 6,
+    "version": 2
+  },
+  "build": {
+    "elapsed_s": 32.71,
+    "load_s": 0.0,
+    "encode_s": 0.0,
+    "index_s": 0.0,
+    "save_s": 0.0,
+    "structures_per_s": 294.892
+  },
+  "queries": {
+    "n_queries": 4,
+    "n_completed": 4,
+    "n_query_load_failures": 0,
+    "top_k": 10,
+    "rerank_top_k": 10
+  },
+  "prefilter": {
+    "count": 4,
+    "median_ms": 24.375,
+    "mean_ms": 32.052,
+    "min_ms": 14.84,
+    "max_ms": 64.617,
+    "self_hit_top1": 4,
+    "self_hit_top1_rate": 1.0,
+    "self_hit_topk": 4,
+    "self_hit_topk_rate": 1.0,
+    "examples": [
+      {
+        "query": "validation/pdbs_10k/1ia6.pdb",
+        "top_hit": "validation/pdbs_10k/1ia6.pdb",
+        "top_score": 1.0,
+        "self_in_top1": true
+      },
+      {
+        "query": "validation/pdbs_10k/2n4a.pdb",
+        "top_hit": "validation/pdbs_10k/2n4a.pdb",
+        "top_score": 1.0,
+        "self_in_top1": true
+      },
+      {
+        "query": "validation/pdbs_10k/4o9m.pdb",
+        "top_hit": "validation/pdbs_10k/4o9m.pdb",
+        "top_score": 1.0,
+        "self_in_top1": true
+      },
+      {
+        "query": "validation/pdbs_10k/5a6v.pdb",
+        "top_hit": "validation/pdbs_10k/5a6v.pdb",
+        "top_score": 1.0,
+        "self_in_top1": true
+      }
+    ]
+  },
+  "rerank": {
+    "count": 4,
+    "median_ms": 857.186,
+    "mean_ms": 869.058,
+    "min_ms": 523.1,
+    "max_ms": 1238.759,
+    "self_hit_top1": 4,
+    "self_hit_top1_rate": 1.0,
+    "self_hit_topk": 4,
+    "self_hit_topk_rate": 1.0,
+    "examples": [
+      {
+        "query": "validation/pdbs_10k/1ia6.pdb",
+        "top_hit": "validation/pdbs_10k/1ia6.pdb",
+        "top_tm": 1.0,
+        "self_in_top1": true
+      },
+      {
+        "query": "validation/pdbs_10k/2n4a.pdb",
+        "top_hit": "validation/pdbs_10k/2n4a.pdb",
+        "top_tm": 1.0,
+        "self_in_top1": true
+      },
+      {
+        "query": "validation/pdbs_10k/4o9m.pdb",
+        "top_hit": "validation/pdbs_10k/4o9m.pdb",
+        "top_tm": 1.0,
+        "self_in_top1": true
+      },
+      {
+        "query": "validation/pdbs_10k/5a6v.pdb",
+        "top_hit": "validation/pdbs_10k/5a6v.pdb",
+        "top_tm": 1.0,
+        "self_in_top1": true
+      }
+    ]
+  }
+}

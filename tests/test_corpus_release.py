@@ -97,3 +97,24 @@ class TestCorpusRelease:
         assert "pseudo_beta_fraction" in report.completeness
         saved = json.loads((corpus_root / "validation_report.json").read_text(encoding="utf-8"))
         assert saved["ok"] is True
+
+    def test_build_corpus_release_manifest_counts_rescued_inputs(self, tmp_path):
+        out = tmp_path / "corpus_release"
+        out.mkdir()
+        rescued_path = tmp_path / "rescued_inputs.jsonl"
+        rescued_path.write_text(
+            '{"record_id":"rescued-a","artifact_type":"rescued_input","status":"rescued"}\n'
+            '{"record_id":"rescued-b","artifact_type":"rescued_input","status":"rescued"}\n',
+            encoding="utf-8",
+        )
+
+        corpus_root = ferritin.build_corpus_release_manifest(
+            out,
+            release_id="corpus-v0",
+            rescued_inputs_manifest=rescued_path,
+            overwrite=True,
+        )
+
+        manifest = ferritin.load_corpus_release_manifest(corpus_root / "corpus_release_manifest.json")
+        assert manifest.count_rescued_inputs == 2
+        assert manifest.rescued_inputs_manifest == str(rescued_path)

@@ -17,6 +17,7 @@ import base64
 import datetime
 import json
 import pathlib
+import sys
 from collections import Counter
 
 import numpy as np
@@ -31,6 +32,14 @@ OPENMM_JSONL = pathlib.Path("/scratch/TMAlign/ferritin/validation/tm_fold_plots/
 GROMACS_JSONL = pathlib.Path("/scratch/TMAlign/ferritin/validation/gmx_fold_preservation/tm_fold_gromacs.jsonl")
 FERRITIN_AMBER_JSONL = pathlib.Path("/scratch/TMAlign/ferritin/validation/tm_fold_plots/ferritin_amber.jsonl")
 OPENMM_AMBER_JSONL = pathlib.Path("/scratch/TMAlign/ferritin/validation/tm_fold_plots/openmm_amber.jsonl")
+FERRITIN_STAGE2_JSONL = pathlib.Path("/scratch/TMAlign/ferritin/validation/stage2_1k_postfix.jsonl")
+RESCUE_BENCHMARK_JSON = HERE / "rescue_benchmark_summary.json"
+
+PACKAGE_SRC = HERE.parent.parent / "packages" / "ferritin" / "src"
+if str(PACKAGE_SRC) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_SRC))
+
+from ferritin.loader_failure_analysis import summarize_loader_failures  # noqa: E402
 
 
 def load_jsonl(path: pathlib.Path) -> list[dict]:
@@ -91,6 +100,117 @@ def tools_table(runs: dict[str, dict]) -> str:
     return f"<table class='stats'>{hdr}{body}</table>"
 
 
+def _load_rescue_candidate_rows(path: pathlib.Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("status") == "load_error" and "exception" in row:
+            rows.append(row)
+    return rows
+
+
+def rescue_summary_table(rows: list[dict]) -> str:
+    if not rows:
+        return (
+            "<div class='missing'>[No loader-failure artifact found for rescue summary]</div>"
+        )
+
+    summaries = summarize_loader_failures(rows)
+    rescueable = [item for item in summaries if item.bucket.rescueable]
+    rescueable_count = sum(item.count for item in rescueable)
+    total_count = sum(item.count for item in summaries)
+
+    rows_html = "".join(
+        "<tr>"
+        f"<td><code>{item.bucket.code}</code></td>"
+        f"<td>{item.count}</td>"
+        f"<td>{', '.join(item.pdb_examples) or '—'}</td>"
+        f"<td>{item.bucket.rescue_strategy or '—'}</td>"
+        "</tr>"
+        for item in rescueable[:5]
+    )
+    if not rows_html:
+        rows_html = (
+            "<tr><td colspan='4'>No deterministic rescue buckets matched the current "
+            "loader failures.</td></tr>"
+        )
+
+    return f"""
+<div class="callout">
+<strong>Rescue potential inside ferritin's parse failures:</strong>
+{rescueable_count}/{total_count} current loader failures ({(100 * rescueable_count / max(total_count, 1)):.1f}%)
+match deterministic rescue buckets in the first-pass rescue layer. These are primarily metadata cleanup
+or fixed-width PDB field repairs, not ambiguous structural reconstruction.
+</div>
+
+<table class='stats'>
+  <tr>
+    <th>Rescue bucket</th>
+    <th>Count</th>
+    <th>Example PDBs</th>
+    <th>Deterministic fix</th>
+  </tr>
+  {rows_html}
+</table>
+"""
+
+
+def realized_rescue_summary_table(summary_path: pathlib.Path) -> str:
+    if not summary_path.exists():
+        return (
+            "<div class='missing'>[No realized rescue benchmark artifact found]</div>"
+        )
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    bucket_counts = summary.get("rescued_bucket_counts", {})
+    rows_html = "".join(
+        "<tr>"
+        f"<td><code>{bucket}</code></td>"
+        f"<td>{count}</td>"
+        "</tr>"
+        for bucket, count in sorted(bucket_counts.items(), key=lambda item: (-item[1], item[0]))
+    )
+    if not rows_html:
+        rows_html = "<tr><td colspan='2'>No rescues succeeded on this benchmark slice.</td></tr>"
+
+    notes = []
+    if summary.get("available_slice_count", 0) < summary.get("candidate_failure_count", 0):
+        notes.append(
+            f"Only {summary.get('available_slice_count', 0)}/{summary.get('candidate_failure_count', 0)} "
+            "original failure files are present in this workspace."
+        )
+    if not summary.get("pipeline_ok", False):
+        notes.append(
+            "The downstream smoke/release run did not finish cleanly on this slice, so the realized number "
+            "measures raw-intake rescue yield rather than full release yield."
+        )
+    note_html = ""
+    if notes:
+        note_html = "<div class='callout warn'><strong>Caveat:</strong> " + " ".join(notes) + "</div>"
+
+    return f"""
+<div class="callout">
+<strong>Realized rescue yield on the local benchmark slice:</strong>
+{summary.get('rescued_count', 0)}/{summary.get('available_slice_count', 0)} available failed inputs
+loaded successfully through the explicit rescue path.
+</div>
+
+{note_html}
+
+<table class='stats'>
+  <tr>
+    <th>Realized rescue bucket</th>
+    <th>Count</th>
+  </tr>
+  {rows_html}
+</table>
+"""
+
+
 def main() -> None:
     # Load all the jsonls that exist.
     rec_fer_ch = load_jsonl(FERRITIN_JSONL)
@@ -120,6 +240,9 @@ def main() -> None:
     }
 
     today = datetime.date.today().isoformat()
+    rescue_rows = _load_rescue_candidate_rows(FERRITIN_STAGE2_JSONL)
+    rescue_html = rescue_summary_table(rescue_rows)
+    realized_rescue_html = realized_rescue_summary_table(RESCUE_BENCHMARK_JSON)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -557,6 +680,26 @@ in, ferritin returns ≈47,000 minimized structures, OpenMM returns ≈46,000,
 GROMACS returns ≈18,000. For archive-scale workflows this is the
 dominant filter on the other end of the pipeline.
 </div>
+
+<h3>What looks rescuable inside ferritin's remaining parse errors?</h3>
+
+<p>
+The remaining ferritin failures are not all equally hard. Most are concentrated
+in a small number of malformed-record buckets, which makes them good candidates
+for an explicit rescue pass rather than a broader parser rewrite.
+</p>
+
+{rescue_html}
+
+<h3>What has actually been rescued on a real-file benchmark slice?</h3>
+
+<p>
+Potential buckets are useful, but realized rescue yield matters more. When a
+local benchmark artifact is present, the report also shows the buckets that
+were actually recovered by the explicit rescue path on that slice.
+</p>
+
+{realized_rescue_html}
 </section>
 
 <!-- ==================================================================== -->

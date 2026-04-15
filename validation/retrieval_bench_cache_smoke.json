@@ -1,0 +1,162 @@
+{
+  "corpus": {
+    "pdb_dir": "/scratch/TMAlign/ferritin/validation/pdbs_10k",
+    "db_path": "/tmp/ferritin_retrieval_cache_smoke",
+    "n_targets": 59,
+    "n_queries": 4,
+    "k": 6,
+    "top_k": 10,
+    "rerank_top_k": 10,
+    "thresholds": [
+      0.5,
+      0.7,
+      0.9
+    ],
+    "truth_cache": "/scratch/TMAlign/ferritin/validation/retrieval_truth_cache_smoke.json",
+    "truth_cache_hit": false
+  },
+  "timing": {
+    "build_s": 1.14,
+    "warm_s": 0.0,
+    "compile_s": 0.359,
+    "brute_force_s": 602.432,
+    "prefilter_s": 0.697,
+    "rerank_s": 514.817
+  },
+  "metrics": {
+    "top1_exact_nonself_prefilter": 0.25,
+    "top1_exact_nonself_rerank": 0.5,
+    "recall_at_k": {
+      "0.5": {
+        "prefilter_mean": 0.825,
+        "rerank_mean": 0.825
+      },
+      "0.7": {
+        "prefilter_mean": 1.0,
+        "rerank_mean": 1.0
+      },
+      "0.9": {
+        "prefilter_mean": 1.0,
+        "rerank_mean": 1.0
+      }
+    }
+  },
+  "per_query": [
+    {
+      "query": "1iuk.pdb",
+      "best_truth_nonself": {
+        "source_path": "5wdg.pdb",
+        "tm_score": 0.6041
+      },
+      "prefilter_top_nonself": {
+        "source_path": "3fkq.pdb",
+        "prefilter_score": 0.0034
+      },
+      "rerank_top_nonself": {
+        "source_path": "5wdg.pdb",
+        "tm_score": 0.6041
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 0.3,
+          "rerank_recall_at_k": 0.3
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "2zgo.pdb",
+      "best_truth_nonself": {
+        "source_path": "8tzy.pdb",
+        "tm_score": 0.366
+      },
+      "prefilter_top_nonself": {
+        "source_path": "1p6v.pdb",
+        "prefilter_score": 0.0071
+      },
+      "rerank_top_nonself": {
+        "source_path": "8wi6.pdb",
+        "tm_score": 0.3653
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "6xz7.pdb",
+      "best_truth_nonself": {
+        "source_path": "2bby.pdb",
+        "tm_score": 0.4488
+      },
+      "prefilter_top_nonself": {
+        "source_path": "8u4q.pdb",
+        "prefilter_score": 0.009
+      },
+      "rerank_top_nonself": {
+        "source_path": "5b6h.pdb",
+        "tm_score": 0.3034
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "7lu7.cif",
+      "best_truth_nonself": {
+        "source_path": "9s1x.cif",
+        "tm_score": 0.4949
+      },
+      "prefilter_top_nonself": {
+        "source_path": "9s1x.cif",
+        "prefilter_score": 0.0018
+      },
+      "rerank_top_nonself": {
+        "source_path": "9s1x.cif",
+        "tm_score": 0.4949
+      },
+      "thresholds": {
+        "0.5": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.7": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        },
+        "0.9": {
+          "prefilter_recall_at_k": 1.0,
+          "rerank_recall_at_k": 1.0
+        }
+      }
+    }
+  ]
+}

@@ -84,11 +84,17 @@ def run_benchmark(pdb_dir, n_structures, n_threads, output_file, chunk_size=5000
         t0 = time.perf_counter()
         loaded = ferritin.batch_load_tolerant(chunk_files, n_threads=n_threads)
         dt = time.perf_counter() - t0
-        structures = [s for _, s in loaded]
+        # Preserve the file path alongside each loaded structure so the
+        # per-structure prepare dump can label rows with PDB IDs.
+        loaded_with_files = [(chunk_files[i], s) for i, s in loaded]
+        structures = [s for _, s in loaded_with_files]
+        structure_files = [f for f, _ in loaded_with_files]
         # Skip structures > 25K atoms for now (giants dominate runtime)
         # We proved ferritin handles 2M-atom structures — just too slow for batch
         n_before = len(structures)
-        structures = [s for s in structures if s.atom_count < 25000]
+        keep = [(f, s) for f, s in zip(structure_files, structures) if s.atom_count < 25000]
+        structures = [s for _, s in keep]
+        structure_files = [f for f, _ in keep]
         n_skipped_large = n_before - len(structures)
         all_timings["load"]["elapsed"] += dt
         all_timings["load"]["n_loaded"] += len(structures)
@@ -172,6 +178,23 @@ def run_benchmark(pdb_dir, n_structures, n_threads, output_file, chunk_size=5000
                 all_timings["prepare"]["n_skipped_no_protein"] = sum(
                     1 for r in reports if r.skipped_no_protein
                 )
+                # Per-structure dump for diagnosing convergence flap.
+                if os.environ.get("FERRITIN_DUMP_PREPARE"):
+                    dump_path = os.environ["FERRITIN_DUMP_PREPARE"]
+                    dump = []
+                    for f, r in zip(structure_files[:n_prep], reports):
+                        dump.append(dict(
+                            file=f,
+                            converged=bool(r.converged),
+                            skipped_no_protein=bool(r.skipped_no_protein),
+                            steps=r.minimizer_steps,
+                            E_init=r.initial_energy,
+                            E_final=r.final_energy,
+                            h_added=r.hydrogens_added,
+                        ))
+                    with open(dump_path, "w") as df:
+                        json.dump(dump, df, indent=2)
+                    log(f"  Per-structure dump: {dump_path}")
             except Exception as e:
                 log(f"  Prepare failed: {e}")
             dt = time.perf_counter() - t0

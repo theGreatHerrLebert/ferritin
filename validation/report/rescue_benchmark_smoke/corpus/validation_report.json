@@ -1,0 +1,25 @@
+{
+  "release_id": "rescue-benchmark-v0",
+  "artifact_type": "validation_report",
+  "format": "ferritin.corpus_validation.v0",
+  "created_at": "2026-04-14T08:22:32.132308+00:00",
+  "ok": true,
+  "counts": {
+    "prepared": 2,
+    "sequence_examples": 0,
+    "structure_examples": 0,
+    "training_examples": 0
+  },
+  "split_counts": {},
+  "failure_breakdown": {
+    "internal_pipeline_error": 4
+  },
+  "completeness": {},
+  "issues": [
+    {
+      "severity": "warning",
+      "code": "no_structure_examples",
+      "message": "structure release contains no supervision examples"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "corpus": {
+    "pdb_dir": "validation/pdbs_10k",
+    "n_input_files": 10000,
+    "n_indexed": 9646,
+    "n_skipped": 354,
+    "db_path": "/tmp/ferritin_search_10k",
+    "db_size_mb": 78.461,
+    "k": 6,
+    "version": 2
+  },
+  "build": {
+    "elapsed_s": 353.79,
+    "load_s": 201.857,
+    "encode_s": 121.706,
+    "index_s": 0.0,
+    "save_s": 0.008,
+    "structures_per_s": 27.265
+  },
+  "queries": null,
+  "prefilter": null,
+  "rerank": null
+}

@@ -1,0 +1,211 @@
+{
+  "corpus": {
+    "pdb_dir": "/scratch/TMAlign/ferritin/validation/pdbs_10k",
+    "n_targets": 115,
+    "n_queries": 8,
+    "top_k": 10,
+    "thresholds": [
+      0.5,
+      0.7,
+      0.9
+    ],
+    "truth_cache": "/scratch/TMAlign/ferritin/validation/retrieval_truth_cache_120x8.json",
+    "truth_cache_hit": true
+  },
+  "foldseek": {
+    "executable": "/scratch/TMAlign/foldseek/bin/foldseek",
+    "threads": 16,
+    "sensitivity": 9.5,
+    "max_seqs": 1000,
+    "extra_args": [
+      "-e",
+      "1000",
+      "--min-ungapped-score",
+      "0"
+    ]
+  },
+  "timing": {
+    "brute_force_s": 0.0,
+    "foldseek_s": 2.147
+  },
+  "metrics": {
+    "top1_exact_nonself": 0,
+    "recall_at_k": {
+      "0.5": 0.6667,
+      "0.7": 0.875,
+      "0.9": 1.0
+    }
+  },
+  "per_query": [
+    {
+      "query": "1kg2.pdb",
+      "n_hits": 17,
+      "best_truth_nonself": {
+        "source_path": "2bby.pdb",
+        "tm_score": 0.4023
+      },
+      "foldseek_top_nonself": {
+        "source_path": "5b6v.pdb",
+        "tm_score": 0.1239,
+        "bits": 13.0,
+        "evalue": 1.319
+      },
+      "thresholds": {
+        "0.5": {
+          "recall_at_k": 1.0
+        },
+        "0.7": {
+          "recall_at_k": 1.0
+        },
+        "0.9": {
+          "recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "2g8l.pdb",
+      "n_hits": 0,
+      "best_truth_nonself": {
+        "source_path": "1iuk.pdb",
+        "tm_score": 0.5306
+      },
+      "foldseek_top_nonself": null,
+      "thresholds": {
+        "0.5": {
+          "recall_at_k": 0.0
+        },
+        "0.7": {
+          "recall_at_k": 1.0
+        },
+        "0.9": {
+          "recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "3iey.pdb",
+      "n_hits": 0,
+      "best_truth_nonself": {
+        "source_path": "5xht.pdb",
+        "tm_score": 0.4122
+      },
+      "foldseek_top_nonself": null,
+      "thresholds": {
+        "0.5": {
+          "recall_at_k": 1.0
+        },
+        "0.7": {
+          "recall_at_k": 1.0
+        },
+        "0.9": {
+          "recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "4fva.pdb",
+      "n_hits": 0,
+      "best_truth_nonself": {
+        "source_path": "3h1e.pdb",
+        "tm_score": 0.4731
+      },
+      "foldseek_top_nonself": null,
+      "thresholds": {
+        "0.5": {
+          "recall_at_k": 1.0
+        },
+        "0.7": {
+          "recall_at_k": 1.0
+        },
+        "0.9": {
+          "recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "4xlv.pdb",
+      "n_hits": 23,
+      "best_truth_nonself": {
+        "source_path": "3efk.pdb",
+        "tm_score": 0.7494
+      },
+      "foldseek_top_nonself": {
+        "source_path": "4iwo.pdb",
+        "tm_score": 0.5676,
+        "bits": 293.0,
+        "evalue": 9.857e-12
+      },
+      "thresholds": {
+        "0.5": {
+          "recall_at_k": 0.3333
+        },
+        "0.7": {
+          "recall_at_k": 0.0
+        },
+        "0.9": {
+          "recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "6qzg.pdb",
+      "n_hits": 0,
+      "best_truth_nonself": {
+        "source_path": "1iuk.pdb",
+        "tm_score": 0.568
+      },
+      "foldseek_top_nonself": null,
+      "thresholds": {
+        "0.5": {
+          "recall_at_k": 0.0
+        },
+        "0.7": {
+          "recall_at_k": 1.0
+        },
+        "0.9": {
+          "recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "6yu5.pdb",
+      "n_hits": 0,
+      "best_truth_nonself": {
+        "source_path": "2rqq.pdb",
+        "tm_score": 0.438
+      },
+      "foldseek_top_nonself": null,
+      "thresholds": {
+        "0.5": {
+          "recall_at_k": 1.0
+        },
+        "0.7": {
+          "recall_at_k": 1.0
+        },
+        "0.9": {
+          "recall_at_k": 1.0
+        }
+      }
+    },
+    {
+      "query": "7xmw.pdb",
+      "n_hits": 0,
+      "best_truth_nonself": {
+        "source_path": "6k3f.pdb",
+        "tm_score": 0.3833
+      },
+      "foldseek_top_nonself": null,
+      "thresholds": {
+        "0.5": {
+          "recall_at_k": 1.0
+        },
+        "0.7": {
+          "recall_at_k": 1.0
+        },
+        "0.9": {
+          "recall_at_k": 1.0
+        }
+      }
+    }
+  ]
+}

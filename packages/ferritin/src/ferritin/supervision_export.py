@@ -62,35 +62,33 @@ def export_structure_supervision_examples(
 ) -> Path:
     """Export a batch of supervision examples as JSONL metadata + NPZ tensors."""
     examples = list(examples)
-    if not examples:
-        raise ValueError("expected at least one structure supervision example")
 
     out_path = Path(out_dir)
     if out_path.exists() and not overwrite:
         raise FileExistsError(f"{out_path} already exists")
     out_path.mkdir(parents=True, exist_ok=True)
 
-    tensor_payload = _stack_tensor_payload(examples)
-
     with (out_path / "examples.jsonl").open("w", encoding="utf-8") as handle:
         for ex in examples:
             handle.write(json.dumps(_example_metadata(ex), separators=(",", ":")))
             handle.write("\n")
 
-    # Write tensors.npz first so we can hash it into the manifest.
-    # Keeps integrity check ordered: if the write fails we don't leave
-    # a manifest claiming a checksum that no file on disk matches.
-    tensor_path = out_path / "tensors.npz"
-    np.savez_compressed(tensor_path, **tensor_payload)
-
     manifest = {
         "format": SUPERVISION_EXPORT_FORMAT,
         "count": len(examples),
-        "tensor_file": "tensors.npz",
         "examples_file": "examples.jsonl",
-        "tensor_fields": list(tensor_payload.keys()),
-        "tensor_sha256": sha256_file(tensor_path),
+        "tensor_fields": [],
     }
+    if examples:
+        tensor_payload = _stack_tensor_payload(examples)
+        # Write tensors.npz first so we can hash it into the manifest.
+        # Keeps integrity check ordered: if the write fails we don't leave
+        # a manifest claiming a checksum that no file on disk matches.
+        tensor_path = out_path / "tensors.npz"
+        np.savez_compressed(tensor_path, **tensor_payload)
+        manifest["tensor_file"] = "tensors.npz"
+        manifest["tensor_fields"] = list(tensor_payload.keys())
+        manifest["tensor_sha256"] = sha256_file(tensor_path)
     (out_path / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return out_path
 
@@ -112,6 +110,8 @@ def load_structure_supervision_examples(
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("format") != SUPERVISION_EXPORT_FORMAT:
         raise ValueError(f"unsupported supervision export format: {manifest.get('format')!r}")
+    if int(manifest.get("count", 0)) == 0:
+        return []
     if verify_checksum:
         expected = manifest.get("tensor_sha256")
         if expected:
