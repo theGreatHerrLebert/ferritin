@@ -30,6 +30,7 @@ use super::topology::Topology;
 const NONBONDED_KERNEL_SRC: &str = include_str!("kernel.cu");
 const BONDED_KERNEL_SRC: &str = include_str!("bonded_kernels.cu");
 const SASA_KERNEL_SRC: &str = include_str!("sasa_kernel.cu");
+const OBC_KERNEL_SRC: &str = include_str!("obc_kernel.cu");
 
 // ---------------------------------------------------------------------------
 // GpuContext: global singleton (one per process)
@@ -42,6 +43,10 @@ struct GpuKernels {
     angle: CudaFunction,
     torsion: CudaFunction,
     sasa: CudaFunction,
+    obc_born_radii: CudaFunction,
+    obc_energy_forces_direct: CudaFunction,
+    obc_chain_transform: CudaFunction,
+    obc_force_spread: CudaFunction,
 }
 
 /// Global GPU context. Created once, shared across all rayon threads.
@@ -112,9 +117,16 @@ impl GpuContext {
         let angle = bonded_mod.load_function("angle_energy_forces")?;
         let torsion = bonded_mod.load_function("torsion_energy_forces")?;
 
-        let sasa_ptx = compile_ptx_with_opts(SASA_KERNEL_SRC, opts)?;
+        let sasa_ptx = compile_ptx_with_opts(SASA_KERNEL_SRC, opts.clone())?;
         let sasa_mod = ctx.load_module(sasa_ptx)?;
         let sasa = sasa_mod.load_function("sasa_shrake_rupley")?;
+
+        let obc_ptx = compile_ptx_with_opts(OBC_KERNEL_SRC, opts)?;
+        let obc_mod = ctx.load_module(obc_ptx)?;
+        let obc_born_radii = obc_mod.load_function("obc_born_radii")?;
+        let obc_energy_forces_direct = obc_mod.load_function("obc_energy_forces_direct")?;
+        let obc_chain_transform = obc_mod.load_function("obc_chain_transform")?;
+        let obc_force_spread = obc_mod.load_function("obc_force_spread")?;
 
         Ok(Self {
             ctx,
@@ -124,6 +136,10 @@ impl GpuContext {
                 angle,
                 torsion,
                 sasa,
+                obc_born_radii,
+                obc_energy_forces_direct,
+                obc_chain_transform,
+                obc_force_spread,
             },
         })
     }
@@ -172,6 +188,9 @@ struct GpuTopology {
     tor_f: CudaSlice<f64>,
     tor_p: CudaSlice<f64>,
     n_torsion_terms: i32,
+    // OBC GB per-atom (only populated when ff.has_obc_gb())
+    obc_radius: CudaSlice<f64>,
+    obc_scale: CudaSlice<f64>,
     // Constants
     n_atoms: usize,
     self_solvation: f64,
@@ -182,6 +201,14 @@ struct GpuTopology {
     scee_inv: f64,
     scnb_inv: f64,
     pi_sqrt_pi: f64,
+    // OBC constants (only meaningful when obc_enabled)
+    obc_enabled: bool,
+    obc_offset: f64,
+    obc_alpha: f64,
+    obc_beta: f64,
+    obc_gamma: f64,
+    obc_pre_factor: f64, // -τ·k_C, kcal/(mol·e²·Å)
+    obc_include_self: i32,
 }
 
 /// Per-structure mutable GPU state: coords, forces, energy output arrays.
@@ -197,6 +224,12 @@ pub(crate) struct GpuStructState {
     bond_energies: CudaSlice<f64>,
     angle_energies: CudaSlice<f64>,
     tor_energies: CudaSlice<f64>,
+    // OBC GB scratch buffers (allocated only when the FF has OBC params;
+    // otherwise kept as zero-length placeholders so sizes don't drift).
+    obc_born_radii: CudaSlice<f64>,
+    obc_chain: CudaSlice<f64>,
+    obc_born_forces: CudaSlice<f64>,
+    obc_per_atom_energy: CudaSlice<f64>,
 }
 
 impl GpuStructState {
@@ -346,6 +379,32 @@ impl GpuStructState {
         let cutoff = ff.nonbonded_cutoff();
         let cuton = ff.switching_on();
 
+        // --- OBC GB per-atom lookup (falls back to zero-radius / zero-scale
+        // when the FF doesn't carry OBC params; the dispatch path later
+        // checks `obc_enabled` and skips the kernels entirely in that case).
+        let mut obc_radius_v = vec![0.0f64; n_atoms];
+        let mut obc_scale_v = vec![0.0f64; n_atoms];
+        let obc_enabled = ff.has_obc_gb();
+        if obc_enabled {
+            for (i, a) in topo.atoms.iter().enumerate() {
+                let p = ff.get_obc_gb(&a.amber_type).unwrap_or_else(|| {
+                    panic!(
+                        "GpuStructState::new: no OBC params for AMBER class '{}' at atom {}",
+                        a.amber_type, i
+                    )
+                });
+                obc_radius_v[i] = p.radius;
+                obc_scale_v[i] = p.scale;
+            }
+        }
+        // OBC2 (hardcoded — matches `ObcTypeII` in OpenMM's
+        // ReferenceCalcGBSAOBCForceKernel::initialize, same choice as the
+        // CPU energy path). include_self_term is always on via the GPU
+        // fast-path; if someone needs the flag toggled they should use
+        // the CPU path (it's a diagnostic-only feature).
+        let obc_params = super::gb_obc::ObcGbParams::obc2();
+        let obc_pre_factor = -332.0 * obc_params.tau();
+
         let topo_gpu = GpuTopology {
             pair_i: stream.clone_htod(&pi)?,
             pair_j: stream.clone_htod(&pj)?,
@@ -379,6 +438,8 @@ impl GpuStructState {
             tor_f: stream.clone_htod(&tf)?,
             tor_p: stream.clone_htod(&tp)?,
             n_torsion_terms: ti_arr.len() as i32,
+            obc_radius: stream.clone_htod(&obc_radius_v)?,
+            obc_scale: stream.clone_htod(&obc_scale_v)?,
             n_atoms,
             self_solvation: self_solv,
             cutoff_sq: cutoff * cutoff,
@@ -388,12 +449,25 @@ impl GpuStructState {
             scee_inv: 1.0 / ff.scee(),
             scnb_inv: 1.0 / ff.scnb(),
             pi_sqrt_pi: 5.568_327_996_831_708,
+            obc_enabled,
+            obc_offset: obc_params.offset,
+            obc_alpha: obc_params.alpha,
+            obc_beta: obc_params.beta,
+            obc_gamma: obc_params.gamma,
+            obc_pre_factor,
+            obc_include_self: if obc_params.include_self_term { 1 } else { 0 },
         };
 
         let np = n_pairs.max(1);
         let nb = (bi.len()).max(1);
         let na = (ai.len()).max(1);
         let nt = (ti_arr.len()).max(1);
+
+        // OBC buffers: only allocated at full size when the FF carries
+        // OBC params. When disabled we still allocate a 1-element stub so
+        // the field types stay consistent and no Option-gymnastics are
+        // needed in launch_kernels.
+        let obc_alloc = if obc_enabled { n_atoms.max(1) } else { 1 };
 
         Ok(Self {
             coords: stream.alloc_zeros::<f64>(n_atoms * 3)?,
@@ -404,6 +478,10 @@ impl GpuStructState {
             bond_energies: stream.alloc_zeros::<f64>(nb)?,
             angle_energies: stream.alloc_zeros::<f64>(na)?,
             tor_energies: stream.alloc_zeros::<f64>(nt)?,
+            obc_born_radii: stream.alloc_zeros::<f64>(obc_alloc)?,
+            obc_chain: stream.alloc_zeros::<f64>(obc_alloc)?,
+            obc_born_forces: stream.alloc_zeros::<f64>(obc_alloc)?,
+            obc_per_atom_energy: stream.alloc_zeros::<f64>(obc_alloc)?,
             stream,
             topo_gpu,
         })
@@ -528,6 +606,89 @@ impl GpuStructState {
             }
         }
 
+        // --- OBC GB implicit solvent (4 kernels, run only when FF carries OBC).
+        if t.obc_enabled && t.n_atoms > 0 {
+            let n = t.n_atoms as u32;
+            // Explicit 64-thread blocks — the Born-radii and rowwise
+            // energy kernels each carry ~25 f64 live locals per thread,
+            // so the default 1024-thread blocks from `for_num_elems`
+            // exceed the 65k register-per-block budget on CC 7.5. The
+            // bonded torsion kernel uses the same trick for the same
+            // reason.
+            let cfg_1d = LaunchConfig {
+                grid_dim: ((n + 63) / 64, 1, 1),
+                block_dim: (64, 1, 1),
+                shared_mem_bytes: 0,
+            };
+
+            // Kernel 1: per-atom Born radii + obc_chain.
+            {
+                let mut a = self.stream.launch_builder(&gpu.kernels.obc_born_radii);
+                a.arg(&self.coords);
+                a.arg(&t.obc_radius);
+                a.arg(&t.obc_scale);
+                a.arg(&t.obc_offset);
+                a.arg(&t.obc_alpha);
+                a.arg(&t.obc_beta);
+                a.arg(&t.obc_gamma);
+                let n_i32 = t.n_atoms as i32;
+                a.arg(&n_i32);
+                a.arg(&mut self.obc_born_radii);
+                a.arg(&mut self.obc_chain);
+                unsafe { a.launch(cfg_1d)?; }
+            }
+            // Kernel 2: first-loop energy + direct pair forces + bornForces accumulator.
+            {
+                let mut a = self.stream.launch_builder(&gpu.kernels.obc_energy_forces_direct);
+                a.arg(&self.coords);
+                a.arg(&t.charges);
+                a.arg(&self.obc_born_radii);
+                a.arg(&t.obc_pre_factor);
+                let n_i32 = t.n_atoms as i32;
+                a.arg(&n_i32);
+                a.arg(&t.obc_include_self);
+                a.arg(&mut self.obc_per_atom_energy);
+                a.arg(&mut self.forces);
+                a.arg(&mut self.obc_born_forces);
+                unsafe { a.launch(cfg_1d)?; }
+            }
+            // Kernel 3: bornForces[i] *= R_eff_i^2 · obc_chain[i].
+            {
+                let mut a = self.stream.launch_builder(&gpu.kernels.obc_chain_transform);
+                a.arg(&self.obc_born_radii);
+                a.arg(&self.obc_chain);
+                let n_i32 = t.n_atoms as i32;
+                a.arg(&n_i32);
+                a.arg(&mut self.obc_born_forces);
+                unsafe { a.launch(cfg_1d)?; }
+            }
+            // Kernel 4: spread bornForces through HCT integrand derivative
+            // via a 2D (i, j) launch with atomicAdd into forces[*].
+            {
+                let mut a = self.stream.launch_builder(&gpu.kernels.obc_force_spread);
+                a.arg(&self.coords);
+                a.arg(&t.obc_radius);
+                a.arg(&t.obc_scale);
+                a.arg(&self.obc_born_forces);
+                a.arg(&t.obc_offset);
+                let n_i32 = t.n_atoms as i32;
+                a.arg(&n_i32);
+                a.arg(&mut self.forces);
+                // 8×8 tiles (64 threads/block). The OBC spread kernel
+                // carries ~30 f64 live locals per thread — 16×16 blocks
+                // exceed the 65536 register-per-block budget on CC 7.5.
+                // The kernel internally skips i==j and r<0.1 Å.
+                let tile: u32 = 8;
+                let grid = (n + tile - 1) / tile;
+                let cfg_2d = LaunchConfig {
+                    grid_dim: (grid, grid, 1),
+                    block_dim: (tile, tile, 1),
+                    shared_mem_bytes: 0,
+                };
+                unsafe { a.launch(cfg_2d)?; }
+            }
+        }
+
         Ok(())
     }
 
@@ -539,7 +700,12 @@ impl GpuStructState {
         let bond: f64 = self.stream.clone_dtoh(&self.bond_energies)?.iter().sum();
         let angle: f64 = self.stream.clone_dtoh(&self.angle_energies)?.iter().sum();
         let torsion: f64 = self.stream.clone_dtoh(&self.tor_energies)?.iter().sum();
-        let solvation = t.self_solvation + solv_pair;
+        let obc_solv: f64 = if t.obc_enabled {
+            self.stream.clone_dtoh(&self.obc_per_atom_energy)?.iter().sum()
+        } else {
+            0.0
+        };
+        let solvation = t.self_solvation + solv_pair + obc_solv;
 
         let total = bond + angle + torsion + vdw + elec + solvation;
         Ok(EnergyResult {

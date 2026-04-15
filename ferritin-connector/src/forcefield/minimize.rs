@@ -1018,4 +1018,100 @@ mod gpu_parity_tests {
             gpu_energy.total, cpu_energy.total, diff,
         );
     }
+
+    /// GPU OBC GB parity check: AMBER96+OBC2 on crambin, compared against
+    /// CPU `compute_energy_nbl` on identical inputs. Exercises all four
+    /// OBC CUDA kernels (born radii, rowwise energy+forces, chain
+    /// transform, force spread).
+    ///
+    /// Tolerance 1e-3 kcal/mol total — slightly looser than the CHARMM
+    /// crambin test (1e-4) because the OBC second-loop kernel uses
+    /// atomicAdd for forces and therefore has non-deterministic FP
+    /// summation order. The physics is identical to the CPU path, so any
+    /// drift beyond rounding is a bug.
+    #[test]
+    fn gpu_obc_matches_cpu_on_crambin() {
+        use super::super::gpu;
+        use crate::forcefield::params::amber96_obc;
+
+        let gpu_ctx = match gpu::GpuContext::try_global() {
+            Some(ctx) => ctx,
+            None => {
+                eprintln!("gpu_parity_tests: no GPU detected, skipping OBC parity");
+                return;
+            }
+        };
+
+        let mut crambin_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        crambin_path.push("../test-pdbs/1crn.pdb");
+        if !crambin_path.exists() {
+            eprintln!("gpu_parity_tests: 1crn.pdb not found, skipping OBC parity");
+            return;
+        }
+        let (mut pdb, _) = pdbtbx::ReadOptions::default()
+            .set_level(pdbtbx::StrictnessLevel::Loose)
+            .read(crambin_path.to_str().unwrap())
+            .expect("failed to read 1crn");
+        add_hydrogens::place_peptide_hydrogens(&mut pdb);
+
+        let ff = amber96_obc();
+        let topo = build_topology(&pdb, &ff);
+        let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
+        let coords_flat: Vec<f64> = coords.iter().flat_map(|c| c.iter().copied()).collect();
+
+        let nbl = super::super::neighbor_list::NeighborList::build(
+            &coords,
+            ff.nonbonded_cutoff(),
+            &topo.excluded_pairs,
+            &topo.pairs_14,
+        );
+        let (cpu_energy, cpu_forces) =
+            super::super::energy::compute_energy_and_forces_nbl(&coords, &topo, &ff, &nbl);
+
+        let mut gpu_state = gpu::GpuStructState::new(gpu_ctx, &topo, &nbl, &ff)
+            .expect("failed to create GPU state");
+        let (gpu_energy, gpu_forces) = gpu_state
+            .energy_and_forces(gpu_ctx, &coords_flat)
+            .expect("GPU OBC energy+forces eval failed");
+
+        // Energy total within 1e-3 kcal/mol.
+        let diff_total = (gpu_energy.total - cpu_energy.total).abs();
+        assert!(
+            diff_total < 1e-3,
+            "OBC GPU total={:+.6} CPU total={:+.6} diff={:.2e}",
+            gpu_energy.total,
+            cpu_energy.total,
+            diff_total,
+        );
+        // Solvation component too — isolates an OBC-only regression.
+        let diff_solv = (gpu_energy.solvation - cpu_energy.solvation).abs();
+        assert!(
+            diff_solv < 1e-3,
+            "OBC GPU solvation={:+.6} CPU solvation={:+.6} diff={:.2e}",
+            gpu_energy.solvation,
+            cpu_energy.solvation,
+            diff_solv,
+        );
+        // Force max-component parity at 1e-3 kcal/mol/Å (atomicAdd-tolerant).
+        let mut max_f_diff = 0.0_f64;
+        for i in 0..cpu_forces.len() {
+            for k in 0..3 {
+                let d = (cpu_forces[i][k] - gpu_forces[i][k]).abs();
+                if d > max_f_diff {
+                    max_f_diff = d;
+                }
+            }
+        }
+        assert!(
+            max_f_diff < 1e-3,
+            "OBC GPU/CPU max force diff {:.2e} > 1e-3",
+            max_f_diff
+        );
+
+        eprintln!(
+            "gpu_parity_tests: OBC crambin GPU total={:+.2} CPU total={:+.2} diff_total={:.2e} \
+             diff_solv={:.2e} max_force_diff={:.2e} PASS",
+            gpu_energy.total, cpu_energy.total, diff_total, diff_solv, max_f_diff,
+        );
+    }
 }
