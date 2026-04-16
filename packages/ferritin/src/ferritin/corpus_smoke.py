@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from hashlib import blake2b
 import json
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import Iterable, List, Mapping, Optional, Sequence
 
 from .corpus_release import build_corpus_release_manifest
 from .corpus_validation import validate_corpus_release
@@ -30,6 +31,8 @@ def build_local_corpus_smoke_release(
     n_threads: Optional[int] = None,
     rescue_load: bool = False,
     rescue_allow: Optional[Sequence[str]] = None,
+    split_assignments: Optional[Mapping[str, str]] = None,
+    split_ratios: Optional[Mapping[str, float]] = None,
     overwrite: bool = False,
 ) -> Path:
     """Build a small end-to-end corpus release from local structure files.
@@ -86,30 +89,62 @@ def build_local_corpus_smoke_release(
 
     prep_reports = batch_prepare(loaded_structures, n_threads=n_threads)
 
+    # Structure/sequence supervision v0 is chain-level. Expand each loaded
+    # structure into one record per chain so multi-chain PDBs don't get
+    # silently dropped during the supervision build. Single-chain inputs
+    # keep their original record_id and pass chain_id=None for backward
+    # compatibility with pre-expansion provenance.
+    (
+        expanded_structures,
+        expanded_prep_reports,
+        expanded_record_ids,
+        expanded_source_ids,
+        expanded_chain_ids,
+        expanded_paths,
+    ) = _expand_chains(loaded_structures, prep_reports, record_ids, source_ids, loaded_paths)
+
     prepared_root = build_structure_supervision_dataset_from_prepared(
-        loaded_structures,
-        prep_reports,
+        expanded_structures,
+        expanded_prep_reports,
         root / "prepared",
         release_id=f"{release_id}-structure",
-        record_ids=record_ids,
-        source_ids=source_ids,
+        record_ids=expanded_record_ids,
+        source_ids=expanded_source_ids,
+        chain_ids=expanded_chain_ids,
         code_rev=code_rev,
         config_rev=config_rev,
-        provenance={"input_paths": [str(p) for p in loaded_paths]},
+        provenance={"input_paths": [str(p) for p in expanded_paths]},
         overwrite=True,
     )
     sequence_root = build_sequence_dataset(
-        loaded_structures,
+        expanded_structures,
         root / "sequence",
         release_id=f"{release_id}-sequence",
-        record_ids=record_ids,
-        source_ids=source_ids,
+        record_ids=expanded_record_ids,
+        source_ids=expanded_source_ids,
+        chain_ids=expanded_chain_ids,
         code_rev=code_rev,
         config_rev=config_rev,
-        provenance={"input_paths": [str(p) for p in loaded_paths]},
+        provenance={"input_paths": [str(p) for p in expanded_paths]},
         overwrite=True,
     )
-    split_assignments = _default_split_assignments(record_ids)
+    # Splits are assigned at the expanded (chain-level) record granularity
+    # so multi-chain structures can have per-chain split decisions.
+    split_strategy = "default_last_record_val"
+    if split_assignments is not None:
+        missing = [rid for rid in expanded_record_ids if rid not in split_assignments]
+        if missing:
+            raise ValueError(
+                f"split_assignments missing {len(missing)} record_ids "
+                f"(first few: {missing[:3]})"
+            )
+        split_assignments = {rid: split_assignments[rid] for rid in expanded_record_ids}
+        split_strategy = "explicit"
+    elif split_ratios is not None:
+        split_assignments = _hash_split_assignments(expanded_record_ids, split_ratios)
+        split_strategy = f"hash_split:{_format_ratios(split_ratios)}"
+    else:
+        split_assignments = _default_split_assignments(expanded_record_ids)
     training_root = build_training_release(
         sequence_root,
         prepared_root / "supervision_release",
@@ -141,6 +176,7 @@ def build_local_corpus_smoke_release(
             "rescue_load": rescue_load,
             "rescued_paths": [str(path_list[i]) for i, _ in rescued_results],
             "rescue_allow": list(rescue_allow) if rescue_allow is not None else None,
+            "split_strategy": split_strategy,
         },
         overwrite=True,
     )
@@ -229,3 +265,86 @@ def _default_split_assignments(record_ids: Iterable[str]) -> dict[str, str]:
     assignments = {record_id: "train" for record_id in ordered}
     assignments[ordered[-1]] = "val"
     return assignments
+
+
+def _expand_chains(
+    structures: Sequence,
+    prep_reports: Sequence,
+    record_ids: Sequence[str],
+    source_ids: Sequence[str],
+    paths: Sequence[Path],
+) -> tuple[list, list, list[str], list[str], list[Optional[str]], list[Path]]:
+    """Expand per-structure entries into per-chain entries.
+
+    Structure/sequence supervision v0 is chain-scoped. Single-chain
+    structures pass through unchanged with chain_id=None so existing
+    record_ids are preserved; multi-chain structures produce one
+    entry per chain with record_id=f"{stem}_{chain_id}".
+    """
+    ex_structs: list = []
+    ex_prep: list = []
+    ex_rids: list[str] = []
+    ex_srcs: list[str] = []
+    ex_chains: list[Optional[str]] = []
+    ex_paths: list[Path] = []
+
+    for structure, prep_report, rid, src, path in zip(
+        structures, prep_reports, record_ids, source_ids, paths
+    ):
+        chains = list(getattr(structure, "chains", []) or [])
+        if len(chains) <= 1:
+            ex_structs.append(structure)
+            ex_prep.append(prep_report)
+            ex_rids.append(rid)
+            ex_srcs.append(src)
+            ex_chains.append(None)
+            ex_paths.append(path)
+            continue
+        for chain in chains:
+            chain_id = getattr(chain, "id", None)
+            ex_structs.append(structure)
+            ex_prep.append(prep_report)
+            ex_rids.append(f"{rid}_{chain_id}" if chain_id else rid)
+            ex_srcs.append(src)
+            ex_chains.append(chain_id)
+            ex_paths.append(path)
+    return ex_structs, ex_prep, ex_rids, ex_srcs, ex_chains, ex_paths
+
+
+def _hash_split_assignments(
+    record_ids: Iterable[str],
+    ratios: Mapping[str, float],
+) -> dict[str, str]:
+    """Deterministic hash-split on record_id.
+
+    Each record_id hashes into [0, 1) via blake2b; ratios define contiguous
+    buckets in that interval. Same record_id + same ratios ⇒ same split,
+    regardless of input order, corpus size, or which other records are present.
+    """
+    if not ratios:
+        raise ValueError("split_ratios must be non-empty")
+    total = sum(ratios.values())
+    if total <= 0.0 or not all(v >= 0.0 for v in ratios.values()):
+        raise ValueError(f"split_ratios must be non-negative and sum to > 0; got {dict(ratios)}")
+    ordered_splits = sorted(ratios.items())
+    cumulative: List[tuple[str, float]] = []
+    running = 0.0
+    for name, weight in ordered_splits:
+        running += weight / total
+        cumulative.append((name, running))
+    cumulative[-1] = (cumulative[-1][0], 1.0)
+
+    assignments: dict[str, str] = {}
+    for rid in record_ids:
+        digest = blake2b(rid.encode("utf-8"), digest_size=8).digest()
+        u = int.from_bytes(digest, "big") / 2**64
+        for name, cutoff in cumulative:
+            if u < cutoff:
+                assignments[rid] = name
+                break
+    return assignments
+
+
+def _format_ratios(ratios: Mapping[str, float]) -> str:
+    total = sum(ratios.values()) or 1.0
+    return ",".join(f"{k}={v/total:.3f}" for k, v in sorted(ratios.items()))

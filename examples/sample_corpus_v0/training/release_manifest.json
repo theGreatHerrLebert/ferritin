@@ -1,0 +1,63 @@
+{
+  "release_id": "sample-v0-training",
+  "artifact_type": "release_manifest",
+  "format": "ferritin.training_example.v0",
+  "created_at": "2026-04-16T15:06:24.689393+00:00",
+  "code_rev": null,
+  "config_rev": null,
+  "sequence_release": "examples/sample_corpus_v0/sequence",
+  "structure_release": "examples/sample_corpus_v0/prepared/supervision_release",
+  "count_examples": 33,
+  "split_counts": {
+    "train": 21,
+    "val": 5,
+    "test": 7
+  },
+  "examples_file": "training_examples.jsonl",
+  "tensor_file": "tensors.npz",
+  "tensor_sha256": "498c272baa166fddfe098d4c866b0fcc4eb3e64834d1a9b42439c6e7b2ece0ac",
+  "tensor_fields": [
+    "aatype",
+    "all_atom_mask",
+    "all_atom_positions",
+    "atom14_atom_exists",
+    "atom14_atom_is_ambiguous",
+    "atom14_gt_exists",
+    "atom14_gt_positions",
+    "atom37_atom_exists",
+    "chi_angles",
+    "chi_mask",
+    "length",
+    "msa_rows",
+    "omega",
+    "omega_mask",
+    "phi",
+    "phi_mask",
+    "pseudo_beta",
+    "pseudo_beta_mask",
+    "psi",
+    "psi_mask",
+    "residue_index",
+    "rigidgroups_group_exists",
+    "rigidgroups_group_is_ambiguous",
+    "rigidgroups_gt_exists",
+    "rigidgroups_gt_frames",
+    "seq_mask",
+    "template_count",
+    "weight"
+  ],
+  "provenance": {
+    "input_paths": [
+      "/scratch/TMAlign/test-pdbs/1aaj.pdb",
+      "/scratch/TMAlign/test-pdbs/1ads.pdb",
+      "/scratch/TMAlign/test-pdbs/1ake.pdb",
+      "/scratch/TMAlign/test-pdbs/1amk.pdb",
+      "/scratch/TMAlign/test-pdbs/1aon.pdb",
+      "/scratch/TMAlign/test-pdbs/1bpi.pdb",
+      "/scratch/TMAlign/test-pdbs/1c9o.pdb",
+      "/scratch/TMAlign/test-pdbs/1crn.pdb",
+      "/scratch/TMAlign/test-pdbs/1cse.pdb",
+      "/scratch/TMAlign/test-pdbs/1ctj.pdb"
+    ]
+  }
+}

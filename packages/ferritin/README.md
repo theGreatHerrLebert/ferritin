@@ -1,0 +1,120 @@
+# ferritin
+
+Python bindings to the ferritin structural bioinformatics toolkit (Rust core +
+pdbtbx I/O). Thin wrapper over `ferritin-connector`, opinionated surface for
+corpus generation, structure preparation, alignment, SASA/DSSP, hydrogen
+placement, MSA/template retrieval, and supervision-tensor export.
+
+## Quickstart: generate a training corpus in 5 lines
+
+```python
+import ferritin
+from pathlib import Path
+
+ferritin.build_local_corpus_smoke_release(
+    list(Path("my_pdbs/").glob("*.pdb")),
+    out_dir="corpus_v0",
+    release_id="demo-v0",
+    split_ratios={"train": 0.8, "val": 0.1, "test": 0.1},
+    n_threads=-1,
+    overwrite=True,
+)
+```
+
+That call handles: parse → batch-prepare (hydrogens, minimization) → per-chain
+expansion → sequence-supervision export → structure-supervision export
+(AF2 contract) → deterministic hash-split → top-level corpus manifest →
+validation report. Failures are captured as machine-readable `FailureRecord`
+rows, not silently dropped.
+
+Output tree:
+
+```
+corpus_v0/
+├── corpus/{corpus_release_manifest,validation_report}.json
+├── prepared/{prepared_structures.jsonl, supervision_release/...}
+├── sequence/{release_manifest.json, examples/{manifest.json,examples.jsonl,tensors.npz}}
+└── training/{release_manifest.json, training_examples.jsonl, tensors.npz}
+```
+
+A reference artifact (manifests only, NPZ stripped) lives at
+`examples/sample_corpus_v0/`.
+
+## Supervision tensors (AF2 contract)
+
+The `structure_supervision.v0` release writes `tensors.npz` with padded
+batch-major arrays covering:
+
+| Field | Shape | Purpose |
+|-------|-------|---------|
+| `aatype` | `(N, L)` | 20-class residue identity |
+| `residue_index` | `(N, L)` | author residue numbering |
+| `seq_mask` | `(N, L)` | valid-residue mask |
+| `all_atom_positions` | `(N, L, 37, 3)` | atom37 coordinates |
+| `all_atom_mask` | `(N, L, 37)` | atom37 presence |
+| `atom14_gt_positions` | `(N, L, 14, 3)` | atom14 ground truth |
+| `atom14_gt_exists`, `atom14_atom_exists`, `atom14_atom_is_ambiguous` | `(N, L, 14)` | atom14 masks |
+| `residx_atom14_to_atom37`, `residx_atom37_to_atom14` | `(N, L, ...)` | index maps |
+| `pseudo_beta`, `pseudo_beta_mask` | `(N, L, 3)`, `(N, L)` | CB-or-CA pseudo atoms |
+| `phi`, `psi`, `omega` + masks | `(N, L)` | backbone torsions |
+| `chi_angles`, `chi_mask` | `(N, L, 4)` | sidechain torsions |
+| `rigidgroups_gt_frames`, `rigidgroups_gt_exists`, `rigidgroups_group_exists`, `rigidgroups_group_is_ambiguous` | `(N, L, 8, ...)` | 8-group rigid-body frames |
+
+Format is **framework-neutral**: NumPy `.npz` + JSONL metadata. Read with
+`np.load(...)` + `json.loads(...)` — no torch/jax dependency. Consumers build
+their own `Dataset` / `DataLoader` on top. Loaders in the package
+(`load_structure_supervision_examples`, `load_training_examples`) return
+dicts of `np.ndarray`.
+
+## Split strategies
+
+`build_local_corpus_smoke_release` accepts three mutually-exclusive modes:
+
+- **Default** (no split args): all records → `train` except the last → `val`.
+  Only useful for the smallest smoke paths.
+- **`split_ratios={"train": 0.8, "val": 0.1, "test": 0.1}`**: deterministic
+  blake2b hash-split on `record_id`. Same record always lands in the same
+  split across runs, corpus sizes, and input orderings. Ratios may be
+  unnormalized — they're renormalized to 1.0.
+- **`split_assignments={"1crn_A": "train", "1ake_A": "val", ...}`**:
+  explicit per-record-id mapping. Must cover every (expanded) record_id.
+
+Chosen strategy is recorded in `corpus_release_manifest.json → provenance.split_strategy`.
+
+## Multi-chain handling
+
+Structure/sequence supervision v0 is chain-scoped. The smoke-release helper
+expands each loaded structure into one record per chain, so a multi-chain
+PDB like `1ake` (chains A + B) becomes two records (`1ake_A`, `1ake_B`)
+with separate supervision rows, torsions, and rigidgroup frames. Single-chain
+structures pass through unchanged with `record_id` preserved.
+
+## Known v0 characteristics
+
+- `rigidgroup_frame_fraction` and `chi_angle_fraction` on raw PDBs run
+  ~40–50% because sidechain atoms and many hydrogens are absent until
+  `batch_prepare` fills them in. The validation report exposes both
+  fractions so downstream trainers can filter on completeness.
+- The split primitive is record-id hashing, **not** MMseqs2-clustered
+  redundancy removal. Homologues can land in the same *or* different
+  splits depending on the id. For leakage-free splits use
+  `split_assignments` from an external cluster file.
+- PyPI wheel not shipped yet; install via `maturin develop --release` in
+  `ferritin-connector/` plus `PYTHONPATH=packages/ferritin/src`.
+
+## Smaller building blocks
+
+If the 5-line helper isn't the right shape, the same pipeline is available
+layer-by-layer:
+
+| Function | Layer |
+|----------|-------|
+| `batch_load_tolerant` / `batch_load_tolerant_with_rescue` | PDB/mmCIF intake |
+| `batch_prepare` | hydrogens + FF-aware minimization |
+| `build_structure_supervision_dataset_from_prepared` | per-chain AF2-contract tensors |
+| `build_sequence_dataset` | per-chain sequence + optional MSA/templates |
+| `build_training_release` | join + split assignment |
+| `build_corpus_release_manifest` | top-level manifest + failure aggregation |
+| `validate_corpus_release` | post-build validation report |
+
+All of these can be called directly with any subset of the pipeline.

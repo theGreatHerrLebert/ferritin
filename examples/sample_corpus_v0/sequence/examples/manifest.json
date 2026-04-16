@@ -1,0 +1,7 @@
+{
+  "format": "ferritin.sequence_example.v0",
+  "count": 33,
+  "examples_file": "examples.jsonl",
+  "tensor_file": "tensors.npz",
+  "tensor_sha256": "8ba83f30403273b3304394fecb8ce50e9045b0264980a15dd556ae602ec65f9d"
+}
