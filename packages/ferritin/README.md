@@ -34,11 +34,43 @@ corpus_v0/
 ├── corpus/{corpus_release_manifest,validation_report}.json
 ├── prepared/{prepared_structures.jsonl, supervision_release/...}
 ├── sequence/{release_manifest.json, examples/{manifest.json,examples.jsonl,tensors.npz}}
-└── training/{release_manifest.json, training_examples.jsonl, tensors.npz}
+└── training/{release_manifest.json, training_examples.jsonl, training.parquet}
 ```
 
-A reference artifact (manifests only, NPZ stripped) lives at
+The training layer is emitted as **Parquet** — one row per example with a
+ragged residue axis and no outer padding. Writer is row-group chunked (default
+512 examples per group) so peak memory stays bounded no matter how big the
+corpus grows. The earlier padded-NPZ training format was removed because
+`max_len × n_examples × fields` allocation scaled past practical memory at a
+few thousand chains.
+
+A reference artifact (manifests only, large tensors stripped) lives at
 `examples/sample_corpus_v0/`.
+
+## Training artifact (Parquet)
+
+The training release is a single `training.parquet` file, one row per
+example. Ragged residue axis uses Arrow `list<...>`; per-position fixed
+dimensions (atom count, coordinate axes, rigid-group frames) use nested
+`FixedSizeList` so readers can reshape losslessly. Any Arrow-compatible
+tool — polars, DuckDB, pandas, pyarrow, torch via pyarrow — can read it
+without a ferritin-specific adapter.
+
+Streaming reader for downstream training loops:
+
+```python
+from ferritin import iter_training_examples
+
+for ex in iter_training_examples("corpus_v0/training", split="train"):
+    positions = ex.structure.all_atom_positions   # (L, 37, 3) numpy
+    phi = ex.structure.phi                        # (L,) numpy
+    ...
+```
+
+`split=` applies predicate pushdown — row-groups whose `split` column
+provably doesn't match are skipped by the Parquet reader. No framework
+coupling in the public API; wrap it into whatever `Dataset` your trainer
+expects.
 
 ## Supervision tensors (AF2 contract)
 

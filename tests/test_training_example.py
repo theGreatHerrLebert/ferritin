@@ -79,9 +79,9 @@ class TestTrainingExample:
         assert row["crop_stop"] == 2
         assert row["weight"] == 0.5
 
-    def test_training_release_writes_denormalized_tensors_npz(self, tmp_path):
+    def test_training_release_writes_training_parquet(self, tmp_path):
         """build_training_release with export_tensors=True (default) must
-        produce a tensors.npz, checksum it into the manifest, and
+        produce a training.parquet, checksum it into the manifest, and
         roundtrip cleanly via load_training_examples."""
         structures = [_fake_structure("A"), _fake_structure("B")]
         seq_release = ferritin.build_sequence_dataset(
@@ -107,25 +107,28 @@ class TestTrainingExample:
             weights={"fake:A": 1.0, "fake:B": 0.5},
         )
 
-        # 1. tensors.npz exists + manifest carries a real SHA-256.
-        tensor_path = train / "tensors.npz"
-        assert tensor_path.exists(), "training release should emit tensors.npz"
+        # 1. training.parquet exists + manifest carries a real SHA-256.
+        parquet_path = train / "training.parquet"
+        assert parquet_path.exists(), "training release should emit training.parquet"
         manifest = json.loads((train / "release_manifest.json").read_text(encoding="utf-8"))
-        expected = hashlib.sha256(tensor_path.read_bytes()).hexdigest()
-        assert manifest["tensor_sha256"] == expected
-        assert len(manifest["tensor_fields"]) > 0
+        expected = hashlib.sha256(parquet_path.read_bytes()).hexdigest()
+        assert manifest["parquet_sha256"] == expected
+        assert len(manifest["parquet_fields"]) > 0
+        assert "aatype" in manifest["parquet_fields"]
+        assert "rigidgroups_gt_frames" in manifest["parquet_fields"]
 
-        # 2. NPZ carries the concatenated tensors with correct shapes.
-        # Synthetic residues: A has 2 (GLY, SER), B has 2. Max length 2.
-        payload = np.load(tensor_path, allow_pickle=False)
-        assert payload["aatype"].shape == (2, 2)
-        assert payload["all_atom_positions"].shape == (2, 2, 37, 3)
-        assert payload["rigidgroups_gt_frames"].shape == (2, 2, 8, 4, 4)
-        # Per-example bookkeeping lets downstream slice correctly.
-        np.testing.assert_array_equal(payload["length"], np.asarray([2, 2], dtype=np.int32))
-        np.testing.assert_array_equal(payload["weight"], np.asarray([1.0, 0.5], dtype=np.float32))
+        # 2. Parquet carries per-example ragged rows with correct shapes.
+        import pyarrow.parquet as pq
+        pf = pq.ParquetFile(parquet_path)
+        tbl = pf.read()
+        # Synthetic residues: A has 2 (GLY, SER), B has 2.
+        assert tbl.num_rows == 2
+        lengths = tbl.column("length").to_pylist()
+        assert lengths == [2, 2]
+        weights = tbl.column("weight").to_pylist()
+        assert weights == pytest.approx([1.0, 0.5])
 
-        # 3. load_training_examples round-trips via the NPZ path.
+        # 3. load_training_examples round-trips via the Parquet path.
         reloaded = ferritin.load_training_examples(train)
         assert len(reloaded) == 2
         by_id = {ex.record_id: ex for ex in reloaded}
@@ -134,21 +137,21 @@ class TestTrainingExample:
         assert by_id["fake:B"].split == "val"
         assert by_id["fake:A"].weight == pytest.approx(1.0)
         assert by_id["fake:B"].weight == pytest.approx(0.5)
-        # Tensors populated on both sides of the join.
+        # Tensors populated on both sides of the join, correctly reshaped.
         assert by_id["fake:A"].sequence is not None
         assert by_id["fake:A"].structure is not None
         assert by_id["fake:A"].sequence.aatype.shape == (2,)
         assert by_id["fake:A"].structure.all_atom_positions.shape == (2, 37, 3)
 
-        # 4. Tamper the NPZ and assert load rejects by default.
-        tensor_path.write_bytes(b"corrupt")
+        # 4. Tamper the parquet and assert load rejects by default.
+        parquet_path.write_bytes(b"corrupt")
         with pytest.raises(ValueError, match="checksum mismatch"):
             ferritin.load_training_examples(train)
 
     def test_export_tensors_false_leaves_pointer_only_release(self, tmp_path):
-        """Backwards-compat: `export_tensors=False` keeps the legacy
-        pointer-only behavior. Manifest has no tensor_file; loading
-        falls back to re-joining via the child releases."""
+        """`export_tensors=False` keeps the pointer-only behaviour.
+        Manifest has no parquet_file; loading falls back to re-joining
+        via the child releases."""
         structures = [_fake_structure("A")]
         seq_release = ferritin.build_sequence_dataset(
             structures, tmp_path / "seq", release_id="seq-v0", record_ids=["fake:A"]
@@ -166,9 +169,10 @@ class TestTrainingExample:
             split_assignments={"fake:A": "train"},
             export_tensors=False,
         )
-        assert not (train / "tensors.npz").exists()
+        assert not (train / "training.parquet").exists()
+        assert not (train / "tensors.npz").exists()  # belt-and-suspenders
         manifest = json.loads((train / "release_manifest.json").read_text(encoding="utf-8"))
-        assert manifest["tensor_file"] is None
+        assert manifest["parquet_file"] is None
 
         reloaded = ferritin.load_training_examples(train)
         assert len(reloaded) == 1

@@ -233,8 +233,8 @@ def summarize(report: dict) -> None:
     print(f"  validation_issues: {len(validation.get('issues', []))}")
 
     trn_mf = json.loads((out_dir / "training" / "release_manifest.json").read_text())
-    print(f"\n  training tensor_sha256: {trn_mf['tensor_sha256'][:16]}…")
-    print(f"  training tensor_fields: {len(trn_mf['tensor_fields'])}")
+    print(f"\n  training parquet_sha256: {trn_mf['parquet_sha256'][:16]}…")
+    print(f"  training parquet_fields: {len(trn_mf['parquet_fields'])}")
 
     seq_mf = json.loads((out_dir / "sequence" / "examples" / "manifest.json").read_text())
     print(f"  sequence tensor_sha256: {seq_mf['tensor_sha256'][:16]}…")
@@ -244,7 +244,7 @@ def summarize(report: dict) -> None:
     )
     print(f"  supervision tensor_sha256: {sup_mf['tensor_sha256'][:16]}…")
 
-    # Load training NPZ + verify shape.
+    # Load training Parquet + verify shape.
     trn_examples = ferritin.load_training_examples(out_dir / "training")
     print(f"\n  training examples loaded: {len(trn_examples)}")
     for ex in trn_examples:

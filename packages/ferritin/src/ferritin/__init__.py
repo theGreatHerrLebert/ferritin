@@ -142,6 +142,7 @@ from .templates import (
 )
 from .training_example import (
     TRAINING_EXPORT_FORMAT,
+    iter_training_examples,
     load_training_examples,
 )
 from .sequence_example import (

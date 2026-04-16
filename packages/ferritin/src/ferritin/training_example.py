@@ -1,4 +1,19 @@
-"""Framework-neutral joined training examples."""
+"""Framework-neutral joined training examples.
+
+The training release is written as a single Parquet file with one row per
+example and variable-length residue axis (no padding). This replaces the
+earlier padded NPZ format, which did not scale past a few thousand chains
+because the padded-stack allocation grew with (n_examples * max_length *
+fields). The Parquet writer streams in row-group chunks so peak memory is
+bounded by the row-group size, not the corpus size.
+
+Readers get Parquet's built-in predicate pushdown (filter by split or
+length without materializing other rows) and any Arrow-compatible tool —
+polars, DuckDB, pandas, pyarrow, torch via pyarrow — can load without a
+framework-specific adapter. The streaming iterator
+`iter_training_examples` materializes numpy arrays on the way out for
+consumers that prefer that shape.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +21,18 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
+
+try:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    _HAS_PYARROW = True
+except ImportError:  # pragma: no cover - exercised only in minimal environments
+    pa = None  # type: ignore
+    pq = None  # type: ignore
+    _HAS_PYARROW = False
 
 from ._artifact_checksum import sha256_file, verify_sha256
 from .sequence_example import SequenceExample
@@ -16,7 +40,8 @@ from .sequence_export import load_sequence_examples
 from .supervision import StructureSupervisionExample
 from .supervision_export import load_structure_supervision_examples
 
-TRAINING_EXPORT_FORMAT = "ferritin.training_example.v0"
+TRAINING_EXPORT_FORMAT = "ferritin.training_example.parquet.v0"
+TRAINING_PARQUET_SCHEMA_VERSION = 1
 
 
 @dataclass
@@ -38,11 +63,12 @@ class TrainingExample:
 class TrainingReleaseManifest:
     """Shared manifest linking sequence and structure releases.
 
-    `tensor_file` / `tensor_sha256` point to the denormalized per-
-    example NPZ (sequence + structure tensors stacked padded to the
-    longest example). Older releases written without tensors leave
-    these None — consumers can detect that and fall back to loading
-    the source sequence / structure releases.
+    `parquet_file` / `parquet_sha256` point to the streaming
+    per-example Parquet artifact (one row per example, variable
+    residue axis). `parquet_schema_version` pins the schema for
+    readers to bail early on mismatches. `row_group_size` is
+    informational — it controls the granularity of predicate
+    pushdown when readers filter by split or length.
     """
 
     release_id: str
@@ -56,10 +82,151 @@ class TrainingReleaseManifest:
     count_examples: int = 0
     split_counts: Dict[str, int] = field(default_factory=dict)
     examples_file: str = "training_examples.jsonl"
-    tensor_file: Optional[str] = None
-    tensor_sha256: Optional[str] = None
-    tensor_fields: List[str] = field(default_factory=list)
+    parquet_file: Optional[str] = None
+    parquet_sha256: Optional[str] = None
+    parquet_schema_version: int = TRAINING_PARQUET_SCHEMA_VERSION
+    parquet_fields: List[str] = field(default_factory=list)
+    row_group_size: int = 512
     provenance: Dict[str, object] = field(default_factory=dict)
+
+
+# Field descriptors: (column_name, inner_shape, numpy_dtype, source_attr_path)
+# source_attr_path is a tuple ("sequence"|"structure", attr_name).
+# inner_shape = () means 1D ragged (L,); (37,) means L x 37; (37, 3) means L x 37 x 3; etc.
+_SEQUENCE_FIELDS: Tuple[Tuple[str, Tuple[int, ...], type, str], ...] = (
+    ("aatype", (), np.int32, "aatype"),
+    ("residue_index", (), np.int32, "residue_index"),
+    ("seq_mask", (), np.float32, "seq_mask"),
+)
+
+_STRUCTURE_FIELDS: Tuple[Tuple[str, Tuple[int, ...], type, str], ...] = (
+    ("all_atom_positions", (37, 3), np.float32, "all_atom_positions"),
+    ("all_atom_mask", (37,), np.float32, "all_atom_mask"),
+    ("atom37_atom_exists", (37,), np.float32, "atom37_atom_exists"),
+    ("atom14_gt_positions", (14, 3), np.float32, "atom14_gt_positions"),
+    ("atom14_gt_exists", (14,), np.float32, "atom14_gt_exists"),
+    ("atom14_atom_exists", (14,), np.float32, "atom14_atom_exists"),
+    ("atom14_atom_is_ambiguous", (14,), np.float32, "atom14_atom_is_ambiguous"),
+    ("residx_atom14_to_atom37", (14,), np.int32, "residx_atom14_to_atom37"),
+    ("residx_atom37_to_atom14", (37,), np.int32, "residx_atom37_to_atom14"),
+    ("pseudo_beta", (3,), np.float32, "pseudo_beta"),
+    ("pseudo_beta_mask", (), np.float32, "pseudo_beta_mask"),
+    ("phi", (), np.float32, "phi"),
+    ("psi", (), np.float32, "psi"),
+    ("omega", (), np.float32, "omega"),
+    ("phi_mask", (), np.float32, "phi_mask"),
+    ("psi_mask", (), np.float32, "psi_mask"),
+    ("omega_mask", (), np.float32, "omega_mask"),
+    ("chi_angles", (4,), np.float32, "chi_angles"),
+    ("chi_mask", (4,), np.float32, "chi_mask"),
+    ("rigidgroups_gt_frames", (8, 4, 4), np.float32, "rigidgroups_gt_frames"),
+    ("rigidgroups_gt_exists", (8,), np.float32, "rigidgroups_gt_exists"),
+    ("rigidgroups_group_exists", (8,), np.float32, "rigidgroups_group_exists"),
+    ("rigidgroups_group_is_ambiguous", (8,), np.float32, "rigidgroups_group_is_ambiguous"),
+)
+
+_TENSOR_FIELDS = _SEQUENCE_FIELDS + _STRUCTURE_FIELDS
+
+
+def _require_pyarrow() -> None:
+    if not _HAS_PYARROW:
+        raise ImportError(
+            "pyarrow is required for the training release Parquet path. "
+            "Install with `pip install pyarrow` (>=14 recommended)."
+        )
+
+
+def _build_training_schema() -> "pa.Schema":
+    """Build the Parquet schema for a training release.
+
+    Ragged residue axis is stored as `list<...>`. Per-position fixed
+    dimensions (e.g. 37 atoms x 3 coordinates) are stored as nested
+    `FixedSizeList` so readers can reshape without per-row metadata.
+    """
+    _require_pyarrow()
+
+    def _typ(inner_shape: Tuple[int, ...], dtype: type) -> "pa.DataType":
+        pa_dtype = pa.from_numpy_dtype(np.dtype(dtype))
+        current = pa_dtype
+        for dim in reversed(inner_shape):
+            current = pa.list_(current, dim)
+        return pa.list_(current)
+
+    fields = [
+        ("record_id", pa.string()),
+        ("source_id", pa.string()),
+        ("chain_id", pa.string()),
+        ("split", pa.string()),
+        ("length", pa.int32()),
+        ("weight", pa.float32()),
+        ("crop_start", pa.int32()),
+        ("crop_stop", pa.int32()),
+    ]
+    for name, inner_shape, dtype, _ in _TENSOR_FIELDS:
+        fields.append((name, _typ(inner_shape, dtype)))
+    return pa.schema(fields)
+
+
+def _make_ragged_column(
+    arrays: Sequence[np.ndarray],
+    inner_shape: Tuple[int, ...],
+    dtype: type,
+) -> "pa.Array":
+    """Build a `list<...>` column from per-example arrays.
+
+    Each `arrays[i]` has shape `(L_i,) + inner_shape`. Output is a
+    pyarrow ListArray whose elements are reshaped per-example slabs —
+    no outer padding. Memory is `sum(L_i) * prod(inner_shape)`, which
+    is the fundamental lower bound.
+    """
+    _require_pyarrow()
+    lengths = [int(a.shape[0]) for a in arrays]
+    offsets = np.zeros(len(arrays) + 1, dtype=np.int32)
+    if lengths:
+        np.cumsum(lengths, out=offsets[1:])
+    if arrays:
+        flat = np.concatenate([np.ascontiguousarray(a, dtype=dtype).reshape(-1) for a in arrays])
+    else:
+        flat = np.zeros(0, dtype=dtype)
+    current = pa.array(flat, type=pa.from_numpy_dtype(np.dtype(dtype)))
+    for dim in reversed(inner_shape):
+        current = pa.FixedSizeListArray.from_arrays(current, dim)
+    return pa.ListArray.from_arrays(pa.array(offsets, type=pa.int32()), current)
+
+
+def _training_examples_to_record_batch(
+    batch: Sequence[TrainingExample],
+    schema: "pa.Schema",
+) -> "pa.RecordBatch":
+    """Convert a chunk of TrainingExamples into one pyarrow RecordBatch."""
+    _require_pyarrow()
+
+    record_ids = [ex.record_id for ex in batch]
+    source_ids = [ex.source_id for ex in batch]
+    chain_ids = [ex.chain_id for ex in batch]
+    splits = [ex.split for ex in batch]
+    lengths = [int(ex.sequence.length if ex.sequence is not None else 0) for ex in batch]
+    weights = [float(ex.weight) for ex in batch]
+    crop_starts = [ex.crop_start for ex in batch]
+    crop_stops = [ex.crop_stop for ex in batch]
+
+    columns: List["pa.Array"] = [
+        pa.array(record_ids, type=pa.string()),
+        pa.array(source_ids, type=pa.string()),
+        pa.array(chain_ids, type=pa.string()),
+        pa.array(splits, type=pa.string()),
+        pa.array(lengths, type=pa.int32()),
+        pa.array(weights, type=pa.float32()),
+        pa.array(crop_starts, type=pa.int32()),
+        pa.array(crop_stops, type=pa.int32()),
+    ]
+    for name, inner_shape, dtype, attr in _SEQUENCE_FIELDS:
+        per_row = [np.ascontiguousarray(getattr(ex.sequence, attr)) for ex in batch]
+        columns.append(_make_ragged_column(per_row, inner_shape, dtype))
+    for name, inner_shape, dtype, attr in _STRUCTURE_FIELDS:
+        per_row = [np.ascontiguousarray(getattr(ex.structure, attr)) for ex in batch]
+        columns.append(_make_ragged_column(per_row, inner_shape, dtype))
+    return pa.RecordBatch.from_arrays(columns, schema=schema)
 
 
 def join_training_examples(
@@ -110,16 +277,18 @@ def build_training_release(
     config_rev: Optional[str] = None,
     provenance: Optional[Dict[str, object]] = None,
     export_tensors: bool = True,
+    row_group_size: int = 512,
     overwrite: bool = False,
 ) -> Path:
     """Build a training release by joining sequence and structure releases.
 
-    With `export_tensors=True` (default), writes a denormalized
-    `tensors.npz` under the release root so downstream training code
-    can load all joined tensors with one mmap instead of walking two
-    sub-releases. The NPZ is SHA-256'd into the manifest's
-    `tensor_sha256` field for release-validation. Set to False to
-    keep the release pointer-only (matches the pre-v0.1 behavior).
+    With `export_tensors=True` (default), writes a streaming
+    `training.parquet` artifact under the release root — one row per
+    example, ragged residue axis, chunked into row groups of
+    `row_group_size` examples so writer memory is bounded. The file
+    is SHA-256'd into the manifest's `parquet_sha256` field. Set to
+    False to keep the release pointer-only (manifest + JSONL index
+    only, no tensor artifact).
     """
     sequence_examples = load_sequence_examples(Path(sequence_release_dir) / "examples")
     structure_examples = load_structure_supervision_examples(Path(structure_release_dir) / "examples")
@@ -157,19 +326,28 @@ def build_training_release(
             handle.write(json.dumps(row, separators=(",", ":")))
             handle.write("\n")
 
-    tensor_file: Optional[str] = None
-    tensor_sha256: Optional[str] = None
-    tensor_fields: List[str] = []
+    parquet_file: Optional[str] = None
+    parquet_sha256: Optional[str] = None
+    parquet_fields: List[str] = []
+    row_group_size_used = row_group_size
     if export_tensors and training_examples:
-        tensor_path = root / "tensors.npz"
-        payload = _stack_training_payload(training_examples)
-        # Write tensors first so the manifest can carry a digest that
-        # actually corresponds to the on-disk payload (same ordering
-        # as sequence_export / supervision_export).
-        np.savez_compressed(tensor_path, **payload)
-        tensor_file = "tensors.npz"
-        tensor_sha256 = sha256_file(tensor_path)
-        tensor_fields = sorted(payload.keys())
+        parquet_path = root / "training.parquet"
+        schema = _build_training_schema()
+        # Stream in row-group chunks so peak memory is bounded by the
+        # chunk size, not the corpus size. Writer closes via `with`.
+        with pq.ParquetWriter(
+            parquet_path,
+            schema,
+            compression="zstd",
+            compression_level=3,
+        ) as writer:
+            for start in range(0, len(training_examples), row_group_size):
+                chunk = training_examples[start : start + row_group_size]
+                batch = _training_examples_to_record_batch(chunk, schema)
+                writer.write_batch(batch, row_group_size=len(chunk))
+        parquet_file = "training.parquet"
+        parquet_sha256 = sha256_file(parquet_path)
+        parquet_fields = [f.name for f in schema]
 
     manifest = TrainingReleaseManifest(
         release_id=release_id,
@@ -179,9 +357,10 @@ def build_training_release(
         structure_release=str(Path(structure_release_dir)),
         count_examples=len(training_examples),
         split_counts=split_counts,
-        tensor_file=tensor_file,
-        tensor_sha256=tensor_sha256,
-        tensor_fields=tensor_fields,
+        parquet_file=parquet_file,
+        parquet_sha256=parquet_sha256,
+        parquet_fields=parquet_fields,
+        row_group_size=row_group_size_used,
         provenance=dict(provenance or {}),
     )
     (root / "release_manifest.json").write_text(json.dumps(asdict(manifest), indent=2), encoding="utf-8")
@@ -191,41 +370,66 @@ def build_training_release(
 def load_training_examples(
     release_dir: str | Path,
     *,
+    split: Optional[str] = None,
     verify_checksum: bool = True,
 ) -> List[TrainingExample]:
     """Load a training release back into `TrainingExample` objects.
 
-    Reads the JSONL row ordering as the canonical per-example index,
-    reassembles sequence + structure attributes from the denormalized
-    `tensors.npz` when present. Falls back to loading via the child
-    sequence / structure releases if the training release was written
-    with `export_tensors=False`.
+    Materializes the whole Parquet artifact. For large releases prefer
+    `iter_training_examples` so you never hold more than one
+    row-group in memory.
 
-    `verify_checksum` rehashes the NPZ against `tensor_sha256` at
-    load time — same semantics as the sequence / supervision loaders.
+    `split` applies predicate pushdown at the row-group level so
+    non-matching rows are skipped by the Parquet reader.
+
+    Pointer-only releases (`parquet_file=None`) are reconstructed by
+    re-joining the child sequence/structure releases.
     """
-    from .supervision import StructureQualityMetadata
+    return list(iter_training_examples(
+        release_dir,
+        split=split,
+        verify_checksum=verify_checksum,
+        batch_size=None,
+    ))
 
+
+def iter_training_examples(
+    release_dir: str | Path,
+    *,
+    split: Optional[str] = None,
+    batch_size: Optional[int] = None,
+    verify_checksum: bool = True,
+) -> Iterator[TrainingExample]:
+    """Stream `TrainingExample` rows from a training release.
+
+    Reads one Parquet row-group at a time so peak memory is bounded.
+    `split`, when set, uses pyarrow dataset filtering with predicate
+    pushdown; matching row-groups are read, others are skipped.
+
+    `batch_size=None` (default) yields one `TrainingExample` per
+    `__next__`. Setting an integer yields `TrainingExample` items in
+    contiguous chunks of that size without re-materializing — useful
+    when the caller wants to mini-batch downstream.
+    """
+    _require_pyarrow()
     root = Path(release_dir)
     manifest = json.loads((root / "release_manifest.json").read_text(encoding="utf-8"))
     if manifest.get("format") != TRAINING_EXPORT_FORMAT:
         raise ValueError(f"unsupported training export format: {manifest.get('format')!r}")
 
-    rows = [
-        json.loads(line)
-        for line in (root / manifest["examples_file"]).read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-
-    tensor_file = manifest.get("tensor_file")
-    if tensor_file is None:
-        # Pointer-only release — recover by loading the source releases
-        # and re-joining.
+    parquet_file = manifest.get("parquet_file")
+    if parquet_file is None:
+        # Pointer-only release — reconstruct by re-joining children.
+        rows = [
+            json.loads(line)
+            for line in (root / manifest["examples_file"]).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
         seq_examples = load_sequence_examples(Path(manifest["sequence_release"]) / "examples")
         struc_examples = load_structure_supervision_examples(
             Path(manifest["structure_release"]) / "examples"
         )
-        return join_training_examples(
+        rejoined = join_training_examples(
             seq_examples,
             struc_examples,
             split_assignments={row["record_id"]: row["split"] for row in rows},
@@ -236,227 +440,93 @@ def load_training_examples(
                 if row.get("crop_start") is not None
             },
         )
+        for ex in rejoined:
+            if split is None or ex.split == split:
+                yield ex
+        return
 
+    parquet_path = root / parquet_file
     if verify_checksum:
-        expected = manifest.get("tensor_sha256")
+        expected = manifest.get("parquet_sha256")
         if expected:
-            verify_sha256(root / tensor_file, expected)
-    payload = np.load(root / tensor_file, allow_pickle=False)
-    return _unstack_training_payload(rows, payload)
+            verify_sha256(parquet_path, expected)
+
+    pf = pq.ParquetFile(parquet_path)
+    filters = None
+    if split is not None:
+        filters = [("split", "=", split)]
+
+    if filters is not None:
+        # Predicate pushdown via dataset API — skips row-groups whose
+        # statistics prove no row matches the filter.
+        import pyarrow.dataset as pads
+        dataset = pads.dataset(parquet_path, format="parquet")
+        scanner = dataset.scanner(filter=pads.field("split") == split)
+        batches_iter: Iterable["pa.RecordBatch"] = scanner.to_batches()
+    else:
+        batches_iter = pf.iter_batches(batch_size=pf.metadata.row_group(0).num_rows) \
+            if pf.metadata.num_row_groups > 0 else iter(())
+
+    for rb in batches_iter:
+        rows_tbl = rb.to_pydict()
+        n = rb.num_rows
+        # Decode each row. `rows_tbl[col]` is a Python list; list-typed
+        # columns yield nested Python lists that we np.asarray into
+        # per-row ndarrays of the right dtype.
+        for i in range(n):
+            yield _parquet_row_to_training_example(rows_tbl, i)
 
 
-def _stack_training_payload(
-    examples: Sequence[TrainingExample],
-) -> Dict[str, np.ndarray]:
-    """Denormalize joined sequence + structure tensors into one NPZ payload.
-
-    Padding shape rules (match the child exporters):
-      - Residue-length fields: pad to `max(ex.sequence.length)`.
-      - MSA axis: pad to `max(ex.sequence.msa.shape[0])` when any
-        example has MSA, otherwise the MSA fields are omitted.
-      - Template axis: ditto.
-
-    Per-example `length` / `msa_rows` / `template_count` arrays let
-    downstream code slice back to valid regions without guessing.
-    """
-    n = len(examples)
-    max_len = max(ex.sequence.length for ex in examples)
-    max_msa = max(
-        0 if ex.sequence.msa is None else int(ex.sequence.msa.shape[0])
-        for ex in examples
-    )
-    max_templates = max(
-        0 if ex.sequence.template_mask is None
-        else int(ex.sequence.template_mask.shape[0])
-        for ex in examples
-    )
-
-    payload: Dict[str, np.ndarray] = {
-        # Per-example bookkeeping — callers slice tensors to these.
-        "length": np.asarray([ex.sequence.length for ex in examples], dtype=np.int32),
-        "msa_rows": np.asarray(
-            [
-                0 if ex.sequence.msa is None else int(ex.sequence.msa.shape[0])
-                for ex in examples
-            ],
-            dtype=np.int32,
-        ),
-        "template_count": np.asarray(
-            [
-                0 if ex.sequence.template_mask is None
-                else int(ex.sequence.template_mask.shape[0])
-                for ex in examples
-            ],
-            dtype=np.int32,
-        ),
-        "weight": np.asarray([ex.weight for ex in examples], dtype=np.float32),
-        # Sequence-side tensors — padded residue axis.
-        "aatype": np.zeros((n, max_len), dtype=np.int32),
-        "residue_index": np.zeros((n, max_len), dtype=np.int32),
-        "seq_mask": np.zeros((n, max_len), dtype=np.float32),
-        # Structure-side supervision — shared residue axis.
-        "all_atom_positions": np.zeros((n, max_len, 37, 3), dtype=np.float32),
-        "all_atom_mask": np.zeros((n, max_len, 37), dtype=np.float32),
-        "atom37_atom_exists": np.zeros((n, max_len, 37), dtype=np.float32),
-        "atom14_gt_positions": np.zeros((n, max_len, 14, 3), dtype=np.float32),
-        "atom14_gt_exists": np.zeros((n, max_len, 14), dtype=np.float32),
-        "atom14_atom_exists": np.zeros((n, max_len, 14), dtype=np.float32),
-        "atom14_atom_is_ambiguous": np.zeros((n, max_len, 14), dtype=np.float32),
-        "pseudo_beta": np.zeros((n, max_len, 3), dtype=np.float32),
-        "pseudo_beta_mask": np.zeros((n, max_len), dtype=np.float32),
-        "phi": np.zeros((n, max_len), dtype=np.float32),
-        "psi": np.zeros((n, max_len), dtype=np.float32),
-        "omega": np.zeros((n, max_len), dtype=np.float32),
-        "phi_mask": np.zeros((n, max_len), dtype=np.float32),
-        "psi_mask": np.zeros((n, max_len), dtype=np.float32),
-        "omega_mask": np.zeros((n, max_len), dtype=np.float32),
-        "chi_angles": np.zeros((n, max_len, 4), dtype=np.float32),
-        "chi_mask": np.zeros((n, max_len, 4), dtype=np.float32),
-        "rigidgroups_gt_frames": np.zeros((n, max_len, 8, 4, 4), dtype=np.float32),
-        "rigidgroups_gt_exists": np.zeros((n, max_len, 8), dtype=np.float32),
-        "rigidgroups_group_exists": np.zeros((n, max_len, 8), dtype=np.float32),
-        "rigidgroups_group_is_ambiguous": np.zeros((n, max_len, 8), dtype=np.float32),
+def _parquet_row_to_training_example(cols: Mapping[str, list], i: int) -> TrainingExample:
+    """Decode one row of a Parquet RecordBatch into a TrainingExample."""
+    length = int(cols["length"][i])
+    seq_kwargs: Dict[str, object] = {
+        "record_id": cols["record_id"][i],
+        "source_id": cols["source_id"][i],
+        "chain_id": cols["chain_id"][i],
+        "sequence": "",
+        "length": length,
+        "code_rev": None,
+        "config_rev": None,
     }
-    if max_msa > 0:
-        payload["msa"] = np.zeros((n, max_msa, max_len), dtype=np.int32)
-        payload["deletion_matrix"] = np.zeros((n, max_msa, max_len), dtype=np.float32)
-        payload["msa_mask"] = np.zeros((n, max_msa, max_len), dtype=np.float32)
-    if max_templates > 0:
-        payload["template_mask"] = np.zeros((n, max_templates), dtype=np.float32)
-
-    for i, ex in enumerate(examples):
-        seq = ex.sequence
-        struc = ex.structure
-        L = seq.length
-
-        payload["aatype"][i, :L] = seq.aatype
-        payload["residue_index"][i, :L] = seq.residue_index
-        payload["seq_mask"][i, :L] = seq.seq_mask
-
-        payload["all_atom_positions"][i, :L] = struc.all_atom_positions
-        payload["all_atom_mask"][i, :L] = struc.all_atom_mask
-        payload["atom37_atom_exists"][i, :L] = struc.atom37_atom_exists
-        payload["atom14_gt_positions"][i, :L] = struc.atom14_gt_positions
-        payload["atom14_gt_exists"][i, :L] = struc.atom14_gt_exists
-        payload["atom14_atom_exists"][i, :L] = struc.atom14_atom_exists
-        payload["atom14_atom_is_ambiguous"][i, :L] = struc.atom14_atom_is_ambiguous
-        payload["pseudo_beta"][i, :L] = struc.pseudo_beta
-        payload["pseudo_beta_mask"][i, :L] = struc.pseudo_beta_mask
-        payload["phi"][i, :L] = struc.phi
-        payload["psi"][i, :L] = struc.psi
-        payload["omega"][i, :L] = struc.omega
-        payload["phi_mask"][i, :L] = struc.phi_mask
-        payload["psi_mask"][i, :L] = struc.psi_mask
-        payload["omega_mask"][i, :L] = struc.omega_mask
-        payload["chi_angles"][i, :L] = struc.chi_angles
-        payload["chi_mask"][i, :L] = struc.chi_mask
-        payload["rigidgroups_gt_frames"][i, :L] = struc.rigidgroups_gt_frames
-        payload["rigidgroups_gt_exists"][i, :L] = struc.rigidgroups_gt_exists
-        payload["rigidgroups_group_exists"][i, :L] = struc.rigidgroups_group_exists
-        payload["rigidgroups_group_is_ambiguous"][i, :L] = struc.rigidgroups_group_is_ambiguous
-
-        if seq.msa is not None and max_msa > 0:
-            rows_msa = seq.msa.shape[0]
-            payload["msa"][i, :rows_msa, :L] = seq.msa
-            if seq.deletion_matrix is not None:
-                payload["deletion_matrix"][i, :rows_msa, :L] = seq.deletion_matrix
-            if seq.msa_mask is not None:
-                payload["msa_mask"][i, :rows_msa, :L] = seq.msa_mask
-        if seq.template_mask is not None and max_templates > 0:
-            payload["template_mask"][i, : seq.template_mask.shape[0]] = seq.template_mask
-    return payload
-
-
-def _unstack_training_payload(
-    rows: Sequence[dict],
-    payload,
-) -> List[TrainingExample]:
-    """Slice the padded NPZ back to per-example `TrainingExample` objects.
-
-    Inverse of `_stack_training_payload` — the `length` / `msa_rows` /
-    `template_count` per-example arrays determine valid-region slicing,
-    so downstream code never sees padded zeros as real data.
-    """
-    from .supervision import StructureQualityMetadata
-
-    lengths = np.asarray(payload["length"], dtype=np.int32)
-    msa_rows = np.asarray(payload["msa_rows"], dtype=np.int32)
-    template_counts = np.asarray(payload["template_count"], dtype=np.int32)
-    weights = np.asarray(payload["weight"], dtype=np.float32)
-
-    out: List[TrainingExample] = []
-    for i, row in enumerate(rows):
-        L = int(lengths[i])
-        n_msa = int(msa_rows[i])
-        n_templates = int(template_counts[i])
-
-        seq = SequenceExample(
-            record_id=row["record_id"],
-            source_id=row.get("source_id"),
-            chain_id=row["chain_id"],
-            sequence="",  # not stored in NPZ — reconstructed only by source-release path
-            length=L,
-            code_rev=None,
-            config_rev=None,
-            aatype=np.asarray(payload["aatype"])[i, :L].astype(np.int32, copy=False),
-            residue_index=np.asarray(payload["residue_index"])[i, :L].astype(np.int32, copy=False),
-            seq_mask=np.asarray(payload["seq_mask"])[i, :L].astype(np.float32, copy=False),
-            msa=None if n_msa == 0 else np.asarray(payload["msa"])[i, :n_msa, :L].astype(np.int32, copy=False),
-            deletion_matrix=None if n_msa == 0 else np.asarray(payload["deletion_matrix"])[i, :n_msa, :L].astype(np.float32, copy=False),
-            msa_mask=None if n_msa == 0 else np.asarray(payload["msa_mask"])[i, :n_msa, :L].astype(np.float32, copy=False),
-            template_mask=(
-                None if n_templates == 0
-                else np.asarray(payload["template_mask"])[i, :n_templates].astype(np.float32, copy=False)
-            ),
-        )
-        struc = StructureSupervisionExample(
-            record_id=row["record_id"],
-            source_id=row.get("source_id"),
-            prep_run_id=None,
-            chain_id=row["chain_id"],
-            sequence="",
-            length=L,
-            code_rev=None,
-            config_rev=None,
-            aatype=np.asarray(payload["aatype"])[i, :L].astype(np.int32, copy=False),
-            residue_index=np.asarray(payload["residue_index"])[i, :L].astype(np.int32, copy=False),
-            seq_mask=np.asarray(payload["seq_mask"])[i, :L].astype(np.float32, copy=False),
-            all_atom_positions=np.asarray(payload["all_atom_positions"])[i, :L].astype(np.float32, copy=False),
-            all_atom_mask=np.asarray(payload["all_atom_mask"])[i, :L].astype(np.float32, copy=False),
-            atom37_atom_exists=np.asarray(payload["atom37_atom_exists"])[i, :L].astype(np.float32, copy=False),
-            atom14_gt_positions=np.asarray(payload["atom14_gt_positions"])[i, :L].astype(np.float32, copy=False),
-            atom14_gt_exists=np.asarray(payload["atom14_gt_exists"])[i, :L].astype(np.float32, copy=False),
-            atom14_atom_exists=np.asarray(payload["atom14_atom_exists"])[i, :L].astype(np.float32, copy=False),
-            residx_atom14_to_atom37=np.zeros((L, 14), dtype=np.int32),
-            residx_atom37_to_atom14=np.zeros((L, 37), dtype=np.int32),
-            atom14_atom_is_ambiguous=np.asarray(payload["atom14_atom_is_ambiguous"])[i, :L].astype(np.float32, copy=False),
-            pseudo_beta=np.asarray(payload["pseudo_beta"])[i, :L].astype(np.float32, copy=False),
-            pseudo_beta_mask=np.asarray(payload["pseudo_beta_mask"])[i, :L].astype(np.float32, copy=False),
-            phi=np.asarray(payload["phi"])[i, :L].astype(np.float32, copy=False),
-            psi=np.asarray(payload["psi"])[i, :L].astype(np.float32, copy=False),
-            omega=np.asarray(payload["omega"])[i, :L].astype(np.float32, copy=False),
-            phi_mask=np.asarray(payload["phi_mask"])[i, :L].astype(np.float32, copy=False),
-            psi_mask=np.asarray(payload["psi_mask"])[i, :L].astype(np.float32, copy=False),
-            omega_mask=np.asarray(payload["omega_mask"])[i, :L].astype(np.float32, copy=False),
-            chi_angles=np.asarray(payload["chi_angles"])[i, :L].astype(np.float32, copy=False),
-            chi_mask=np.asarray(payload["chi_mask"])[i, :L].astype(np.float32, copy=False),
-            rigidgroups_gt_frames=np.asarray(payload["rigidgroups_gt_frames"])[i, :L].astype(np.float32, copy=False),
-            rigidgroups_gt_exists=np.asarray(payload["rigidgroups_gt_exists"])[i, :L].astype(np.float32, copy=False),
-            rigidgroups_group_exists=np.asarray(payload["rigidgroups_group_exists"])[i, :L].astype(np.float32, copy=False),
-            rigidgroups_group_is_ambiguous=np.asarray(payload["rigidgroups_group_is_ambiguous"])[i, :L].astype(np.float32, copy=False),
-            quality=None,
-        )
-        out.append(
-            TrainingExample(
-                record_id=row["record_id"],
-                source_id=row.get("source_id"),
-                chain_id=row["chain_id"],
-                split=row["split"],
-                crop_start=row.get("crop_start"),
-                crop_stop=row.get("crop_stop"),
-                weight=float(weights[i]),
-                sequence=seq,
-                structure=struc,
-            )
-        )
-    return out
+    struc_kwargs: Dict[str, object] = {
+        "record_id": cols["record_id"][i],
+        "source_id": cols["source_id"][i],
+        "prep_run_id": None,
+        "chain_id": cols["chain_id"][i],
+        "sequence": "",
+        "length": length,
+        "code_rev": None,
+        "config_rev": None,
+        "quality": None,
+    }
+    for name, inner_shape, dtype, attr in _SEQUENCE_FIELDS:
+        arr = np.asarray(cols[name][i], dtype=dtype)
+        reshaped = arr.reshape((length,) + inner_shape) if inner_shape else arr.reshape((length,))
+        # aatype/residue_index/seq_mask live on both SequenceExample and
+        # StructureSupervisionExample; one parquet column feeds both so
+        # the on-disk bytes aren't duplicated.
+        seq_kwargs[attr] = reshaped
+        struc_kwargs[attr] = reshaped
+    for name, inner_shape, dtype, attr in _STRUCTURE_FIELDS:
+        arr = np.asarray(cols[name][i], dtype=dtype)
+        struc_kwargs[attr] = arr.reshape((length,) + inner_shape) if inner_shape else arr.reshape((length,))
+    # SequenceExample has optional MSA/template fields that the
+    # v0 parquet schema doesn't carry yet — default them to None.
+    seq_kwargs.setdefault("msa", None)
+    seq_kwargs.setdefault("deletion_matrix", None)
+    seq_kwargs.setdefault("msa_mask", None)
+    seq_kwargs.setdefault("template_mask", None)
+    seq = SequenceExample(**seq_kwargs)
+    struc = StructureSupervisionExample(**struc_kwargs)
+    return TrainingExample(
+        record_id=cols["record_id"][i],
+        source_id=cols["source_id"][i],
+        chain_id=cols["chain_id"][i],
+        split=cols["split"][i],
+        crop_start=cols["crop_start"][i],
+        crop_stop=cols["crop_stop"][i],
+        weight=float(cols["weight"][i]),
+        sequence=seq,
+        structure=struc,
+    )
