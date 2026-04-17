@@ -33,12 +33,23 @@ def build_local_corpus_smoke_release(
     rescue_allow: Optional[Sequence[str]] = None,
     split_assignments: Optional[Mapping[str, str]] = None,
     split_ratios: Optional[Mapping[str, float]] = None,
+    msa_engine: Optional[object] = None,
+    msa_max_seqs: int = 256,
+    msa_gap_idx: int = 21,
     overwrite: bool = False,
 ) -> Path:
     """Build a small end-to-end corpus release from local structure files.
 
     This is the intended smoke path for validating the full data-release stack
     on real PDB/mmCIF inputs already available on disk.
+
+    `msa_engine` — optional `ferritin_connector.py_msa.SearchEngine` (or
+    duck-compatible Python wrapper) built over a target corpus. When
+    provided, each chain's MSA is searched + assembled during the
+    sequence-release step and baked into the training parquet. When
+    None (the default), sequence examples carry empty MSA fields and
+    downstream AF2-style pipelines either fall back to single-sequence
+    input or supply MSAs some other way.
     """
     root = Path(out_dir)
     if root.exists() and not overwrite:
@@ -125,6 +136,9 @@ def build_local_corpus_smoke_release(
         chain_ids=expanded_chain_ids,
         code_rev=code_rev,
         config_rev=config_rev,
+        msa_engine=msa_engine,
+        msa_max_seqs=msa_max_seqs,
+        msa_gap_idx=msa_gap_idx,
         provenance={"input_paths": [str(p) for p in expanded_paths]},
         overwrite=True,
     )
