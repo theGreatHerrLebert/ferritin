@@ -291,7 +291,21 @@ def _expand_chains(
     for structure, prep_report, rid, src, path in zip(
         structures, prep_reports, record_ids, source_ids, paths
     ):
-        chains = list(getattr(structure, "chains", []) or [])
+        raw_chains = list(getattr(structure, "chains", []) or [])
+        # pdbtbx / ferritin's Structure.chains flattens chains across all
+        # models, so NMR structures (and any multi-model input) repeat
+        # every chain_id once per model. Dedupe by chain.id while
+        # preserving first-seen order so we produce one record per
+        # *logical* chain, not one per model × chain.
+        seen: set = set()
+        chains = []
+        for chain in raw_chains:
+            cid = getattr(chain, "id", None)
+            if cid in seen:
+                continue
+            seen.add(cid)
+            chains.append(chain)
+
         if len(chains) <= 1:
             ex_structs.append(structure)
             ex_prep.append(prep_report)

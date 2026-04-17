@@ -97,6 +97,21 @@ def test_expand_chains_splits_multi_chain():
     assert preps == ["prep", "prep"]
 
 
+def test_expand_chains_dedupes_multi_model_chain_repeats():
+    # pdbtbx's Structure.chains flattens across models, so an NMR
+    # structure with 4 models × 3 chains yields 12 chain objects with
+    # repeated ids. We want one record per *logical* chain, not one
+    # per (model, chain) pair. Regression for the 1K monster3 run
+    # where 193d (4 models, 3 chains) produced 4 duplicates of
+    # `193d_C` in the training manifest.
+    repeated = _fake_struct(["A", "B", "C", "A", "B", "C", "A", "B", "C", "A", "B", "C"])
+    _, _, rids, _, cids, _ = _expand_chains(
+        [repeated], ["prep"], ["193d"], ["/p/193d.pdb"], [Path("/p/193d.pdb")]
+    )
+    assert rids == ["193d_A", "193d_B", "193d_C"]
+    assert cids == ["A", "B", "C"]
+
+
 def test_expand_chains_preserves_ordering_across_inputs():
     a = _fake_struct(["X"])
     b = _fake_struct(["A", "B", "C"])
