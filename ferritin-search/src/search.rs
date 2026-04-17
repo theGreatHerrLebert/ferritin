@@ -24,8 +24,9 @@ use thiserror::Error;
 use crate::alphabet::Alphabet;
 use crate::db::{DBReader, DbError};
 use crate::gapped::{smith_waterman, GappedAlignment};
-use crate::kmer::{KmerEncoder, KmerIndex, KmerIndexError};
+use crate::kmer::{KmerEncoder, KmerHit, KmerIndex, KmerIndexError, KmerLookup};
 use crate::kmer_generator::widen_to_i32;
+use crate::kmer_index_file::{write_kmi, KmerIndexFile, KmiReaderError, KmiWriterError};
 use crate::matrix::SubstitutionMatrix;
 use crate::prefilter::{diagonal_prefilter, PrefilterHit, PrefilterOptions};
 use crate::reduced_alphabet::ReducedAlphabet;
@@ -51,6 +52,19 @@ pub enum BuildFromDbError {
     DbOpen(#[from] DbError),
     #[error("search engine build failed: {0}")]
     Build(#[from] SearchError),
+    #[error("on-disk k-mer index open failed: {0}")]
+    KmiOpen(#[from] KmiReaderError),
+    #[error("on-disk k-mer index write failed: {0}")]
+    KmiWrite(#[from] KmiWriterError),
+    #[error(
+        "kmer index parameter mismatch: {field} on disk = {on_disk}, \
+         engine expects {expected}"
+    )]
+    KmiParamMismatch {
+        field: &'static str,
+        on_disk: u64,
+        expected: u64,
+    },
 }
 
 // Route KmerIndexError (raised by the in-place kmer build inside
@@ -169,6 +183,33 @@ impl TargetSource {
     }
 }
 
+/// Where the engine gets its k-mer postings from.
+///
+/// Mirrors [`TargetSource`]: `InMemory` for `SearchEngine::build` and
+/// small corpora, `OnDisk` for archive-scale corpora that can't afford
+/// ~100 GB of resident k-mer postings. On the `OnDisk` path the file
+/// is memory-mapped; only buckets touched by a given query's prefilter
+/// get paged in.
+pub enum KmerIndexStorage {
+    InMemory(KmerIndex),
+    OnDisk(KmerIndexFile),
+}
+
+impl KmerLookup for KmerIndexStorage {
+    fn encoder(&self) -> &KmerEncoder {
+        match self {
+            Self::InMemory(k) => k.encoder(),
+            Self::OnDisk(k) => k.encoder(),
+        }
+    }
+    fn for_each_hit<F: FnMut(KmerHit)>(&self, hash: u64, f: F) {
+        match self {
+            Self::InMemory(k) => k.for_each_hit(hash, f),
+            Self::OnDisk(k) => k.for_each_hit(hash, f),
+        }
+    }
+}
+
 /// Pre-built search engine over a fixed target corpus.
 ///
 /// Construction does the expensive work once: alphabet reduction,
@@ -177,8 +218,8 @@ impl TargetSource {
 pub struct SearchEngine {
     /// Source of target bytes at query time. See [`TargetSource`].
     targets: TargetSource,
-    /// K-mer index over reduced-alphabet (or full if no reduction) targets.
-    index: KmerIndex,
+    /// Source of k-mer postings at query time. See [`KmerIndexStorage`].
+    index: KmerIndexStorage,
     /// Flat alphabet_size² i32 score matrix for ungapped + gapped.
     matrix_int: Vec<i32>,
     full_alphabet_size: usize,
@@ -232,7 +273,7 @@ impl SearchEngine {
 
         Ok(Self {
             targets: TargetSource::InMemory(targets_full),
-            index,
+            index: KmerIndexStorage::InMemory(index),
             matrix_int,
             full_alphabet_size,
             reducer,
@@ -357,7 +398,106 @@ impl SearchEngine {
 
         Ok(Self {
             targets: TargetSource::Db { db: reader, key_to_entry_idx },
-            index,
+            index: KmerIndexStorage::InMemory(index),
+            matrix_int,
+            full_alphabet_size,
+            reducer,
+            skip_idx,
+            opts,
+            alphabet,
+        })
+    }
+
+    /// Write the engine's current in-memory k-mer index to `path` in
+    /// `.kmi` format.
+    ///
+    /// Errors if the engine was constructed with an already-on-disk
+    /// index — nothing to re-serialize in that case. Mostly useful
+    /// paired with `build` / `build_from_mmseqs_db` to persist the
+    /// index for later `open_from_mmseqs_db_with_kmi` calls, so the
+    /// expensive k-mer build only runs once per corpus.
+    pub fn write_kmer_index(&self, path: impl AsRef<Path>) -> Result<(), KmiWriterError> {
+        match &self.index {
+            KmerIndexStorage::InMemory(idx) => write_kmi(idx, path),
+            KmerIndexStorage::OnDisk(_) => Err(KmiWriterError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "engine already backs its k-mer index on disk; nothing to serialize",
+            ))),
+        }
+    }
+
+    /// Open an engine backed by a memory-mapped DB + pre-built `.kmi`.
+    ///
+    /// Neither the DB nor the k-mer postings are loaded into RAM; both
+    /// mmap and page in on demand. Peak resident memory is bounded by
+    /// whatever buckets a query's prefilter touches plus per-hit
+    /// encoded scratch. Ideal for UniRef50-scale corpora where a
+    /// build-from-scratch would budget ~100 GB RAM for the k-mer
+    /// index alone.
+    ///
+    /// Consistency checks on the `.kmi`:
+    ///  - `kmer_size == opts.k`
+    ///  - `alphabet_size == reducer.reduced_size` if a reducer is
+    ///    configured, or `alphabet.size()` otherwise.
+    /// Mismatch raises `BuildFromDbError::KmiParamMismatch`.
+    pub fn open_from_mmseqs_db_with_kmi(
+        db_prefix: impl AsRef<Path>,
+        kmi_path: impl AsRef<Path>,
+        matrix: &SubstitutionMatrix,
+        alphabet: Alphabet,
+        opts: SearchOptions,
+    ) -> Result<Self, BuildFromDbError> {
+        let reader = DBReader::open(db_prefix)?;
+        let kmi = KmerIndexFile::open(kmi_path)?;
+
+        let full_alphabet_size = alphabet.size();
+        let x_full = alphabet.encode(b'X');
+
+        // Same reducer + skip_idx logic as the in-memory path, without
+        // the encode-targets step — we trust the .kmi was built with a
+        // matching reducer and verify via alphabet_size below.
+        let reducer: Option<ReducedAlphabet> = match opts.reduce_to {
+            Some(r) => Some(
+                ReducedAlphabet::from_matrix(matrix, r, Some(x_full))
+                    .ok_or(SearchError::BadReduction)?,
+            ),
+            None => None,
+        };
+        let (expected_alphabet_size, skip_idx) = match &reducer {
+            Some(r) => (
+                r.reduced_size,
+                r.unknown_reduced_idx.ok_or(SearchError::BadReduction)?,
+            ),
+            None => (full_alphabet_size, x_full),
+        };
+
+        if kmi.kmer_size() != opts.k {
+            return Err(BuildFromDbError::KmiParamMismatch {
+                field: "kmer_size",
+                on_disk: kmi.kmer_size() as u64,
+                expected: opts.k as u64,
+            });
+        }
+        if kmi.alphabet_size() as usize != expected_alphabet_size {
+            return Err(BuildFromDbError::KmiParamMismatch {
+                field: "alphabet_size",
+                on_disk: kmi.alphabet_size() as u64,
+                expected: expected_alphabet_size as u64,
+            });
+        }
+
+        let key_to_entry_idx: HashMap<u32, usize> = reader
+            .index
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.key, i))
+            .collect();
+
+        let matrix_int = widen_to_i32(&matrix.to_integer_matrix(opts.bit_factor, 0.0));
+
+        Ok(Self {
+            targets: TargetSource::Db { db: reader, key_to_entry_idx },
+            index: KmerIndexStorage::OnDisk(kmi),
             matrix_int,
             full_alphabet_size,
             reducer,
@@ -951,6 +1091,94 @@ mod tests {
             Err(e) => panic!("expected DbOpen error, got {e}"),
             Ok(_) => panic!("expected error for missing DB, got Ok"),
         }
+    }
+
+    #[test]
+    fn open_from_mmseqs_db_with_kmi_parity_against_in_memory() {
+        use crate::db::{DBWriter, Dbtype};
+        use tempfile::tempdir;
+
+        // Build an engine normally, snapshot its k-mer index to disk
+        // via write_kmer_index, then reopen via the mmap path — every
+        // per-query hit must match byte-for-byte (same target_id,
+        // same scores, same ungapped + gapped endpoints).
+        let dir = tempdir().unwrap();
+        let db_prefix = dir.path().join("targets");
+        let kmi_path = dir.path().join("targets.kmi");
+
+        let entries = [
+            (1u32, b"MNALVVKFGGTSVANAERFLRVADILESNARQGQ".as_slice()),
+            (2u32, b"WVLSAADKTNVKAAWGKVGAHAGEYGAEALERMFLSFP".as_slice()),
+            (3u32, b"MEAFRKQLPCFRSGAQQVKEHFKQVAEKHHGFLEEFCAR".as_slice()),
+        ];
+        let mut w = DBWriter::create(&db_prefix, Dbtype::AMINO_ACIDS).unwrap();
+        for (key, payload) in &entries {
+            w.write_entry(*key, payload).unwrap();
+        }
+        w.finish().unwrap();
+
+        let (alpha, m) = alpha_and_matrix();
+        let opts = SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() };
+
+        let in_mem = SearchEngine::build_from_mmseqs_db(
+            &db_prefix, &m, alpha.clone(), opts.clone(),
+        )
+        .expect("build_from_mmseqs_db");
+        in_mem.write_kmer_index(&kmi_path).expect("write_kmer_index");
+
+        let on_disk = SearchEngine::open_from_mmseqs_db_with_kmi(
+            &db_prefix, &kmi_path, &m, alpha.clone(), opts,
+        )
+        .expect("open_from_mmseqs_db_with_kmi");
+
+        for (_, qseq) in &entries {
+            let query = Sequence::from_ascii(alpha.clone(), qseq);
+            let mem_hits = in_mem.search(&query);
+            let disk_hits = on_disk.search(&query);
+            assert_eq!(mem_hits.len(), disk_hits.len());
+            for (m_h, d_h) in mem_hits.iter().zip(disk_hits.iter()) {
+                assert_eq!(m_h.target_id, d_h.target_id);
+                assert_eq!(m_h.alignment.score, d_h.alignment.score);
+                assert_eq!(m_h.ungapped_score, d_h.ungapped_score);
+                assert_eq!(m_h.alignment.query_end, d_h.alignment.query_end);
+                assert_eq!(m_h.alignment.target_end, d_h.alignment.target_end);
+            }
+        }
+    }
+
+    #[test]
+    fn open_from_mmseqs_db_with_kmi_rejects_alphabet_mismatch() {
+        use crate::db::{DBWriter, Dbtype};
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_prefix = dir.path().join("db");
+        let kmi_path = dir.path().join("db.kmi");
+
+        let mut w = DBWriter::create(&db_prefix, Dbtype::AMINO_ACIDS).unwrap();
+        w.write_entry(1, b"MKLVRQPSTNLKACDFGHIY").unwrap();
+        w.finish().unwrap();
+
+        let (alpha, m) = alpha_and_matrix();
+        // Build with reduce_to=13.
+        let built = SearchEngine::build_from_mmseqs_db(
+            &db_prefix, &m, alpha.clone(),
+            SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() },
+        )
+        .unwrap();
+        built.write_kmer_index(&kmi_path).unwrap();
+
+        // Try to open with reduce_to=None → kmi alphabet_size=13, expected=21. Must raise.
+        let err = SearchEngine::open_from_mmseqs_db_with_kmi(
+            &db_prefix, &kmi_path, &m, alpha,
+            SearchOptions { k: 3, reduce_to: None, ..Default::default() },
+        )
+        .err()
+        .expect("expected KmiParamMismatch");
+        assert!(
+            matches!(err, BuildFromDbError::KmiParamMismatch { field: "alphabet_size", .. }),
+            "expected alphabet_size mismatch, got {err}",
+        );
     }
 
     #[test]

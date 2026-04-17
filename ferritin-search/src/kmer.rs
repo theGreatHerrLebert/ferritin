@@ -131,6 +131,35 @@ pub struct KmerHit {
     pub pos: u16,
 }
 
+/// Abstract access pattern for k-mer posting lookup.
+///
+/// Lets the prefilter run over either an in-memory [`KmerIndex`] or a
+/// memory-mapped [`crate::kmer_index_file::KmerIndexFile`] without a
+/// separate code path. The callback form avoids forcing the on-disk
+/// backend to allocate a `Vec<KmerHit>` per lookup while still letting
+/// the in-memory backend iterate its slice with zero copies.
+pub trait KmerLookup {
+    /// The k-mer encoder describing this index — needed to iterate
+    /// k-mers of a query in the right alphabet / k.
+    fn encoder(&self) -> &KmerEncoder;
+
+    /// Invoke `f` for every `(seq_id, pos)` hit recorded for the given
+    /// k-mer hash. Caller must not rely on any particular ordering
+    /// within a single k-mer's posting list.
+    fn for_each_hit<F: FnMut(KmerHit)>(&self, hash: u64, f: F);
+}
+
+impl KmerLookup for KmerIndex {
+    fn encoder(&self) -> &KmerEncoder {
+        &self.encoder
+    }
+    fn for_each_hit<F: FnMut(KmerHit)>(&self, hash: u64, mut f: F) {
+        for hit in self.lookup_hash(hash) {
+            f(*hit);
+        }
+    }
+}
+
 /// CSR-layout k-mer index: for each possible k-mer value `k` in
 /// `0..encoder.table_size()`, stores the slice `entries[offsets[k]..offsets[k+1]]`
 /// of `KmerHit`s where that k-mer occurs.

@@ -19,7 +19,7 @@ use std::path::Path;
 use memmap2::Mmap;
 use thiserror::Error;
 
-use crate::kmer::{KmerEncoder, KmerHit, KmerIndex};
+use crate::kmer::{KmerEncoder, KmerHit, KmerIndex, KmerLookup};
 
 pub const KMI_MAGIC: [u8; 4] = *b"FKMI";
 pub const KMI_VERSION: u32 = 1;
@@ -129,6 +129,11 @@ pub struct KmerIndexFile {
     offsets_byte_pos: usize,
     entries_seq_id_pos: usize,
     entries_pos_pos: usize,
+    /// Cached so `KmerLookup::encoder()` can return a stable reference
+    /// without reconstructing per call. Reconstructed from the header
+    /// at open time; all prefilter runs that touch this index get the
+    /// same instance.
+    encoder: KmerEncoder,
 }
 
 impl KmerIndexFile {
@@ -210,6 +215,8 @@ impl KmerIndexFile {
             });
         }
 
+        let encoder = KmerEncoder::new(alphabet_size, kmer_size);
+
         Ok(Self {
             mmap,
             alphabet_size,
@@ -219,6 +226,7 @@ impl KmerIndexFile {
             offsets_byte_pos: offsets_byte_pos as usize,
             entries_seq_id_pos: entries_seq_id_pos as usize,
             entries_pos_pos: entries_pos_pos as usize,
+            encoder,
         })
     }
 
@@ -226,11 +234,6 @@ impl KmerIndexFile {
     pub fn kmer_size(&self) -> usize { self.kmer_size }
     pub fn table_size(&self) -> u64 { self.table_size }
     pub fn n_entries(&self) -> u64 { self.n_entries }
-
-    /// Reconstruct a `KmerEncoder` matching the file's parameters.
-    pub fn encoder(&self) -> KmerEncoder {
-        KmerEncoder::new(self.alphabet_size, self.kmer_size)
-    }
 
     /// Byte slice over the `(table_size + 1) × u64 LE` offsets array.
     ///
@@ -278,6 +281,30 @@ impl KmerIndexFile {
                 pos: u16_at(positions, 2 * i),
             })
             .collect()
+    }
+}
+
+impl KmerLookup for KmerIndexFile {
+    fn encoder(&self) -> &KmerEncoder {
+        &self.encoder
+    }
+
+    fn for_each_hit<F: FnMut(KmerHit)>(&self, hash: u64, mut f: F) {
+        debug_assert!(hash <= self.table_size);
+        let offsets = self.offsets_bytes();
+        let start = u64_at(offsets, 8 * hash as usize) as usize;
+        let end = u64_at(offsets, 8 * (hash as usize + 1)) as usize;
+        if end <= start {
+            return;
+        }
+        let seq_ids = self.entries_seq_id_bytes();
+        let positions = self.entries_pos_bytes();
+        for i in start..end {
+            f(KmerHit {
+                seq_id: u32_at(seq_ids, 4 * i),
+                pos: u16_at(positions, 2 * i),
+            });
+        }
     }
 }
 

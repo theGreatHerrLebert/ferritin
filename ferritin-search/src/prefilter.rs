@@ -26,6 +26,8 @@
 
 use std::collections::HashMap;
 
+use crate::kmer::KmerLookup;
+#[cfg(test)]
 use crate::kmer::KmerIndex;
 use crate::kmer_generator::{generate_similar_kmers, ScoreMatrix};
 
@@ -71,19 +73,25 @@ impl Default for PrefilterOptions {
 /// `query` is an already-encoded sequence (alphabet indices, same
 /// alphabet used to build `index`). `skip_idx` is the alphabet index for
 /// X / unknown, used to skip k-mer windows containing it.
-pub fn diagonal_prefilter(
-    index: &KmerIndex,
+pub fn diagonal_prefilter<L: KmerLookup>(
+    index: &L,
     query: &[u8],
     skip_idx: u8,
     opts: &PrefilterOptions,
 ) -> Vec<PrefilterHit> {
     // Count (seq_id, diagonal) co-occurrences across query k-mer matches.
     let mut counts: HashMap<(u32, i32), u32> = HashMap::new();
-    for (q_pos, hash) in index.encoder.iter_kmers(query, skip_idx) {
-        for hit in index.lookup_hash(hash) {
+    // Collect k-mer hashes first so the iterator's borrow of
+    // `index.encoder()` ends before we re-borrow `index` via
+    // `for_each_hit` in the body. Both borrows are immutable, but the
+    // borrow checker conservatively refuses nested generic borrows
+    // across trait method calls.
+    let kmers: Vec<(usize, u64)> = index.encoder().iter_kmers(query, skip_idx).collect();
+    for (q_pos, hash) in kmers {
+        index.for_each_hit(hash, |hit| {
             let diagonal = hit.pos as i32 - q_pos as i32;
             *counts.entry((hit.seq_id, diagonal)).or_insert(0) += 1;
-        }
+        });
     }
 
     // Reduce to the best diagonal per target sequence. Tie-break: smaller
@@ -147,14 +155,14 @@ pub struct SimilarityConfig<'a> {
 ///
 /// All other semantics (diagonal voting, sort order, options) are
 /// identical to the exact-match path.
-pub fn diagonal_prefilter_sensitive(
-    index: &KmerIndex,
+pub fn diagonal_prefilter_sensitive<L: KmerLookup>(
+    index: &L,
     query: &[u8],
     skip_idx: u8,
     similarity: &SimilarityConfig<'_>,
     opts: &PrefilterOptions,
 ) -> Vec<PrefilterHit> {
-    let encoder = &index.encoder;
+    let encoder = index.encoder();
     let k = encoder.kmer_size();
 
     let mut counts: HashMap<(u32, i32), u32> = HashMap::new();
@@ -167,13 +175,20 @@ pub fn diagonal_prefilter_sensitive(
         if window.iter().any(|&b| b == skip_idx) {
             continue;
         }
-        for (sim_hash, _sim_score) in
+        // Same rationale as diagonal_prefilter: collect the
+        // similar-k-mer hashes so the generator's borrow ends before
+        // the `for_each_hit` loop below takes its own borrow of the
+        // trait object.
+        let sim_hashes: Vec<u64> =
             generate_similar_kmers(encoder, window, similarity.scores, similarity.threshold)
-        {
-            for hit in index.lookup_hash(sim_hash) {
+                .into_iter()
+                .map(|(h, _)| h)
+                .collect();
+        for sim_hash in sim_hashes {
+            index.for_each_hit(sim_hash, |hit| {
                 let diagonal = hit.pos as i32 - q_pos as i32;
                 *counts.entry((hit.seq_id, diagonal)).or_insert(0) += 1;
-            }
+            });
         }
     }
 
