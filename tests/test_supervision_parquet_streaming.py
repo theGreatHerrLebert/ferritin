@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import json
 import resource
 from pathlib import Path
 
@@ -158,3 +159,53 @@ def test_streaming_writer_memory_bounded(tmp_path):
     import pyarrow.parquet as pq
     pf = pq.ParquetFile(out_dir / "tensors.parquet")
     assert pf.metadata.num_rows == N
+
+
+def test_iter_supervision_batch_size_yields_lists(tmp_path):
+    """batch_size=N yields list[StructureSupervisionExample] of length ≤ N.
+
+    Mirror of the training-iterator fix: previously the param was
+    silently ignored and the iterator always yielded single examples.
+    """
+    examples = [_fake_supervision(f"r{i:02d}", L=4 + (i % 3), seed=i) for i in range(5)]
+    out_dir = tmp_path / "sup"
+    export_structure_supervision_examples(examples, out_dir, row_group_size=2)
+
+    chunks = list(iter_structure_supervision_examples(out_dir, batch_size=2))
+    assert [len(c) for c in chunks] == [2, 2, 1]
+    assert all(isinstance(c, list) for c in chunks)
+    assert all(isinstance(ex, StructureSupervisionExample) for c in chunks for ex in c)
+    flat_ids = [ex.record_id for c in chunks for ex in c]
+    assert flat_ids == [ex.record_id for ex in examples]
+
+    # batch_size=None → single-example yields (unchanged behavior).
+    single = list(iter_structure_supervision_examples(out_dir, batch_size=None))
+    assert [ex.record_id for ex in single] == [ex.record_id for ex in examples]
+    assert all(isinstance(ex, StructureSupervisionExample) for ex in single)
+
+
+def test_iter_supervision_rejects_nonpositive_batch_size(tmp_path):
+    examples = [_fake_supervision("r0", L=3, seed=0)]
+    out_dir = tmp_path / "sup"
+    export_structure_supervision_examples(examples, out_dir)
+    with pytest.raises(ValueError, match="batch_size must be positive"):
+        list(iter_structure_supervision_examples(out_dir, batch_size=0))
+    with pytest.raises(ValueError, match="batch_size must be positive"):
+        list(iter_structure_supervision_examples(out_dir, batch_size=-1))
+
+
+def test_supervision_empty_release_no_tensor_file(tmp_path):
+    """Empty release: manifest says no tensor_file → disk must agree.
+
+    Prior behavior opened the Parquet writer eagerly in __enter__, so
+    an empty release wrote a zero-row tensors.parquet that the manifest
+    never referenced. Reviewer flagged the directory/manifest mismatch.
+    """
+    out = tmp_path / "sup"
+    export_structure_supervision_examples([], out)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["count"] == 0
+    assert "tensor_file" not in manifest
+    assert not (out / "tensors.parquet").exists()
+    assert list(iter_structure_supervision_examples(out)) == []
+    assert load_structure_supervision_examples(out) == []

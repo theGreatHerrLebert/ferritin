@@ -47,25 +47,49 @@ def build_sequence_release(
     config_rev: Optional[str] = None,
     provenance: Optional[Dict[str, object]] = None,
     overwrite: bool = False,
+    row_group_size: int = 64,
 ) -> Path:
-    examples = list(examples)
-    failures = list(failures or [])
+    """Build a sequence release by streaming examples through the Parquet writer.
+
+    `examples` may be any iterable (including a generator). It is
+    consumed once without materializing the full list — MSA blocks in
+    particular are never corpus-sized-retained, only `row_group_size`
+    at a time.
+
+    `failures` is read *after* `examples` is fully iterated, so the
+    canonical `_iter_examples` pattern (where a dataset builder appends
+    to the same failures list while the generator runs) works
+    correctly.
+    """
     root = Path(out_dir)
     if root.exists() and not overwrite:
         raise FileExistsError(f"{root} already exists")
     root.mkdir(parents=True, exist_ok=True)
-    export_sequence_examples(examples, root / "examples", overwrite=True)
+
+    example_dir = root / "examples"
+    from .sequence_export import SequenceParquetWriter
+    lengths: List[int] = []
+    with SequenceParquetWriter(example_dir, row_group_size=row_group_size) as writer:
+        for ex in examples:
+            writer.append(ex)
+            lengths.append(int(ex.length))
+    count_examples = writer.count
+
+    # Snapshot failures AFTER the example generator has been exhausted.
+    # Upstream callers commonly pass a list they append to during
+    # iteration; reading earlier would capture an empty snapshot.
+    failure_list = list(failures or [])
+
     with (root / "failures.jsonl").open("w", encoding="utf-8") as handle:
-        for failure in failures:
+        for failure in failure_list:
             handle.write(json.dumps(asdict(failure), separators=(",", ":")))
             handle.write("\n")
-    lengths = [ex.length for ex in examples]
     manifest = SequenceReleaseManifest(
         release_id=release_id,
         code_rev=code_rev,
         config_rev=config_rev,
-        count_examples=len(examples),
-        count_failures=len(failures),
+        count_examples=count_examples,
+        count_failures=len(failure_list),
         lengths=_length_summary(lengths),
         provenance=dict(provenance or {}),
     )
@@ -116,17 +140,20 @@ def build_sequence_dataset(
     deletion_matrices = _expand_optional(deletion_matrices, n)
     template_masks = _expand_optional(template_masks, n)
 
-    examples: List[SequenceExample] = []
+    # Generator: yields one SequenceExample per structure and appends
+    # failures to `failures` out-of-band. `build_sequence_release`
+    # consumes the iterator and writes each example straight into the
+    # Parquet row-group buffer — no intermediate `list[SequenceExample]`,
+    # so MSA blocks are never corpus-sized-retained in Python memory.
     failures: List[FailureRecord] = []
-    for i, structure in enumerate(structures):
-        record_id = record_ids[i] or _default_record_id(structure, chain_ids[i])
-        try:
-            if msa_engine is not None and msas[i] is None and deletion_matrices[i] is None:
-                # Defer the import so this module doesn't require the
-                # Rust backend just to parse.
-                from .msa_backend import build_sequence_example_with_msa
-                examples.append(
-                    build_sequence_example_with_msa(
+
+    def _iter_examples():
+        for i, structure in enumerate(structures):
+            record_id = record_ids[i] or _default_record_id(structure, chain_ids[i])
+            try:
+                if msa_engine is not None and msas[i] is None and deletion_matrices[i] is None:
+                    from .msa_backend import build_sequence_example_with_msa
+                    yield build_sequence_example_with_msa(
                         structure,
                         msa_engine,
                         record_id=record_id,
@@ -138,10 +165,8 @@ def build_sequence_dataset(
                         max_seqs=msa_max_seqs,
                         gap_idx=msa_gap_idx,
                     )
-                )
-                continue
-            examples.append(
-                build_sequence_example(
+                    continue
+                yield build_sequence_example(
                     structure,
                     record_id=record_id,
                     source_id=source_ids[i],
@@ -152,22 +177,22 @@ def build_sequence_dataset(
                     deletion_matrix=deletion_matrices[i],
                     template_mask=template_masks[i],
                 )
-            )
-        except Exception as exc:
-            failures.append(
-                FailureRecord(
-                    record_id=record_id,
-                    stage="sequence_example",
-                    failure_class=classify_exception(exc),
-                    message=str(exc),
-                    source_id=source_ids[i],
-                    code_rev=code_rev,
-                    config_rev=config_rev,
-                    provenance={"exception_type": type(exc).__name__},
+            except Exception as exc:
+                failures.append(
+                    FailureRecord(
+                        record_id=record_id,
+                        stage="sequence_example",
+                        failure_class=classify_exception(exc),
+                        message=str(exc),
+                        source_id=source_ids[i],
+                        code_rev=code_rev,
+                        config_rev=config_rev,
+                        provenance={"exception_type": type(exc).__name__},
+                    )
                 )
-            )
+
     return build_sequence_release(
-        examples,
+        _iter_examples(),
         out_dir,
         release_id=release_id,
         failures=failures,

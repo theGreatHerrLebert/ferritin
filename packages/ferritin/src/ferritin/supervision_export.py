@@ -208,18 +208,26 @@ class SupervisionParquetWriter:
         self._jsonl_path = self.out_dir / "examples.jsonl"
 
     def __enter__(self):
+        # Parquet writer is deferred to first append() so empty releases
+        # don't leave a zero-row tensors.parquet that the manifest
+        # doesn't list. The jsonl file opens eagerly — an empty jsonl is
+        # still a valid artifact.
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self._schema = build_supervision_schema()
-        self._writer = pq.ParquetWriter(
-            self._parquet_path,
-            self._schema,
-            compression="zstd",
-            compression_level=3,
-        )
         self._jsonl = self._jsonl_path.open("w", encoding="utf-8")
         return self
 
+    def _ensure_writer_open(self) -> None:
+        if self._writer is None:
+            self._writer = pq.ParquetWriter(
+                self._parquet_path,
+                self._schema,
+                compression="zstd",
+                compression_level=3,
+            )
+
     def append(self, example: StructureSupervisionExample) -> None:
+        self._ensure_writer_open()
         # Stream the metadata row to jsonl immediately — no need to keep
         # it in memory; the parquet row holds the same data.
         self._jsonl.write(json.dumps(_example_metadata(example), separators=(",", ":")))
@@ -293,13 +301,21 @@ def iter_structure_supervision_examples(
     *,
     verify_checksum: bool = True,
     batch_size: Optional[int] = None,
-) -> Iterator[StructureSupervisionExample]:
+) -> Iterator:
     """Stream supervision examples from a release directory.
 
     Reads one Parquet row group at a time so peak memory is bounded,
     regardless of how many examples the release contains.
+
+    `batch_size=None` (default) yields one
+    `StructureSupervisionExample` per `__next__`. A positive integer
+    yields `list[StructureSupervisionExample]` chunks of length ≤
+    `batch_size`; the trailing chunk may be shorter. Mirrors the
+    training iterator's contract.
     """
     _require_pyarrow()
+    if batch_size is not None and batch_size <= 0:
+        raise ValueError(f"batch_size must be positive or None, got {batch_size}")
     root = Path(path)
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("format") != SUPERVISION_EXPORT_FORMAT:
@@ -315,12 +331,24 @@ def iter_structure_supervision_examples(
 
     pf = pq.ParquetFile(parquet_path)
     n_row_groups = pf.metadata.num_row_groups
-    for rg_idx in range(n_row_groups):
-        rb = pf.read_row_group(rg_idx)
-        cols = rb.to_pydict()
-        n = rb.num_rows
-        for i in range(n):
-            yield _parquet_row_to_supervision_example(cols, i)
+    if batch_size is None:
+        for rg_idx in range(n_row_groups):
+            rb = pf.read_row_group(rg_idx)
+            cols = rb.to_pydict()
+            for i in range(rb.num_rows):
+                yield _parquet_row_to_supervision_example(cols, i)
+    else:
+        chunk: List[StructureSupervisionExample] = []
+        for rg_idx in range(n_row_groups):
+            rb = pf.read_row_group(rg_idx)
+            cols = rb.to_pydict()
+            for i in range(rb.num_rows):
+                chunk.append(_parquet_row_to_supervision_example(cols, i))
+                if len(chunk) >= batch_size:
+                    yield chunk
+                    chunk = []
+        if chunk:
+            yield chunk
 
 
 def load_structure_supervision_examples(

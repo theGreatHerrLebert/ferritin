@@ -131,8 +131,39 @@ def test_sequence_parquet_empty_release(tmp_path: Path):
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["count"] == 0
     assert "tensor_file" not in manifest  # no parquet written for empty release
+    # Directory must agree with the manifest: no tensors.parquet on disk
+    # when the manifest says there isn't one. Prior behavior left a
+    # zero-row file behind.
+    assert not (out / "tensors.parquet").exists()
     assert list(iter_sequence_examples(out)) == []
     assert load_sequence_examples(out) == []
+
+
+def test_build_sequence_release_consumes_generator(tmp_path: Path):
+    """Regression: build_sequence_release must not materialize the input.
+
+    The old path called `examples = list(examples)` + `lengths = [ex.length
+    for ex in examples]`, which held the full corpus (including MSA
+    blocks) in Python memory before export. This test verifies the
+    release accepts a generator that can only be consumed once and
+    produces the correct artifact.
+    """
+    from ferritin.sequence_release import build_sequence_release
+
+    def _one_shot_gen():
+        for i in range(5):
+            yield _fake_sequence(f"r{i}", L=3 + i, seed=i, depth=4)
+
+    root = build_sequence_release(
+        _one_shot_gen(),
+        tmp_path / "release",
+        release_id="stream-smoke",
+    )
+    loaded = load_sequence_examples(root / "examples")
+    assert [ex.record_id for ex in loaded] == [f"r{i}" for i in range(5)]
+    # Every example carries its MSA (depth=4) through the streaming path.
+    for ex in loaded:
+        assert ex.msa is not None and ex.msa.shape == (4, ex.length)
 
 
 def test_sequence_parquet_writer_context_manager(tmp_path: Path):

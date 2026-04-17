@@ -215,18 +215,26 @@ class SequenceParquetWriter:
         self._jsonl_path = self.out_dir / "examples.jsonl"
 
     def __enter__(self):
+        # Parquet writer creation is deferred until the first append() so
+        # empty releases don't leave a zero-row tensors.parquet on disk
+        # that the manifest claims isn't there. The jsonl file opens
+        # eagerly since an empty jsonl is still a valid artifact.
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self._schema = build_sequence_schema()
-        self._writer = pq.ParquetWriter(
-            self._parquet_path,
-            self._schema,
-            compression="zstd",
-            compression_level=3,
-        )
         self._jsonl = self._jsonl_path.open("w", encoding="utf-8")
         return self
 
+    def _ensure_writer_open(self) -> None:
+        if self._writer is None:
+            self._writer = pq.ParquetWriter(
+                self._parquet_path,
+                self._schema,
+                compression="zstd",
+                compression_level=3,
+            )
+
     def append(self, example: SequenceExample) -> None:
+        self._ensure_writer_open()
         self._jsonl.write(json.dumps(_example_metadata(example), separators=(",", ":")))
         self._jsonl.write("\n")
         self._buffer.append(example)
