@@ -24,11 +24,14 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use memmap2::Mmap;
+use memmap2::{Mmap, MmapMut};
 use thiserror::Error;
 
-use crate::kmer::{KmerEncoder, KmerHit, KmerIndex, KmerLookup};
+use crate::alphabet::Alphabet;
+use crate::db::DBReader;
+use crate::kmer::{KmerEncoder, KmerHit, KmerIndex, KmerIndexError, KmerLookup};
 use crate::reduced_alphabet::ReducedAlphabet;
+use crate::sequence::Sequence;
 
 pub const KMI_MAGIC: [u8; 4] = *b"FKMI";
 pub const KMI_VERSION: u32 = 2;
@@ -76,6 +79,16 @@ pub enum KmiReaderError {
         "reducer section malformed: {detail}"
     )]
     BadReducerSection { detail: String },
+}
+
+#[derive(Debug, Error)]
+pub enum ExternalBuildError {
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("writer error: {0}")]
+    Writer(#[from] KmiWriterError),
+    #[error("k-mer indexing failed: {0}")]
+    Indexing(#[from] KmerIndexError),
 }
 
 /// Snapshot of the reducer used at build time, as embedded in the .kmi.
@@ -203,6 +216,237 @@ pub fn write_kmi(
 
     w.flush()?;
     Ok(())
+}
+
+/// Two-pass external-memory builder: writes a `.kmi` directly from a
+/// [`DBReader`] without materializing an in-memory [`KmerIndex`].
+///
+/// Peak resident RAM is bounded by the offsets table (~`8 * (table_size
+/// + 1)` bytes) plus a duplicate cursors array of the same size —
+/// `2 × 8 × 21^6 ≈ 1.4 GB` for the full protein alphabet, `~77 MB` at
+/// the reduced alphabet (`13^6` slots). Orders of magnitude less than
+/// the in-memory build path, which at UniRef50 scale needs ~100 GB
+/// RAM for the postings alone.
+///
+/// Algorithm:
+///  - **Pass 1**: walk every target, count k-mer occurrences per
+///    hash into `offsets`. Then exclusive-prefix-sum → `offsets[k]`
+///    is the start offset in the entries arrays for k-mer `k`.
+///  - **Allocate** a file sized for header + reducer section + offsets
+///    + entries_seq_id + entries_pos. Truncate + mmap mutably.
+///  - **Pass 2**: walk every target again, for each k-mer write
+///    `(seq_id, pos)` into the mmap at `cursors[hash]++`. OS page
+///    cache absorbs the random-access writes; no explicit buffering.
+///
+/// The DB is walked in its stored order both passes; no sorting. The
+/// resulting `.kmi` is byte-equivalent to an in-memory build + write
+/// for the same inputs, modulo the order of entries within a single
+/// kmer's posting list (external build preserves DB-index order within
+/// a bucket; in-memory builder happens to produce the same order
+/// because it uses a cursors-running-pointer too).
+pub fn build_kmi_external(
+    db: &DBReader,
+    alphabet: Alphabet,
+    reducer: Option<&ReducedAlphabet>,
+    opts: BuildExternalOptions,
+    out_path: impl AsRef<Path>,
+) -> Result<(), ExternalBuildError> {
+    let out_path = out_path.as_ref();
+    let (kmer_alphabet_size, skip_idx) = match reducer {
+        Some(r) => (r.reduced_size, r.unknown_reduced_idx.unwrap_or(0)),
+        None => (alphabet.size(), alphabet.encode(b'X')),
+    };
+    let encoder = KmerEncoder::new(kmer_alphabet_size as u32, opts.k);
+    let table_size = encoder.table_size() as usize;
+
+    // ---------- Pass 1: histogram ----------
+    let mut offsets = vec![0u64; table_size + 1];
+    let pos_limit = u16::MAX as usize;
+    for entry in &db.index {
+        let payload = db.get_payload(entry);
+        let encoded = match reducer {
+            Some(r) => r.reduce_sequence(&Sequence::from_ascii(alphabet.clone(), payload).data),
+            None => Sequence::from_ascii(alphabet.clone(), payload).data,
+        };
+        if encoded.len() >= opts.k {
+            let last_pos = encoded.len() - opts.k;
+            if last_pos > pos_limit {
+                return Err(ExternalBuildError::Indexing(
+                    KmerIndexError::PositionOverflow {
+                        seq_id: entry.key,
+                        pos: last_pos,
+                        limit: pos_limit,
+                    },
+                ));
+            }
+        }
+        for (_pos, h) in encoder.iter_kmers(&encoded, skip_idx) {
+            offsets[h as usize] += 1;
+        }
+    }
+
+    // Exclusive prefix-sum; `offsets[table_size]` ends up == total.
+    let mut total: u64 = 0;
+    for slot in offsets.iter_mut().take(table_size) {
+        let c = *slot;
+        *slot = total;
+        total += c;
+    }
+    offsets[table_size] = total;
+    let n_entries = total;
+
+    // ---------- Layout: header + reducer section + offsets + entries ----------
+    let snap = ReducerSnapshot::from_reducer(reducer);
+    let reducer_section_size = snap.encoded_byte_len();
+    let offsets_byte_pos = KMI_HEADER_SIZE + reducer_section_size;
+    let entries_seq_id_pos = offsets_byte_pos + 8 * (table_size as u64 + 1);
+    let entries_pos_pos = entries_seq_id_pos + 4 * n_entries;
+    let total_size = entries_pos_pos + 2 * n_entries;
+
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(true)
+        .open(out_path)?;
+    file.set_len(total_size)?;
+    // SAFETY: We own the file, have it locked open, and nobody else
+    // is expected to mutate it while we're writing. Standard mmap
+    // contract applies.
+    let mut mmap = unsafe { MmapMut::map_mut(&file)? };
+
+    // --- Write header + reducer section + offsets ---
+    write_header_into(
+        &mut mmap[..KMI_HEADER_SIZE as usize],
+        encoder.alphabet_size(),
+        opts.k,
+        table_size as u64,
+        n_entries,
+        offsets_byte_pos,
+        entries_seq_id_pos,
+        entries_pos_pos,
+        reducer_section_size as u32,
+    );
+    if let ReducerSnapshot::Some {
+        full_size,
+        reduced_size,
+        unknown_reduced_idx,
+        full_to_reduced,
+    } = &snap
+    {
+        write_reducer_section_into(
+            &mut mmap[KMI_HEADER_SIZE as usize..(KMI_HEADER_SIZE + reducer_section_size) as usize],
+            *full_size,
+            *reduced_size,
+            *unknown_reduced_idx,
+            full_to_reduced,
+        );
+    }
+    // Copy offsets into the mmap. Do this before pass 2 — entries
+    // layout references these.
+    let offsets_slice = &mut mmap[offsets_byte_pos as usize..(offsets_byte_pos + 8 * (table_size as u64 + 1)) as usize];
+    for (i, off) in offsets.iter().enumerate() {
+        offsets_slice[8 * i..8 * i + 8].copy_from_slice(&off.to_le_bytes());
+    }
+
+    // ---------- Pass 2: populate entries ----------
+    // Running write pointer per kmer hash; starts at offsets[k].
+    let mut cursors: Vec<u64> = offsets.clone();
+
+    // Split the mmap so we have disjoint mutable slices for seq_id and
+    // pos arrays. Keeps the borrow checker happy during the hot inner
+    // loop without unsafe pointer math.
+    let (_head, rest) = mmap.split_at_mut(entries_seq_id_pos as usize);
+    let (seq_id_region, pos_region) = rest.split_at_mut((4 * n_entries) as usize);
+
+    for entry in &db.index {
+        let payload = db.get_payload(entry);
+        let encoded = match reducer {
+            Some(r) => r.reduce_sequence(&Sequence::from_ascii(alphabet.clone(), payload).data),
+            None => Sequence::from_ascii(alphabet.clone(), payload).data,
+        };
+        let seq_id_bytes = entry.key.to_le_bytes();
+        for (pos, h) in encoder.iter_kmers(&encoded, skip_idx) {
+            let cur = cursors[h as usize] as usize;
+            let seq_id_off = 4 * cur;
+            seq_id_region[seq_id_off..seq_id_off + 4].copy_from_slice(&seq_id_bytes);
+            let pos_off = 2 * cur;
+            let pos_bytes = (pos as u16).to_le_bytes();
+            pos_region[pos_off..pos_off + 2].copy_from_slice(&pos_bytes);
+            cursors[h as usize] += 1;
+        }
+    }
+
+    // Sanity: every cursor must have advanced exactly to the next
+    // bucket's start (== offsets[k+1]). Catches any pass-1/pass-2
+    // discrepancy up-front instead of deferring to reader-side
+    // validation after the file is already on disk.
+    for k in 0..table_size {
+        if cursors[k] != offsets[k + 1] {
+            return Err(ExternalBuildError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!(
+                    "external build inconsistency: cursor[{k}] = {} but offsets[{}] = {}",
+                    cursors[k], k + 1, offsets[k + 1],
+                ),
+            )));
+        }
+    }
+
+    mmap.flush()?;
+    Ok(())
+}
+
+/// Options for [`build_kmi_external`]. Only `k` for now; prefix in case
+/// later phases want threads, block size, etc.
+#[derive(Debug, Clone)]
+pub struct BuildExternalOptions {
+    pub k: usize,
+}
+
+fn write_header_into(
+    dst: &mut [u8],
+    alphabet_size: u32,
+    kmer_size: usize,
+    table_size: u64,
+    n_entries: u64,
+    offsets_byte_pos: u64,
+    entries_seq_id_pos: u64,
+    entries_pos_pos: u64,
+    reducer_section_size: u32,
+) {
+    debug_assert_eq!(dst.len(), KMI_HEADER_SIZE as usize);
+    dst[..4].copy_from_slice(&KMI_MAGIC);
+    dst[4..8].copy_from_slice(&KMI_VERSION.to_le_bytes());
+    dst[8..12].copy_from_slice(&alphabet_size.to_le_bytes());
+    dst[12..16].copy_from_slice(&(kmer_size as u32).to_le_bytes());
+    dst[16..24].copy_from_slice(&table_size.to_le_bytes());
+    dst[24..32].copy_from_slice(&n_entries.to_le_bytes());
+    dst[32..40].copy_from_slice(&offsets_byte_pos.to_le_bytes());
+    dst[40..48].copy_from_slice(&entries_seq_id_pos.to_le_bytes());
+    dst[48..56].copy_from_slice(&entries_pos_pos.to_le_bytes());
+    dst[56..60].copy_from_slice(&reducer_section_size.to_le_bytes());
+    dst[60..64].fill(0);
+}
+
+fn write_reducer_section_into(
+    dst: &mut [u8],
+    full_size: u32,
+    reduced_size: u32,
+    unknown_reduced_idx: Option<u8>,
+    full_to_reduced: &[u8],
+) {
+    dst[0..4].copy_from_slice(&full_size.to_le_bytes());
+    dst[4..8].copy_from_slice(&reduced_size.to_le_bytes());
+    let (marker, idx) = match unknown_reduced_idx {
+        Some(i) => (1u8, i),
+        None => (0u8, 0u8),
+    };
+    dst[8] = marker;
+    dst[9] = idx;
+    dst[10] = 0;
+    dst[11] = 0;
+    dst[REDUCER_SECTION_PROLOGUE as usize..].copy_from_slice(full_to_reduced);
 }
 
 /// Memory-mapped view of a `.kmi` file.
@@ -537,6 +781,75 @@ mod tests {
                 mem, disk,
                 "kmer hash {h}: in-memory and on-disk lookups diverge",
             );
+        }
+    }
+
+    #[test]
+    fn external_build_matches_in_memory_build_byte_for_byte() {
+        // External builder must produce a .kmi that's bit-identical to
+        // the in-memory `write_kmi(KmerIndex::build(...), ...)` path
+        // for the same inputs. Walk order (DB index order) is the same
+        // in both paths, so within-bucket entry order matches too.
+        use crate::db::{DBWriter, Dbtype};
+        use crate::matrix::SubstitutionMatrix;
+        use crate::reduced_alphabet::ReducedAlphabet;
+        use crate::sequence::Sequence;
+
+        let dir = tempdir().unwrap();
+        let db_prefix = dir.path().join("db");
+        let mut w = DBWriter::create(&db_prefix, Dbtype::AMINO_ACIDS).unwrap();
+        let raw: &[(u32, &[u8])] = &[
+            (1, b"MKLVRQPSTNLKACDFGHIY"),
+            (2, b"WVLSAADKTNVKAAWGKVGAHAGEYGAEALERMFLSFP"),
+            (3, b"MEAFRKQLPCFRSGAQQVKEHFKQVAEKHHGFLEEFCAR"),
+            (4, b"MNALVVKFGGTSVANAERFLRVADILESNARQGQ"),
+        ];
+        for (k, s) in raw {
+            w.write_entry(*k, s).unwrap();
+        }
+        w.finish().unwrap();
+
+        let alphabet = Alphabet::protein();
+        let matrix = SubstitutionMatrix::blosum62();
+        let reducer = ReducedAlphabet::from_matrix(&matrix, 13, Some(20)).unwrap();
+
+        // --- In-memory path ---
+        let db_for_mem = DBReader::open(&db_prefix).unwrap();
+        let targets_encoded: Vec<(u32, Vec<u8>)> = db_for_mem.index.iter().map(|e| {
+            let payload = db_for_mem.get_payload(e);
+            let full = Sequence::from_ascii(alphabet.clone(), payload).data;
+            (e.key, reducer.reduce_sequence(&full))
+        }).collect();
+        let encoder = KmerEncoder::new(13, 3);
+        let pairs: Vec<(u32, &[u8])> = targets_encoded.iter().map(|(k, s)| (*k, s.as_slice())).collect();
+        let mem_idx = KmerIndex::build(encoder, pairs, reducer.unknown_reduced_idx.unwrap()).unwrap();
+        let mem_path = dir.path().join("mem.kmi");
+        write_kmi(&mem_idx, Some(&reducer), &mem_path).unwrap();
+
+        // --- External path ---
+        let db = DBReader::open(&db_prefix).unwrap();
+        let ext_path = dir.path().join("ext.kmi");
+        build_kmi_external(
+            &db,
+            alphabet.clone(),
+            Some(&reducer),
+            BuildExternalOptions { k: 3 },
+            &ext_path,
+        ).unwrap();
+
+        let mem_bytes = std::fs::read(&mem_path).unwrap();
+        let ext_bytes = std::fs::read(&ext_path).unwrap();
+        assert_eq!(
+            mem_bytes.len(), ext_bytes.len(),
+            "file sizes diverge: mem={} ext={}", mem_bytes.len(), ext_bytes.len(),
+        );
+        assert_eq!(mem_bytes, ext_bytes, "in-memory and external .kmi diverge byte-for-byte");
+
+        // Also verify both open cleanly and agree on per-hash lookup.
+        let mem_file = KmerIndexFile::open(&mem_path).unwrap();
+        let ext_file = KmerIndexFile::open(&ext_path).unwrap();
+        for h in 0..mem_file.table_size() {
+            assert_eq!(mem_file.lookup_hash(h), ext_file.lookup_hash(h));
         }
     }
 
