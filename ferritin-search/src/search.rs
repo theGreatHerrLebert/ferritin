@@ -72,6 +72,18 @@ pub enum BuildFromDbError {
          classes; different matrices at the same reduced_size do not."
     )]
     KmiReducerMismatch,
+    #[error(
+        "DB has {found} entries; the sorted-keys engine caps entries at \
+         {limit} (u32 position index). Bump TargetSource position type \
+         to u64 before loading a DB this large."
+    )]
+    TooManyTargets { found: u64, limit: u64 },
+    #[error(
+        "DB key {key} appears more than once in the index; the engine \
+         requires unique keys. Rebuild the DB via `mmseqs createdb` (or \
+         `fasta_to_mmseqs_db`) so each sequence gets a distinct key."
+    )]
+    DuplicateKey { key: u32 },
 }
 
 // Route KmerIndexError (raised by the in-place kmer build inside
@@ -175,12 +187,35 @@ impl TargetSource {
     /// scale this drops ~1 GB of resident RAM relative to the hashmap
     /// (400 MB for two parallel `Vec<u32>`s vs ~1.7 GB for a
     /// hashmap's bucket + entry + metadata overhead).
-    fn new_db(db: DBReader) -> Self {
+    ///
+    /// Validates two invariants the binary-search lookup relies on:
+    ///  - `db.index.len() <= u32::MAX` (positions fit in `u32` without
+    ///    silent truncation).
+    ///  - Every key in `db.index` is unique (otherwise binary_search
+    ///    returns an arbitrary match, making per-query results
+    ///    nondeterministic between builds).
+    fn new_db(db: DBReader) -> Result<Self, BuildFromDbError> {
         let n = db.index.len();
+        if n > u32::MAX as usize {
+            return Err(BuildFromDbError::TooManyTargets {
+                found: n as u64,
+                limit: u32::MAX as u64,
+            });
+        }
         let mut positions: Vec<u32> = (0..n as u32).collect();
         positions.sort_unstable_by_key(|&i| db.index[i as usize].key);
         let sorted_keys: Vec<u32> = positions.iter().map(|&i| db.index[i as usize].key).collect();
-        Self::Db { db, sorted_keys, sorted_to_db_pos: positions }
+        // Reject duplicates: consecutive equal entries in sorted_keys
+        // mean two DB entries share a key, which would make `fetch`
+        // return whichever position binary_search lands on —
+        // nondeterministic, and different between runs that hash into
+        // different sort orderings.
+        for w in sorted_keys.windows(2) {
+            if w[0] == w[1] {
+                return Err(BuildFromDbError::DuplicateKey { key: w[0] });
+            }
+        }
+        Ok(Self::Db { db, sorted_keys, sorted_to_db_pos: positions })
     }
 
     /// Encoded target bytes for `seq_id`, or `None` if the seq_id isn't
@@ -414,7 +449,7 @@ impl SearchEngine {
         let matrix_int = widen_to_i32(&matrix.to_integer_matrix(opts.bit_factor, 0.0));
 
         Ok(Self {
-            targets: TargetSource::new_db(reader),
+            targets: TargetSource::new_db(reader)?,
             index: KmerIndexStorage::InMemory(index),
             matrix_int,
             full_alphabet_size,
@@ -515,7 +550,7 @@ impl SearchEngine {
         let matrix_int = widen_to_i32(&matrix.to_integer_matrix(opts.bit_factor, 0.0));
 
         Ok(Self {
-            targets: TargetSource::new_db(reader),
+            targets: TargetSource::new_db(reader)?,
             index: KmerIndexStorage::OnDisk(kmi),
             matrix_int,
             full_alphabet_size,
@@ -1163,6 +1198,37 @@ mod tests {
                 assert_eq!(m_h.alignment.target_end, d_h.alignment.target_end);
             }
         }
+    }
+
+    #[test]
+    fn new_db_rejects_duplicate_keys() {
+        // Duplicate keys in a DB make binary_search's match position
+        // arbitrary, so `fetch` would return a different target
+        // depending on sort stability. Engine refuses at construction
+        // with a clear error pointing at the offending key.
+        use crate::db::{DBWriter, Dbtype};
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let prefix = dir.path().join("dup");
+        let mut w = DBWriter::create(&prefix, Dbtype::AMINO_ACIDS).unwrap();
+        w.write_entry(1, b"MKLVR").unwrap();
+        w.write_entry(2, b"WWWWWW").unwrap();
+        // Same key again → must be rejected on engine construction.
+        w.write_entry(1, b"AAAAAA").unwrap();
+        w.finish().unwrap();
+
+        let (alpha, m) = alpha_and_matrix();
+        let err = SearchEngine::build_from_mmseqs_db(
+            &prefix, &m, alpha,
+            SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() },
+        )
+        .err()
+        .expect("expected DuplicateKey");
+        assert!(
+            matches!(err, BuildFromDbError::DuplicateKey { key: 1 }),
+            "expected DuplicateKey(1), got {err}",
+        );
     }
 
     #[test]
