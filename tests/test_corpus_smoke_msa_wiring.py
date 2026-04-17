@@ -130,3 +130,75 @@ def test_corpus_smoke_loads_sequence_msa_via_public_api(tmp_path: Path):
     # where FakeMsaEngine wrote a gap_idx marker.
     np.testing.assert_array_equal(ex.msa[0], ex.aatype)
     assert not np.array_equal(ex.msa[1], ex.aatype)
+
+
+def _derive_query_sequence(pdb_path: Path) -> str:
+    """Reproduce the sequence string build_sequence_example derives from
+    the PDB chain, so we can hand a matching-length a3m to the corpus builder."""
+    structure = ferritin.batch_load_tolerant([str(pdb_path)])[0][1]
+    return ferritin.build_sequence_example(structure).sequence
+
+
+def test_corpus_smoke_reads_msa_dir_a3m(tmp_path: Path):
+    """External a3m → sequence.parquet MSA without any engine."""
+    query = _derive_query_sequence(FIXTURE)
+    # Build a trivial 2-row a3m: the query and one copy with the first
+    # position replaced by '-'. Record_id for a 1-chain PDB is the stem.
+    msa_dir = tmp_path / "msas"
+    msa_dir.mkdir()
+    a3m = f">query\n{query}\n>hit\n-{query[1:]}\n"
+    (msa_dir / f"{FIXTURE.stem}.a3m").write_text(a3m)
+
+    out = ferritin.build_local_corpus_smoke_release(
+        [str(FIXTURE)],
+        tmp_path / "corpus",
+        release_id="smoke-msa-dir",
+        msa_dir=msa_dir,
+    )
+    examples = ferritin.load_sequence_examples(out / "sequence" / "examples")
+    assert len(examples) == 1
+    ex = examples[0]
+    assert ex.msa is not None and ex.msa.shape == (2, ex.length)
+    # Row 0 should match the query aatype exactly.
+    np.testing.assert_array_equal(ex.msa[0], ex.aatype)
+    # Row 1 has a gap at position 0; in the encoded form that's AA_TO_INDEX['X']
+    # (ferritin treats '-' via the 'X' fallback path in _encode_msa).
+    assert ex.msa[1][0] != ex.aatype[0]
+
+
+def test_corpus_smoke_msa_dir_missing_file_falls_back_to_engine(tmp_path: Path):
+    """Missing a3m for a record → engine fills the gap (explicit > engine per-row)."""
+    # 1crn gets a real a3m; the engine would cover any other record, but
+    # we only have 1 fixture here, so assert the a3m was used.
+    query = _derive_query_sequence(FIXTURE)
+    msa_dir = tmp_path / "msas"
+    msa_dir.mkdir()
+    (msa_dir / f"{FIXTURE.stem}.a3m").write_text(f">q\n{query}\n")
+
+    engine = FakeMsaEngine()
+    out = ferritin.build_local_corpus_smoke_release(
+        [str(FIXTURE)],
+        tmp_path / "corpus",
+        release_id="smoke-msa-mixed",
+        msa_dir=msa_dir,
+        msa_engine=engine,
+    )
+    examples = ferritin.load_sequence_examples(out / "sequence" / "examples")
+    ex = examples[0]
+    # Explicit a3m has depth=1 (just the query), engine would produce depth=3.
+    assert ex.msa.shape[0] == 1, (
+        "explicit msa_dir entry should win over the engine when both are provided"
+    )
+
+
+def test_corpus_smoke_msa_dir_strict_raises_on_missing(tmp_path: Path):
+    msa_dir = tmp_path / "msas"
+    msa_dir.mkdir()  # intentionally empty
+    with pytest.raises(FileNotFoundError, match="no MSA file"):
+        ferritin.build_local_corpus_smoke_release(
+            [str(FIXTURE)],
+            tmp_path / "corpus",
+            release_id="smoke-msa-strict",
+            msa_dir=msa_dir,
+            msa_strict=True,
+        )

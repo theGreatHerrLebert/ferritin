@@ -12,6 +12,7 @@ from .corpus_release import build_corpus_release_manifest
 from .corpus_validation import validate_corpus_release
 from .failure_taxonomy import PARSE_ERROR
 from .io import LoadRescueResult, batch_load_tolerant, batch_load_tolerant_with_rescue
+from .msa_io import load_msas_from_dir
 from .prepare import batch_prepare
 from .sequence_release import build_sequence_dataset
 from .supervision_dataset import build_structure_supervision_dataset_from_prepared
@@ -36,6 +37,9 @@ def build_local_corpus_smoke_release(
     msa_engine: Optional[object] = None,
     msa_max_seqs: int = 256,
     msa_gap_idx: int = 21,
+    msa_dir: Optional[str | Path] = None,
+    msa_suffix: str = ".a3m",
+    msa_strict: bool = False,
     overwrite: bool = False,
 ) -> Path:
     """Build a small end-to-end corpus release from local structure files.
@@ -43,13 +47,18 @@ def build_local_corpus_smoke_release(
     This is the intended smoke path for validating the full data-release stack
     on real PDB/mmCIF inputs already available on disk.
 
-    `msa_engine` — optional `ferritin_connector.py_msa.SearchEngine` (or
-    duck-compatible Python wrapper) built over a target corpus. When
-    provided, each chain's MSA is searched + assembled during the
-    sequence-release step and baked into the training parquet. When
-    None (the default), sequence examples carry empty MSA fields and
-    downstream AF2-style pipelines either fall back to single-sequence
-    input or supply MSAs some other way.
+    MSA inputs (any combination):
+      - `msa_dir` — directory of pre-computed a3m files, keyed by
+        record_id (`{msa_dir}/{record_id}{msa_suffix}`). Missing files
+        silently fall through to the engine path unless `msa_strict`.
+      - `msa_engine` — optional `ferritin_connector.py_msa.SearchEngine`
+        (or duck-compatible wrapper) run per record that `msa_dir`
+        didn't cover. `msa_max_seqs` / `msa_gap_idx` flow through to
+        `search_and_build_msa`.
+
+    When both are None (the default), sequence examples carry null MSA
+    fields and downstream AF2-style pipelines either fall back to
+    single-sequence input or supply MSAs some other way.
     """
     root = Path(out_dir)
     if root.exists() and not overwrite:
@@ -127,6 +136,16 @@ def build_local_corpus_smoke_release(
         provenance={"input_paths": [str(p) for p in expanded_paths]},
         overwrite=True,
     )
+    explicit_msas: Optional[List[Optional[List[str]]]] = None
+    explicit_deletions: Optional[List[Optional[List[List[int]]]]] = None
+    if msa_dir is not None:
+        explicit_msas, explicit_deletions = load_msas_from_dir(
+            msa_dir,
+            expanded_record_ids,
+            suffix=msa_suffix,
+            strict=msa_strict,
+        )
+
     sequence_root = build_sequence_dataset(
         expanded_structures,
         root / "sequence",
@@ -136,6 +155,8 @@ def build_local_corpus_smoke_release(
         chain_ids=expanded_chain_ids,
         code_rev=code_rev,
         config_rev=config_rev,
+        msas=explicit_msas,
+        deletion_matrices=explicit_deletions,
         msa_engine=msa_engine,
         msa_max_seqs=msa_max_seqs,
         msa_gap_idx=msa_gap_idx,

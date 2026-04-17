@@ -150,6 +150,11 @@ from .sequence_example import (
     batch_build_sequence_examples,
     build_sequence_example,
 )
+from .msa_io import (
+    load_msas_from_dir,
+    parse_a3m_file,
+    parse_a3m_text,
+)
 from .sequence_export import (
     SEQUENCE_EXPORT_FORMAT,
     SEQUENCE_PARQUET_SCHEMA_VERSION,
