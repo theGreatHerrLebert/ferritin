@@ -11,6 +11,14 @@
 //!
 //! Phase 3 of the ferritin-search memmap refactor — see commit history
 //! for phases 1 (memmap DBReader) and 2 (SearchEngine drops targets_full).
+//!
+//! Format v2 (current) embeds the full reducer state used at build time
+//! so openers can verify their own reducer produces the same mapping.
+//! v1 (short-lived, never shipped as a persisted artifact) only pinned
+//! `alphabet_size`, which was insufficient — two different substitution
+//! matrices can produce different full-to-reduced mappings at the same
+//! reduced_size, and the build/open pair would silently accept an
+//! incompatible index.
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -20,13 +28,18 @@ use memmap2::Mmap;
 use thiserror::Error;
 
 use crate::kmer::{KmerEncoder, KmerHit, KmerIndex, KmerLookup};
+use crate::reduced_alphabet::ReducedAlphabet;
 
 pub const KMI_MAGIC: [u8; 4] = *b"FKMI";
-pub const KMI_VERSION: u32 = 1;
+pub const KMI_VERSION: u32 = 2;
 /// Header is fixed at 64 bytes; the three `*_pos` fields are absolute
 /// byte offsets into the file and their consistency is validated on
 /// open.
 pub const KMI_HEADER_SIZE: u64 = 64;
+
+/// Size of the fixed-width prologue of the reducer section (before the
+/// variable-length `full_to_reduced` byte array). See the format spec.
+pub const REDUCER_SECTION_PROLOGUE: u64 = 12;
 
 #[derive(Debug, Error)]
 pub enum KmiWriterError {
@@ -59,14 +72,69 @@ pub enum KmiReaderError {
     OffsetsTail { found: u64, expected: u64 },
     #[error("file size {found} disagrees with layout (expected {expected})")]
     FileSizeMismatch { found: u64, expected: u64 },
+    #[error(
+        "reducer section malformed: {detail}"
+    )]
+    BadReducerSection { detail: String },
+}
+
+/// Snapshot of the reducer used at build time, as embedded in the .kmi.
+///
+/// Two snapshots compare equal iff they define the same full-to-reduced
+/// mapping — which is the contract openers need to guarantee their
+/// reducer matches what was indexed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReducerSnapshot {
+    /// No reduction was applied — the k-mer index lives in the full
+    /// alphabet.
+    None,
+    /// A reduction was applied; `full_to_reduced[i]` ∈ `0..reduced_size`
+    /// for every full-alphabet index `i`. `unknown_reduced_idx` matches
+    /// `ReducedAlphabet::unknown_reduced_idx` at build time.
+    Some {
+        full_size: u32,
+        reduced_size: u32,
+        unknown_reduced_idx: Option<u8>,
+        full_to_reduced: Vec<u8>,
+    },
+}
+
+impl ReducerSnapshot {
+    /// Capture the state of a (possibly-absent) `ReducedAlphabet`.
+    pub fn from_reducer(reducer: Option<&ReducedAlphabet>) -> Self {
+        match reducer {
+            None => Self::None,
+            Some(r) => Self::Some {
+                full_size: r.full_size as u32,
+                reduced_size: r.reduced_size as u32,
+                unknown_reduced_idx: r.unknown_reduced_idx,
+                full_to_reduced: r.full_to_reduced.clone(),
+            },
+        }
+    }
+
+    fn encoded_byte_len(&self) -> u64 {
+        match self {
+            Self::None => 0,
+            Self::Some { full_to_reduced, .. } => {
+                REDUCER_SECTION_PROLOGUE + full_to_reduced.len() as u64
+            }
+        }
+    }
 }
 
 /// Write an in-memory [`KmerIndex`] to a `.kmi` file at `path`.
 ///
-/// Pass-through of the CSR arrays: first the `offsets` (u64 LE), then
-/// two parallel SoA arrays for the entries — `seq_id` (u32 LE) and
-/// `pos` (u16 LE). See the format spec for byte layout.
-pub fn write_kmi(index: &KmerIndex, path: impl AsRef<Path>) -> Result<(), KmiWriterError> {
+/// `reducer` records the full-to-reduced mapping used at build time so
+/// openers can verify their own reducer produces the same mapping —
+/// matrix-dependent reductions at the same `reduced_size` can disagree
+/// on the actual equivalence classes, and loading an index built with
+/// a different mapping silently returns wrong hits.
+pub fn write_kmi(
+    index: &KmerIndex,
+    reducer: Option<&ReducedAlphabet>,
+    path: impl AsRef<Path>,
+) -> Result<(), KmiWriterError> {
     let path = path.as_ref();
     let file = OpenOptions::new()
         .create(true)
@@ -80,7 +148,10 @@ pub fn write_kmi(index: &KmerIndex, path: impl AsRef<Path>) -> Result<(), KmiWri
     let table_size = index.encoder.table_size();
     let n_entries = index.entries.len() as u64;
 
-    let offsets_byte_pos = KMI_HEADER_SIZE;
+    let snap = ReducerSnapshot::from_reducer(reducer);
+    let reducer_section_size = snap.encoded_byte_len();
+
+    let offsets_byte_pos = KMI_HEADER_SIZE + reducer_section_size;
     let entries_seq_id_pos = offsets_byte_pos + 8 * (table_size + 1);
     let entries_pos_pos = entries_seq_id_pos + 4 * n_entries;
 
@@ -94,7 +165,26 @@ pub fn write_kmi(index: &KmerIndex, path: impl AsRef<Path>) -> Result<(), KmiWri
     w.write_all(&offsets_byte_pos.to_le_bytes())?;
     w.write_all(&entries_seq_id_pos.to_le_bytes())?;
     w.write_all(&entries_pos_pos.to_le_bytes())?;
-    w.write_all(&[0u8; 8])?; // reserved
+    w.write_all(&(reducer_section_size as u32).to_le_bytes())?;
+    w.write_all(&[0u8; 4])?; // reserved to pad the 64-byte header
+
+    // --- reducer section (only if a reducer was used) ---
+    if let ReducerSnapshot::Some {
+        full_size,
+        reduced_size,
+        unknown_reduced_idx,
+        full_to_reduced,
+    } = &snap
+    {
+        w.write_all(&full_size.to_le_bytes())?;
+        w.write_all(&reduced_size.to_le_bytes())?;
+        let (marker, idx) = match unknown_reduced_idx {
+            Some(i) => (1u8, *i),
+            None => (0u8, 0u8),
+        };
+        w.write_all(&[marker, idx, 0u8, 0u8])?; // pad to 4-byte boundary
+        w.write_all(full_to_reduced)?;
+    }
 
     // --- offsets ---
     for off in &index.offsets {
@@ -134,6 +224,10 @@ pub struct KmerIndexFile {
     /// at open time; all prefilter runs that touch this index get the
     /// same instance.
     encoder: KmerEncoder,
+    /// Snapshot of the reducer used when this .kmi was built. Engine
+    /// openers compare this against their own reducer to guarantee
+    /// matrix-consistent mappings.
+    reducer: ReducerSnapshot,
 }
 
 impl KmerIndexFile {
@@ -171,8 +265,64 @@ impl KmerIndexFile {
         let offsets_byte_pos = u64_at(hdr, 32);
         let entries_seq_id_pos = u64_at(hdr, 40);
         let entries_pos_pos = u64_at(hdr, 48);
+        let reducer_section_size = u32_at(hdr, 56) as u64;
 
-        let expected_offsets = KMI_HEADER_SIZE;
+        // Parse reducer section (between header and offsets) before
+        // checking layout positions, since `offsets_byte_pos` must now
+        // account for it.
+        let reducer = if reducer_section_size == 0 {
+            ReducerSnapshot::None
+        } else {
+            if reducer_section_size < REDUCER_SECTION_PROLOGUE {
+                return Err(KmiReaderError::BadReducerSection {
+                    detail: format!(
+                        "reducer_section_size={reducer_section_size} < prologue={REDUCER_SECTION_PROLOGUE}",
+                    ),
+                });
+            }
+            let start = KMI_HEADER_SIZE as usize;
+            let end = start + reducer_section_size as usize;
+            if end as u64 > file_size {
+                return Err(KmiReaderError::BadReducerSection {
+                    detail: format!(
+                        "reducer section end={end} exceeds file size {file_size}",
+                    ),
+                });
+            }
+            let sec = &mmap[start..end];
+            let full_size = u32_at(sec, 0);
+            let reduced_size = u32_at(sec, 4);
+            let marker = sec[8];
+            let idx_byte = sec[9];
+            let expected_body_len = full_size as u64;
+            if reducer_section_size != REDUCER_SECTION_PROLOGUE + expected_body_len {
+                return Err(KmiReaderError::BadReducerSection {
+                    detail: format!(
+                        "reducer_section_size={reducer_section_size} != \
+                         prologue + full_size ({} + {})",
+                        REDUCER_SECTION_PROLOGUE, expected_body_len,
+                    ),
+                });
+            }
+            let full_to_reduced = sec[REDUCER_SECTION_PROLOGUE as usize..].to_vec();
+            let unknown_reduced_idx = match marker {
+                0 => None,
+                1 => Some(idx_byte),
+                other => {
+                    return Err(KmiReaderError::BadReducerSection {
+                        detail: format!("unknown_marker={other} (expected 0 or 1)"),
+                    });
+                }
+            };
+            ReducerSnapshot::Some {
+                full_size,
+                reduced_size,
+                unknown_reduced_idx,
+                full_to_reduced,
+            }
+        };
+
+        let expected_offsets = KMI_HEADER_SIZE + reducer_section_size;
         if offsets_byte_pos != expected_offsets {
             return Err(KmiReaderError::LayoutMismatch {
                 field: "offsets_byte_pos",
@@ -227,6 +377,7 @@ impl KmerIndexFile {
             entries_seq_id_pos: entries_seq_id_pos as usize,
             entries_pos_pos: entries_pos_pos as usize,
             encoder,
+            reducer,
         })
     }
 
@@ -234,6 +385,15 @@ impl KmerIndexFile {
     pub fn kmer_size(&self) -> usize { self.kmer_size }
     pub fn table_size(&self) -> u64 { self.table_size }
     pub fn n_entries(&self) -> u64 { self.n_entries }
+
+    /// Snapshot of the reducer used at build time.
+    ///
+    /// Openers that configure their own `ReducedAlphabet` should
+    /// compare `ReducerSnapshot::from_reducer(Some(&mine))` against
+    /// this value and refuse to proceed on mismatch — the k-mer hashes
+    /// in the file are only meaningful under the mapping recorded
+    /// here.
+    pub fn reducer(&self) -> &ReducerSnapshot { &self.reducer }
 
     /// Byte slice over the `(table_size + 1) × u64 LE` offsets array.
     ///
@@ -260,13 +420,20 @@ impl KmerIndexFile {
 
     /// Look up the `(seq_id, pos)` postings for a single k-mer hash.
     ///
+    /// Matches [`KmerIndex::lookup_hash`]'s contract: out-of-range
+    /// hashes (`>= table_size`) return an empty vec rather than
+    /// panicking — a public API taking an arbitrary `u64` has to
+    /// handle every value.
+    ///
     /// Returns a `Vec<KmerHit>` — the SoA layout on disk forces one
     /// small owned allocation per lookup. For hot prefilter loops the
     /// cost is tiny relative to the OS page-fault of the posting
     /// bucket itself, and the API stays compatible with in-memory
     /// `KmerIndex::lookup_hash`.
     pub fn lookup_hash(&self, hash: u64) -> Vec<KmerHit> {
-        debug_assert!(hash <= self.table_size);
+        if hash >= self.table_size {
+            return Vec::new();
+        }
         let offsets = self.offsets_bytes();
         let start = u64_at(offsets, 8 * hash as usize) as usize;
         let end = u64_at(offsets, 8 * (hash as usize + 1)) as usize;
@@ -290,7 +457,14 @@ impl KmerLookup for KmerIndexFile {
     }
 
     fn for_each_hit<F: FnMut(KmerHit)>(&self, hash: u64, mut f: F) {
-        debug_assert!(hash <= self.table_size);
+        // Match KmerIndex::lookup_hash: out-of-range hashes yield no
+        // hits. Prior `debug_assert!` would panic in release builds
+        // on any invalid hash reaching the mmap backend — behavior
+        // diverged from the in-memory path behind the shared
+        // KmerLookup abstraction.
+        if hash >= self.table_size {
+            return;
+        }
         let offsets = self.offsets_bytes();
         let start = u64_at(offsets, 8 * hash as usize) as usize;
         let end = u64_at(offsets, 8 * (hash as usize + 1)) as usize;
@@ -345,13 +519,14 @@ mod tests {
         let idx = tiny_index();
         let dir = tempdir().unwrap();
         let path = dir.path().join("tiny.kmi");
-        write_kmi(&idx, &path).unwrap();
+        write_kmi(&idx, None, &path).unwrap();
 
         let file = KmerIndexFile::open(&path).unwrap();
         assert_eq!(file.alphabet_size(), idx.encoder.alphabet_size());
         assert_eq!(file.kmer_size(), idx.encoder.kmer_size());
         assert_eq!(file.table_size(), idx.encoder.table_size());
         assert_eq!(file.n_entries() as usize, idx.entries.len());
+        assert_eq!(*file.reducer(), ReducerSnapshot::None);
 
         // Every kmer hash yields byte-identical hits between the
         // in-memory index and the mmap-backed file.
@@ -363,6 +538,47 @@ mod tests {
                 "kmer hash {h}: in-memory and on-disk lookups diverge",
             );
         }
+    }
+
+    #[test]
+    fn reducer_snapshot_round_trips_through_file() {
+        use crate::matrix::SubstitutionMatrix;
+        use crate::reduced_alphabet::ReducedAlphabet;
+        let idx = tiny_index();
+        let matrix = SubstitutionMatrix::blosum62();
+        let reducer = ReducedAlphabet::from_matrix(&matrix, 13, Some(20)).unwrap();
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("withred.kmi");
+        write_kmi(&idx, Some(&reducer), &path).unwrap();
+
+        let file = KmerIndexFile::open(&path).unwrap();
+        let got = file.reducer().clone();
+        let expected = ReducerSnapshot::from_reducer(Some(&reducer));
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn lookup_out_of_range_hash_returns_empty() {
+        // Matches KmerIndex::lookup_hash's empty-on-out-of-range
+        // contract — prior behavior panicked via debug_assert and
+        // would OOB the offsets array in release builds.
+        let idx = tiny_index();
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("range.kmi");
+        write_kmi(&idx, None, &path).unwrap();
+
+        let file = KmerIndexFile::open(&path).unwrap();
+        let ts = file.table_size();
+        assert!(file.lookup_hash(ts).is_empty());
+        assert!(file.lookup_hash(ts + 1).is_empty());
+        assert!(file.lookup_hash(u64::MAX).is_empty());
+
+        let mut count = 0u32;
+        // for_each_hit should also return empty without panicking.
+        <KmerIndexFile as KmerLookup>::for_each_hit(&file, ts, |_| count += 1);
+        <KmerIndexFile as KmerLookup>::for_each_hit(&file, u64::MAX, |_| count += 1);
+        assert_eq!(count, 0);
     }
 
     #[test]
@@ -387,8 +603,12 @@ mod tests {
         std::fs::write(&path, hdr).unwrap();
         let err = KmerIndexFile::open(&path).err().expect("expected BadVersion");
         assert!(
-            matches!(err, KmiReaderError::BadVersion { found: 99, supported: 1 }),
-            "expected BadVersion(99), got {err}",
+            matches!(
+                err,
+                KmiReaderError::BadVersion { found: 99, supported } if supported == KMI_VERSION,
+            ),
+            "expected BadVersion(99, supported={}), got {err}",
+            KMI_VERSION,
         );
     }
 
@@ -397,7 +617,7 @@ mod tests {
         let idx = tiny_index();
         let dir = tempdir().unwrap();
         let path = dir.path().join("short.kmi");
-        write_kmi(&idx, &path).unwrap();
+        write_kmi(&idx, None, &path).unwrap();
         // Truncate a few bytes off the end.
         let full = std::fs::read(&path).unwrap();
         std::fs::write(&path, &full[..full.len() - 4]).unwrap();
@@ -415,7 +635,7 @@ mod tests {
         let idx = tiny_index();
         let dir = tempdir().unwrap();
         let path = dir.path().join("tiny.kmi");
-        write_kmi(&idx, &path).unwrap();
+        write_kmi(&idx, None, &path).unwrap();
         let file = KmerIndexFile::open(&path).unwrap();
         // Some hash slots are guaranteed empty at this corpus size
         // (table_size = 13^3 = 2197 slots, only a few are populated).

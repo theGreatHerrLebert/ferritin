@@ -26,7 +26,7 @@ use crate::db::{DBReader, DbError};
 use crate::gapped::{smith_waterman, GappedAlignment};
 use crate::kmer::{KmerEncoder, KmerHit, KmerIndex, KmerIndexError, KmerLookup};
 use crate::kmer_generator::widen_to_i32;
-use crate::kmer_index_file::{write_kmi, KmerIndexFile, KmiReaderError, KmiWriterError};
+use crate::kmer_index_file::{write_kmi, KmerIndexFile, KmiReaderError, KmiWriterError, ReducerSnapshot};
 use crate::matrix::SubstitutionMatrix;
 use crate::prefilter::{diagonal_prefilter, PrefilterHit, PrefilterOptions};
 use crate::reduced_alphabet::ReducedAlphabet;
@@ -65,6 +65,13 @@ pub enum BuildFromDbError {
         on_disk: u64,
         expected: u64,
     },
+    #[error(
+        "kmer index reducer mapping differs from the engine's reducer. \
+         The substitution matrix used at build time and the matrix \
+         passed to open must produce the same full-to-reduced equivalence \
+         classes; different matrices at the same reduced_size do not."
+    )]
+    KmiReducerMismatch,
 }
 
 // Route KmerIndexError (raised by the in-place kmer build inside
@@ -418,7 +425,7 @@ impl SearchEngine {
     /// expensive k-mer build only runs once per corpus.
     pub fn write_kmer_index(&self, path: impl AsRef<Path>) -> Result<(), KmiWriterError> {
         match &self.index {
-            KmerIndexStorage::InMemory(idx) => write_kmi(idx, path),
+            KmerIndexStorage::InMemory(idx) => write_kmi(idx, self.reducer.as_ref(), path),
             KmerIndexStorage::OnDisk(_) => Err(KmiWriterError::Io(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "engine already backs its k-mer index on disk; nothing to serialize",
@@ -484,6 +491,15 @@ impl SearchEngine {
                 on_disk: kmi.alphabet_size() as u64,
                 expected: expected_alphabet_size as u64,
             });
+        }
+        // alphabet_size alone is insufficient: ReducedAlphabet::from_matrix
+        // is matrix-dependent and two different matrices at the same
+        // reduced_size can produce different full_to_reduced mappings.
+        // Compare the full reducer snapshot so incompatible indices are
+        // refused at open time instead of silently returning wrong hits.
+        let expected_snap = ReducerSnapshot::from_reducer(reducer.as_ref());
+        if kmi.reducer() != &expected_snap {
+            return Err(BuildFromDbError::KmiReducerMismatch);
         }
 
         let key_to_entry_idx: HashMap<u32, usize> = reader
@@ -1144,6 +1160,62 @@ mod tests {
                 assert_eq!(m_h.alignment.target_end, d_h.alignment.target_end);
             }
         }
+    }
+
+    #[test]
+    fn open_from_mmseqs_db_with_kmi_rejects_reducer_mapping_mismatch() {
+        // Regression for the 2026-04-17 review: alphabet_size parity
+        // alone is insufficient because ReducedAlphabet::from_matrix is
+        // matrix-dependent — two matrices at the same reduced_size can
+        // produce different full_to_reduced mappings. The open path
+        // MUST compare the full reducer snapshot.
+        //
+        // Simulate an incompatible mapping by building normally, then
+        // flipping one byte of the embedded reducer section on disk
+        // before reopen. The engine's expected snapshot (built from
+        // matrix + alphabet + opts) won't equal the tampered on-disk
+        // snapshot, so KmiReducerMismatch must fire.
+        use crate::db::{DBWriter, Dbtype};
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let db_prefix = dir.path().join("db");
+        let kmi_path = dir.path().join("db.kmi");
+
+        let mut w = DBWriter::create(&db_prefix, Dbtype::AMINO_ACIDS).unwrap();
+        w.write_entry(1, b"MKLVRQPSTNLKACDFGHIY").unwrap();
+        w.finish().unwrap();
+
+        let (alpha, m) = alpha_and_matrix();
+        let opts = SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() };
+        let built = SearchEngine::build_from_mmseqs_db(
+            &db_prefix, &m, alpha.clone(), opts.clone(),
+        )
+        .unwrap();
+        built.write_kmer_index(&kmi_path).unwrap();
+
+        // Tamper: open the .kmi file on disk and swap a byte in the
+        // embedded full_to_reduced section. This simulates an index
+        // built with a different matrix / reduction strategy.
+        let mut bytes = std::fs::read(&kmi_path).unwrap();
+        // Reducer section starts at offset 64 (after header). The
+        // full_to_reduced body starts at byte 64 + 12 = 76. Flip one
+        // byte to force a mapping difference.
+        let body_start = (crate::kmer_index_file::KMI_HEADER_SIZE
+            + crate::kmer_index_file::REDUCER_SECTION_PROLOGUE) as usize;
+        let original = bytes[body_start];
+        bytes[body_start] = original.wrapping_add(1);
+        std::fs::write(&kmi_path, &bytes).unwrap();
+
+        let err = SearchEngine::open_from_mmseqs_db_with_kmi(
+            &db_prefix, &kmi_path, &m, alpha, opts,
+        )
+        .err()
+        .expect("expected KmiReducerMismatch");
+        assert!(
+            matches!(err, BuildFromDbError::KmiReducerMismatch),
+            "expected KmiReducerMismatch, got {err}",
+        );
     }
 
     #[test]
