@@ -121,11 +121,96 @@ def _write_release(tmp_path: Path, training_examples, row_group_size: int = 512)
     return out
 
 
+def test_iter_training_examples_batch_size_yields_lists(tmp_path):
+    """`batch_size=N` yields list[TrainingExample] of length ≤ N.
+
+    Previously the parameter was silently ignored and the iterator
+    always yielded single TrainingExamples, breaking the public
+    contract documented in the docstring.
+    """
+    examples = [
+        _fake_training_example(f"r{i}", L=4 + (i % 3), split="train", seed=i)
+        for i in range(7)
+    ]
+    out = _write_release(tmp_path, examples, row_group_size=2)
+
+    chunks = list(iter_training_examples(out, batch_size=3))
+    # 7 examples, batch_size=3 → [3, 3, 1].
+    assert [len(c) for c in chunks] == [3, 3, 1]
+    assert all(isinstance(c, list) for c in chunks)
+    assert all(isinstance(ex, TrainingExample) for c in chunks for ex in c)
+    flat_ids = [ex.record_id for c in chunks for ex in c]
+    assert flat_ids == [ex.record_id for ex in examples]
+
+    # batch_size=None → single-example yields (unchanged behavior).
+    single = list(iter_training_examples(out, batch_size=None))
+    assert [ex.record_id for ex in single] == [ex.record_id for ex in examples]
+    assert all(isinstance(ex, TrainingExample) for ex in single)
+
+
+def test_iter_training_examples_rejects_nonpositive_batch_size(tmp_path):
+    examples = [_fake_training_example("r0", L=3, split="train", seed=0)]
+    out = _write_release(tmp_path, examples)
+    with pytest.raises(ValueError, match="batch_size must be positive"):
+        list(iter_training_examples(out, batch_size=0))
+    with pytest.raises(ValueError, match="batch_size must be positive"):
+        list(iter_training_examples(out, batch_size=-1))
+
+
+def test_scalar_fields_round_trip(tmp_path):
+    """Regression: sequence / code_rev / config_rev / prep_run_id / quality
+    must round-trip through training.parquet. Previously the reader zeroed
+    them (sequence='', revs=None, prep_run_id=None, quality=None)."""
+    from ferritin.supervision import StructureQualityMetadata
+    rng = np.random.default_rng(99)
+    L = 5
+    seq = SequenceExample(
+        record_id="with_revs", source_id="src.pdb", chain_id="A",
+        sequence="MKLVV", length=L,
+        code_rev="abc123", config_rev="def456",
+        aatype=rng.integers(0, 20, size=L, dtype=np.int32),
+        residue_index=np.arange(1, L + 1, dtype=np.int32),
+        seq_mask=np.ones(L, dtype=np.float32),
+    )
+    struc = _fake_struc("with_revs", "A", L, seed=99)
+    # Overwrite the fake with scalars we want to assert on.
+    struc.sequence = "MKLVV"
+    struc.code_rev = "abc123"
+    struc.config_rev = "def456"
+    struc.prep_run_id = "prep-2026-04-17-T00:00"
+    struc.quality = StructureQualityMetadata(
+        prep_success=True, force_field="amber96", atoms_reconstructed=3, hydrogens_added=12,
+    )
+    ex = TrainingExample(
+        record_id="with_revs", source_id="src.pdb", chain_id="A",
+        split="train", crop_start=None, crop_stop=None, weight=1.0,
+        sequence=seq, structure=struc,
+    )
+    out = _write_release(tmp_path, [ex])
+    loaded = list(iter_training_examples(out))
+    assert len(loaded) == 1
+    got = loaded[0]
+    assert got.sequence.sequence == "MKLVV"
+    assert got.structure.sequence == "MKLVV"
+    assert got.sequence.code_rev == "abc123"
+    assert got.sequence.config_rev == "def456"
+    assert got.structure.code_rev == "abc123"
+    assert got.structure.config_rev == "def456"
+    assert got.structure.prep_run_id == "prep-2026-04-17-T00:00"
+    assert got.structure.quality is not None
+    assert got.structure.quality.prep_success is True
+    assert got.structure.quality.force_field == "amber96"
+    assert got.structure.quality.atoms_reconstructed == 3
+    assert got.structure.quality.hydrogens_added == 12
+
+
 def test_schema_has_expected_fields():
     fields = {f.name for f in _build_training_schema()}
     expected = {
         "record_id", "source_id", "chain_id", "split",
         "length", "weight", "crop_start", "crop_stop",
+        # Round-trip scalars added 2026-04-17 — previously zeroed on load.
+        "sequence", "code_rev", "config_rev", "prep_run_id", "quality_json",
         "aatype", "residue_index", "seq_mask",
         "all_atom_positions", "all_atom_mask", "atom37_atom_exists",
         "atom14_gt_positions", "atom14_gt_exists", "atom14_atom_exists",

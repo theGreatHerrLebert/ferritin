@@ -37,7 +37,7 @@ except ImportError:  # pragma: no cover - exercised only in minimal environments
 from ._artifact_checksum import sha256_file, verify_sha256
 from .sequence_example import SequenceExample
 from .sequence_export import load_sequence_examples
-from .supervision import StructureSupervisionExample
+from .supervision import StructureQualityMetadata, StructureSupervisionExample
 from .supervision_export import (
     SEQUENCE_FIELDS as _SEQUENCE_FIELDS,
     STRUCTURE_FIELDS as _STRUCTURE_FIELDS,
@@ -129,6 +129,16 @@ def _build_training_schema() -> "pa.Schema":
         ("weight", pa.float32()),
         ("crop_start", pa.int32()),
         ("crop_stop", pa.int32()),
+        # Non-tensor scalars that must round-trip. Previously these were
+        # zeroed on load: sequence="" and all revs/quality=None regardless
+        # of what the source release carried. Consumers that reached
+        # past the tensor fields got silently-degraded SequenceExample /
+        # StructureSupervisionExample objects.
+        ("sequence", pa.string()),
+        ("code_rev", pa.string()),
+        ("config_rev", pa.string()),
+        ("prep_run_id", pa.string()),
+        ("quality_json", pa.string()),
     ]
     for name, inner_shape, dtype, _ in _TENSOR_FIELDS:
         fields.append((name, _typ(inner_shape, dtype)))
@@ -178,6 +188,34 @@ def _training_examples_to_record_batch(
     crop_starts = [ex.crop_start for ex in batch]
     crop_stops = [ex.crop_stop for ex in batch]
 
+    # Round-trip scalars. sequence/code_rev/config_rev are duplicated
+    # between SequenceExample and StructureSupervisionExample; we take
+    # them from the sequence side since the sequence release is the
+    # canonical source for those (structure supervision mirrors them).
+    sequences = [
+        ex.sequence.sequence if ex.sequence is not None else ""
+        for ex in batch
+    ]
+    code_revs = [
+        (ex.sequence.code_rev if ex.sequence is not None else None)
+        for ex in batch
+    ]
+    config_revs = [
+        (ex.sequence.config_rev if ex.sequence is not None else None)
+        for ex in batch
+    ]
+    prep_run_ids = [
+        (ex.structure.prep_run_id if ex.structure is not None else None)
+        for ex in batch
+    ]
+    quality_jsons: List[Optional[str]] = []
+    for ex in batch:
+        q = getattr(ex.structure, "quality", None) if ex.structure is not None else None
+        if q is None:
+            quality_jsons.append(None)
+        else:
+            quality_jsons.append(json.dumps(asdict(q), separators=(",", ":")))
+
     columns: List["pa.Array"] = [
         pa.array(record_ids, type=pa.string()),
         pa.array(source_ids, type=pa.string()),
@@ -187,6 +225,11 @@ def _training_examples_to_record_batch(
         pa.array(weights, type=pa.float32()),
         pa.array(crop_starts, type=pa.int32()),
         pa.array(crop_stops, type=pa.int32()),
+        pa.array(sequences, type=pa.string()),
+        pa.array(code_revs, type=pa.string()),
+        pa.array(config_revs, type=pa.string()),
+        pa.array(prep_run_ids, type=pa.string()),
+        pa.array(quality_jsons, type=pa.string()),
     ]
     for name, inner_shape, dtype, attr in _SEQUENCE_FIELDS:
         per_row = [np.ascontiguousarray(getattr(ex.sequence, attr)) for ex in batch]
@@ -407,7 +450,7 @@ def iter_training_examples(
     split: Optional[str] = None,
     batch_size: Optional[int] = None,
     verify_checksum: bool = True,
-) -> Iterator[TrainingExample]:
+) -> Iterator:
     """Stream `TrainingExample` rows from a training release.
 
     Reads one Parquet row-group at a time so peak memory is bounded.
@@ -415,11 +458,14 @@ def iter_training_examples(
     pushdown; matching row-groups are read, others are skipped.
 
     `batch_size=None` (default) yields one `TrainingExample` per
-    `__next__`. Setting an integer yields `TrainingExample` items in
-    contiguous chunks of that size without re-materializing — useful
-    when the caller wants to mini-batch downstream.
+    `__next__`. Setting a positive integer yields `list[TrainingExample]`
+    chunks of length ≤ `batch_size` — contiguous in release order and
+    respecting `split` filtering. The trailing chunk may be shorter
+    than `batch_size` if the filtered row count isn't a multiple.
     """
     _require_pyarrow()
+    if batch_size is not None and batch_size <= 0:
+        raise ValueError(f"batch_size must be positive or None, got {batch_size}")
     root = Path(release_dir)
     manifest = json.loads((root / "release_manifest.json").read_text(encoding="utf-8"))
     if manifest.get("format") != TRAINING_EXPORT_FORMAT:
@@ -448,9 +494,23 @@ def iter_training_examples(
                 if row.get("crop_start") is not None
             },
         )
-        for ex in rejoined:
-            if split is None or ex.split == split:
-                yield ex
+        # Pointer-only path — same per-item/batched contract as the
+        # parquet path below.
+        if batch_size is None:
+            for ex in rejoined:
+                if split is None or ex.split == split:
+                    yield ex
+        else:
+            chunk: List[TrainingExample] = []
+            for ex in rejoined:
+                if split is not None and ex.split != split:
+                    continue
+                chunk.append(ex)
+                if len(chunk) >= batch_size:
+                    yield chunk
+                    chunk = []
+            if chunk:
+                yield chunk
         return
 
     parquet_path = root / parquet_file
@@ -475,38 +535,58 @@ def iter_training_examples(
         batches_iter = pf.iter_batches(batch_size=pf.metadata.row_group(0).num_rows) \
             if pf.metadata.num_row_groups > 0 else iter(())
 
-    for rb in batches_iter:
-        rows_tbl = rb.to_pydict()
-        n = rb.num_rows
-        # Decode each row. `rows_tbl[col]` is a Python list; list-typed
-        # columns yield nested Python lists that we np.asarray into
-        # per-row ndarrays of the right dtype.
-        for i in range(n):
-            yield _parquet_row_to_training_example(rows_tbl, i)
+    if batch_size is None:
+        for rb in batches_iter:
+            rows_tbl = rb.to_pydict()
+            for i in range(rb.num_rows):
+                yield _parquet_row_to_training_example(rows_tbl, i)
+    else:
+        chunk: List[TrainingExample] = []
+        for rb in batches_iter:
+            rows_tbl = rb.to_pydict()
+            for i in range(rb.num_rows):
+                chunk.append(_parquet_row_to_training_example(rows_tbl, i))
+                if len(chunk) >= batch_size:
+                    yield chunk
+                    chunk = []
+        if chunk:
+            yield chunk
 
 
 def _parquet_row_to_training_example(cols: Mapping[str, list], i: int) -> TrainingExample:
     """Decode one row of a Parquet RecordBatch into a TrainingExample."""
     length = int(cols["length"][i])
+    # Scalars that were added to the schema for round-trip fidelity. The
+    # .get() fallbacks preserve back-compat with older v0-era parquets
+    # that predate these columns; those will still load but with the
+    # previous zeroed-field semantics.
+    sequence_str = cols.get("sequence", [None] * (i + 1))[i] or ""
+    code_rev = cols.get("code_rev", [None] * (i + 1))[i]
+    config_rev = cols.get("config_rev", [None] * (i + 1))[i]
+    prep_run_id = cols.get("prep_run_id", [None] * (i + 1))[i]
+    quality_json = cols.get("quality_json", [None] * (i + 1))[i]
+
     seq_kwargs: Dict[str, object] = {
         "record_id": cols["record_id"][i],
         "source_id": cols["source_id"][i],
         "chain_id": cols["chain_id"][i],
-        "sequence": "",
+        "sequence": sequence_str,
         "length": length,
-        "code_rev": None,
-        "config_rev": None,
+        "code_rev": code_rev,
+        "config_rev": config_rev,
     }
     struc_kwargs: Dict[str, object] = {
         "record_id": cols["record_id"][i],
         "source_id": cols["source_id"][i],
-        "prep_run_id": None,
+        "prep_run_id": prep_run_id,
         "chain_id": cols["chain_id"][i],
-        "sequence": "",
+        "sequence": sequence_str,
         "length": length,
-        "code_rev": None,
-        "config_rev": None,
-        "quality": None,
+        "code_rev": code_rev,
+        "config_rev": config_rev,
+        "quality": (
+            StructureQualityMetadata(**json.loads(quality_json)) if quality_json else None
+        ),
     }
     for name, inner_shape, dtype, attr in _SEQUENCE_FIELDS:
         arr = np.asarray(cols[name][i], dtype=dtype)

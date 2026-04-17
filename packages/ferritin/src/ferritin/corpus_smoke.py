@@ -121,6 +121,7 @@ def build_local_corpus_smoke_release(
         expanded_source_ids,
         expanded_chain_ids,
         expanded_paths,
+        expanded_parent_record_ids,
     ) = _expand_chains(loaded_structures, prep_reports, record_ids, source_ids, loaded_paths)
 
     prepared_root = build_structure_supervision_dataset_from_prepared(
@@ -175,10 +176,16 @@ def build_local_corpus_smoke_release(
         split_assignments = {rid: split_assignments[rid] for rid in expanded_record_ids}
         split_strategy = "explicit"
     elif split_ratios is not None:
-        split_assignments = _hash_split_assignments(expanded_record_ids, split_ratios)
+        split_assignments = _hash_split_assignments(
+            expanded_record_ids,
+            split_ratios,
+            grouping_keys=expanded_parent_record_ids,
+        )
         split_strategy = f"hash_split:{_format_ratios(split_ratios)}"
     else:
-        split_assignments = _default_split_assignments(expanded_record_ids)
+        split_assignments = _default_split_assignments(
+            expanded_record_ids, grouping_keys=expanded_parent_record_ids
+        )
         split_strategy = f"default_hash_split:{_format_ratios(DEFAULT_SPLIT_RATIOS)}"
     training_root = build_training_release(
         sequence_root,
@@ -294,7 +301,11 @@ def _write_rescued_inputs(
 DEFAULT_SPLIT_RATIOS: Mapping[str, float] = {"train": 0.8, "val": 0.1, "test": 0.1}
 
 
-def _default_split_assignments(record_ids: Iterable[str]) -> dict[str, str]:
+def _default_split_assignments(
+    record_ids: Iterable[str],
+    *,
+    grouping_keys: Optional[Iterable[str]] = None,
+) -> dict[str, str]:
     """Hash-split at DEFAULT_SPLIT_RATIOS (80/10/10).
 
     The prior behavior ("everything train except the last record, which
@@ -302,8 +313,15 @@ def _default_split_assignments(record_ids: Iterable[str]) -> dict[str, str]:
     which silently broke downstream evaluation. The default is now an
     80/10/10 deterministic hash-split — same record_id gives the same
     bucket regardless of input order or corpus size.
+
+    `grouping_keys` — optional parallel sequence. When provided, records
+    sharing a grouping key share a split (all chains of the same source
+    structure go to the same bucket). Without this, multi-chain complexes
+    leak across train/val/test.
     """
-    return _hash_split_assignments(record_ids, DEFAULT_SPLIT_RATIOS)
+    return _hash_split_assignments(
+        record_ids, DEFAULT_SPLIT_RATIOS, grouping_keys=grouping_keys
+    )
 
 
 def _expand_chains(
@@ -312,13 +330,19 @@ def _expand_chains(
     record_ids: Sequence[str],
     source_ids: Sequence[str],
     paths: Sequence[Path],
-) -> tuple[list, list, list[str], list[str], list[Optional[str]], list[Path]]:
+) -> tuple[list, list, list[str], list[str], list[Optional[str]], list[Path], list[str]]:
     """Expand per-structure entries into per-chain entries.
 
     Structure/sequence supervision v0 is chain-scoped. Single-chain
     structures pass through unchanged with chain_id=None so existing
     record_ids are preserved; multi-chain structures produce one
     entry per chain with record_id=f"{stem}_{chain_id}".
+
+    Returns a parallel `parent_record_ids` list so downstream split
+    assignment can bucket sibling chains (e.g. `p0002_A` and `p0002_B`)
+    into the same split. Without this, a hash-split over the expanded
+    IDs leaks chains of the same biological complex across
+    train/val/test.
     """
     ex_structs: list = []
     ex_prep: list = []
@@ -326,6 +350,7 @@ def _expand_chains(
     ex_srcs: list[str] = []
     ex_chains: list[Optional[str]] = []
     ex_paths: list[Path] = []
+    ex_parent_rids: list[str] = []
 
     for structure, prep_report, rid, src, path in zip(
         structures, prep_reports, record_ids, source_ids, paths
@@ -352,6 +377,7 @@ def _expand_chains(
             ex_srcs.append(src)
             ex_chains.append(None)
             ex_paths.append(path)
+            ex_parent_rids.append(rid)
             continue
         for chain in chains:
             chain_id = getattr(chain, "id", None)
@@ -361,19 +387,40 @@ def _expand_chains(
             ex_srcs.append(src)
             ex_chains.append(chain_id)
             ex_paths.append(path)
-    return ex_structs, ex_prep, ex_rids, ex_srcs, ex_chains, ex_paths
+            ex_parent_rids.append(rid)
+    return ex_structs, ex_prep, ex_rids, ex_srcs, ex_chains, ex_paths, ex_parent_rids
 
 
 def _hash_split_assignments(
     record_ids: Iterable[str],
     ratios: Mapping[str, float],
+    *,
+    grouping_keys: Optional[Iterable[str]] = None,
 ) -> dict[str, str]:
-    """Deterministic hash-split on record_id.
+    """Deterministic hash-split.
 
-    Each record_id hashes into [0, 1) via blake2b; ratios define contiguous
-    buckets in that interval. Same record_id + same ratios ⇒ same split,
-    regardless of input order, corpus size, or which other records are present.
+    Each *grouping key* hashes into [0, 1) via blake2b; ratios define
+    contiguous buckets. Same key + same ratios ⇒ same split, regardless
+    of input order or corpus size.
+
+    `grouping_keys` — optional parallel sequence. When provided, records
+    sharing a grouping key are assigned the same split. When omitted,
+    each record_id is its own grouping key (per-record hashing).
+
+    The grouping-key path is how we keep sibling chains of the same
+    source structure together in the default split: pass the pre-chain-
+    expansion parent record_id as the grouping key.
     """
+    record_list = list(record_ids)
+    if grouping_keys is None:
+        grouping_list = record_list
+    else:
+        grouping_list = list(grouping_keys)
+        if len(grouping_list) != len(record_list):
+            raise ValueError(
+                f"grouping_keys length {len(grouping_list)} != record_ids length "
+                f"{len(record_list)}; they must align one-to-one"
+            )
     if not ratios:
         raise ValueError("split_ratios must be non-empty")
     total = sum(ratios.values())
@@ -387,15 +434,19 @@ def _hash_split_assignments(
         cumulative.append((name, running))
     cumulative[-1] = (cumulative[-1][0], 1.0)
 
-    assignments: dict[str, str] = {}
-    for rid in record_ids:
-        digest = blake2b(rid.encode("utf-8"), digest_size=8).digest()
+    # Hash each grouping_key once, cache the split, then fan out to records.
+    group_to_split: dict[str, str] = {}
+    for gk in grouping_list:
+        if gk in group_to_split:
+            continue
+        digest = blake2b(gk.encode("utf-8"), digest_size=8).digest()
         u = int.from_bytes(digest, "big") / 2**64
         for name, cutoff in cumulative:
             if u < cutoff:
-                assignments[rid] = name
+                group_to_split[gk] = name
                 break
-    return assignments
+
+    return {rid: group_to_split[gk] for rid, gk in zip(record_list, grouping_list)}
 
 
 def _format_ratios(ratios: Mapping[str, float]) -> str:
