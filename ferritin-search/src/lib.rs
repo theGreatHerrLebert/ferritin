@@ -11,6 +11,7 @@ pub mod gapped;
 pub mod gpu;
 pub mod kmer;
 pub mod kmer_generator;
+pub mod kmer_index_file;
 pub mod matrix;
 pub mod msa;
 pub mod padded_db;
