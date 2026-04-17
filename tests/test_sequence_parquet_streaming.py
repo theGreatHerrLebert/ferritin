@@ -139,6 +139,36 @@ def test_sequence_parquet_empty_release(tmp_path: Path):
     assert load_sequence_examples(out) == []
 
 
+def test_sequence_release_outer_manifest_agrees_on_empty(tmp_path: Path):
+    """Outer release_manifest.json must not point at a nonexistent
+    tensors.parquet on empty releases. Prior dataclass default was
+    tensor_file = 'examples/tensors.parquet' regardless of whether
+    the file was written."""
+    from ferritin.sequence_release import build_sequence_release
+
+    root = build_sequence_release([], tmp_path / "release", release_id="empty")
+    outer = json.loads((root / "release_manifest.json").read_text())
+    assert outer["count_examples"] == 0
+    assert outer["tensor_file"] is None
+    # Also verify the advertised path doesn't exist (if it did, consumers
+    # could reasonably trust the manifest and try to open it).
+    assert not (root / "examples" / "tensors.parquet").exists()
+
+
+def test_sequence_release_outer_manifest_points_at_parquet_when_nonempty(tmp_path: Path):
+    from ferritin.sequence_release import build_sequence_release
+
+    root = build_sequence_release(
+        [_fake_sequence("a", L=3, seed=0, depth=1)],
+        tmp_path / "release",
+        release_id="one",
+    )
+    outer = json.loads((root / "release_manifest.json").read_text())
+    assert outer["count_examples"] == 1
+    assert outer["tensor_file"] == "examples/tensors.parquet"
+    assert (root / outer["tensor_file"]).exists()
+
+
 def test_build_sequence_release_consumes_generator(tmp_path: Path):
     """Regression: build_sequence_release must not materialize the input.
 

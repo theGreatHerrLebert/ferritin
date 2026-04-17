@@ -13,6 +13,10 @@ use crate::py_pdb::PyPDB;
 /// torsion, improper torsion) as Python lists. Used by the AMBER96 oracle
 /// to diff ferritin's torsion list against OpenMM's PeriodicTorsionForce
 /// contents — atom-index-only so the two sets can be compared directly.
+///
+/// Accepts the same force-field aliases as `compute_energy`, including
+/// `amber96_obc` (with `amber96+obc` / `amber96_obc2` aliases) so OBC
+/// topology / charge diagnostics stay on-parity with the energy path.
 #[pyfunction]
 #[pyo3(signature = (pdb, ff="amber96"))]
 pub fn dump_topology<'py>(py: Python<'py>, pdb: &PyPDB, ff: &str) -> PyResult<PyObject> {
@@ -21,9 +25,13 @@ pub fn dump_topology<'py>(py: Python<'py>, pdb: &PyPDB, ff: &str) -> PyResult<Py
             topology::build_topology(&pdb.inner, &params::charmm19_eef1())
         }
         "amber" | "amber96" => topology::build_topology(&pdb.inner, &params::amber96()),
+        "amber96_obc" | "amber96+obc" | "amber96_obc2" => {
+            topology::build_topology(&pdb.inner, &params::amber96_obc())
+        }
         _ => {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Unknown force field '{ff}'. Use 'amber96' or 'charmm19_eef1'."
+                "Unknown force field '{ff}'. Use 'amber96', 'amber96_obc' \
+                 (aliases: 'amber96+obc', 'amber96_obc2'), or 'charmm19_eef1'."
             )))
         }
     };

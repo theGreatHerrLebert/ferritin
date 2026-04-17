@@ -209,3 +209,30 @@ def test_supervision_empty_release_no_tensor_file(tmp_path):
     assert not (out / "tensors.parquet").exists()
     assert list(iter_structure_supervision_examples(out)) == []
     assert load_structure_supervision_examples(out) == []
+
+
+def test_supervision_release_outer_manifest_agrees_on_empty(tmp_path):
+    """Outer release_manifest.json must not claim examples/tensors.parquet
+    when no tensors.parquet was written. Prior default hardcoded the
+    string regardless of count_examples."""
+    from ferritin.supervision_release import build_structure_supervision_release
+
+    root = build_structure_supervision_release([], tmp_path / "sup", release_id="empty")
+    outer = json.loads((root / "release_manifest.json").read_text())
+    assert outer["count_examples"] == 0
+    assert outer["tensor_file"] is None
+    assert not (root / "examples" / "tensors.parquet").exists()
+
+
+def test_supervision_release_outer_manifest_points_at_parquet_when_nonempty(tmp_path):
+    from ferritin.supervision_release import build_structure_supervision_release
+
+    root = build_structure_supervision_release(
+        [_fake_supervision("a", L=3, seed=0)],
+        tmp_path / "sup",
+        release_id="one",
+    )
+    outer = json.loads((root / "release_manifest.json").read_text())
+    assert outer["count_examples"] == 1
+    assert outer["tensor_file"] == "examples/tensors.parquet"
+    assert (root / outer["tensor_file"]).exists()

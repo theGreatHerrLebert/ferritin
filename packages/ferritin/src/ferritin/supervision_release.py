@@ -61,7 +61,11 @@ class StructureSupervisionReleaseManifest:
     count_failures: int = 0
     example_export_dir: str = "examples"
     examples_file: str = "examples/examples.jsonl"
-    tensor_file: str = "examples/tensors.parquet"
+    # `tensor_file` is None when `count_examples == 0` (no tensors.parquet
+    # is written in that case); set to "examples/tensors.parquet" only
+    # when a real artifact exists so the manifest doesn't point at a
+    # nonexistent path.
+    tensor_file: Optional[str] = None
     failure_file: str = "failures.jsonl"
     lengths: Dict[str, float] = field(default_factory=dict)
     sequence_lengths: List[int] = field(default_factory=list)
@@ -121,6 +125,7 @@ def build_structure_supervision_release(
         config_rev=config_rev,
         count_examples=count_examples,
         count_failures=len(failure_list),
+        tensor_file="examples/tensors.parquet" if count_examples > 0 else None,
         lengths=_length_summary(lengths),
         sequence_lengths=lengths,
         provenance=dict(provenance or {}),
