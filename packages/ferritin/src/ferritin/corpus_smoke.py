@@ -41,6 +41,8 @@ def build_local_corpus_smoke_release(
     msa_suffix: str = ".a3m",
     msa_strict: bool = False,
     chunk_size: Optional[int] = None,
+    supervision_row_group_size: int = 512,
+    sequence_row_group_size: int = 64,
     overwrite: bool = False,
 ) -> Path:
     """Build a small end-to-end corpus release from local structure files.
@@ -89,6 +91,8 @@ def build_local_corpus_smoke_release(
             msa_suffix=msa_suffix,
             msa_strict=msa_strict,
             chunk_size=chunk_size,
+            supervision_row_group_size=supervision_row_group_size,
+            sequence_row_group_size=sequence_row_group_size,
             overwrite=overwrite,
         )
 
@@ -351,6 +355,8 @@ def _build_local_corpus_smoke_release_chunked(
     msa_suffix: str,
     msa_strict: bool,
     chunk_size: int,
+    supervision_row_group_size: int,
+    sequence_row_group_size: int,
     overwrite: bool,
 ) -> Path:
     """Chunked intake path: load+prep+expand+emit per chunk, drop, repeat.
@@ -409,8 +415,8 @@ def _build_local_corpus_smoke_release_chunked(
     sup_example_dir = sup_release_root / "examples"
     seq_example_dir = seq_release_root / "examples"
 
-    with SupervisionParquetWriter(sup_example_dir, row_group_size=512) as sup_writer, \
-         SequenceParquetWriter(seq_example_dir, row_group_size=64) as seq_writer:
+    with SupervisionParquetWriter(sup_example_dir, row_group_size=supervision_row_group_size) as sup_writer, \
+         SequenceParquetWriter(seq_example_dir, row_group_size=sequence_row_group_size) as seq_writer:
         for chunk_start in range(0, n_total, chunk_size):
             chunk_paths = path_list[chunk_start : chunk_start + chunk_size]
 
