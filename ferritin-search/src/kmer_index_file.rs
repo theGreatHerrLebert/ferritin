@@ -359,21 +359,35 @@ pub fn build_kmi_external(
     let (_head, rest) = mmap.split_at_mut(entries_seq_id_pos as usize);
     let (seq_id_region, pos_region) = rest.split_at_mut((4 * n_entries) as usize);
 
-    for entry in &db.index {
-        let payload = db.get_payload(entry);
-        let encoded = match reducer {
-            Some(r) => r.reduce_sequence(&Sequence::from_ascii(alphabet.clone(), payload).data),
-            None => Sequence::from_ascii(alphabet.clone(), payload).data,
-        };
-        let seq_id_bytes = entry.key.to_le_bytes();
-        for (pos, h) in encoder.iter_kmers(&encoded, skip_idx) {
-            let cur = cursors[h as usize] as usize;
-            let seq_id_off = 4 * cur;
-            seq_id_region[seq_id_off..seq_id_off + 4].copy_from_slice(&seq_id_bytes);
-            let pos_off = 2 * cur;
-            let pos_bytes = (pos as u16).to_le_bytes();
-            pos_region[pos_off..pos_off + 2].copy_from_slice(&pos_bytes);
-            cursors[h as usize] += 1;
+    // Multi-range passes: each pass scans the full DB but only writes
+    // entries whose k-mer hash falls in [lo, hi). At K > 1 the writes
+    // are localized to 1/K of the output file per pass, which keeps
+    // the OS page cache hot instead of thrashing across all ~n_entries
+    // output pages. See `BuildExternalOptions::hash_range_passes`.
+    let k_passes = opts.hash_range_passes.max(1);
+    let table_u64 = table_size as u64;
+    for pass in 0..k_passes {
+        let lo = (table_u64 * pass as u64) / k_passes as u64;
+        let hi = (table_u64 * (pass as u64 + 1)) / k_passes as u64;
+        for entry in &db.index {
+            let payload = db.get_payload(entry);
+            let encoded = match reducer {
+                Some(r) => r.reduce_sequence(&Sequence::from_ascii(alphabet.clone(), payload).data),
+                None => Sequence::from_ascii(alphabet.clone(), payload).data,
+            };
+            let seq_id_bytes = entry.key.to_le_bytes();
+            for (pos, h) in encoder.iter_kmers(&encoded, skip_idx) {
+                if h < lo || h >= hi {
+                    continue;
+                }
+                let cur = cursors[h as usize] as usize;
+                let seq_id_off = 4 * cur;
+                seq_id_region[seq_id_off..seq_id_off + 4].copy_from_slice(&seq_id_bytes);
+                let pos_off = 2 * cur;
+                let pos_bytes = (pos as u16).to_le_bytes();
+                pos_region[pos_off..pos_off + 2].copy_from_slice(&pos_bytes);
+                cursors[h as usize] += 1;
+            }
         }
     }
 
@@ -397,11 +411,27 @@ pub fn build_kmi_external(
     Ok(())
 }
 
-/// Options for [`build_kmi_external`]. Only `k` for now; prefix in case
-/// later phases want threads, block size, etc.
+/// Options for [`build_kmi_external`].
+///
+/// `hash_range_passes` controls how many write-side DB scans run:
+/// each scan writes only entries whose k-mer hash falls in one slice
+/// of the full hash range `[0, table_size)`. At `= 1` the builder
+/// touches the whole output file in a single pass and thrashes the
+/// page cache when the output is much larger than available RAM.
+/// Higher values trade DB scans for write locality: `K` passes each
+/// touch `~1/K` of the output file. A good default is
+/// `max(1, ceil(estimated_output_bytes / 1 GB))` but users who know
+/// their machine can pick explicitly.
 #[derive(Debug, Clone)]
 pub struct BuildExternalOptions {
     pub k: usize,
+    pub hash_range_passes: usize,
+}
+
+impl Default for BuildExternalOptions {
+    fn default() -> Self {
+        Self { k: 6, hash_range_passes: 1 }
+    }
 }
 
 fn write_header_into(
@@ -833,7 +863,7 @@ mod tests {
             &db,
             alphabet.clone(),
             Some(&reducer),
-            BuildExternalOptions { k: 3 },
+            BuildExternalOptions { k: 3, hash_range_passes: 1 },
             &ext_path,
         ).unwrap();
 
@@ -850,6 +880,63 @@ mod tests {
         let ext_file = KmerIndexFile::open(&ext_path).unwrap();
         for h in 0..mem_file.table_size() {
             assert_eq!(mem_file.lookup_hash(h), ext_file.lookup_hash(h));
+        }
+    }
+
+    #[test]
+    fn external_build_multi_pass_matches_single_pass() {
+        // hash_range_passes > 1 must produce byte-identical output —
+        // each pass is disjoint in hash range, cursors accumulate
+        // across passes, and the DB walk order within a pass is
+        // preserved.
+        use crate::db::{DBWriter, Dbtype};
+        use crate::matrix::SubstitutionMatrix;
+        use crate::reduced_alphabet::ReducedAlphabet;
+
+        let dir = tempdir().unwrap();
+        let db_prefix = dir.path().join("db");
+        let mut w = DBWriter::create(&db_prefix, Dbtype::AMINO_ACIDS).unwrap();
+        let raw: &[(u32, &[u8])] = &[
+            (1, b"MKLVRQPSTNLKACDFGHIY"),
+            (2, b"WVLSAADKTNVKAAWGKVGAHAGEYGAEALERMFLSFP"),
+            (3, b"MEAFRKQLPCFRSGAQQVKEHFKQVAEKHHGFLEEFCAR"),
+            (4, b"MNALVVKFGGTSVANAERFLRVADILESNARQGQ"),
+            (5, b"TTCCPSIVARSNFNVCRLPGTPEAICATYTGCIIIPGATCPGDYAN"),
+        ];
+        for (k, s) in raw {
+            w.write_entry(*k, s).unwrap();
+        }
+        w.finish().unwrap();
+
+        let alphabet = Alphabet::protein();
+        let matrix = SubstitutionMatrix::blosum62();
+        let reducer = ReducedAlphabet::from_matrix(&matrix, 13, Some(20)).unwrap();
+        let db = DBReader::open(&db_prefix).unwrap();
+
+        let one_pass_path = dir.path().join("one.kmi");
+        build_kmi_external(
+            &db,
+            alphabet.clone(),
+            Some(&reducer),
+            BuildExternalOptions { k: 3, hash_range_passes: 1 },
+            &one_pass_path,
+        ).unwrap();
+
+        for k_passes in [2, 5, 13, 100] {
+            let multi_pass_path = dir.path().join(format!("multi_{k_passes}.kmi"));
+            build_kmi_external(
+                &db,
+                alphabet.clone(),
+                Some(&reducer),
+                BuildExternalOptions { k: 3, hash_range_passes: k_passes },
+                &multi_pass_path,
+            ).unwrap();
+            let one_bytes = std::fs::read(&one_pass_path).unwrap();
+            let multi_bytes = std::fs::read(&multi_pass_path).unwrap();
+            assert_eq!(
+                one_bytes, multi_bytes,
+                "hash_range_passes={k_passes} produced different bytes than single-pass",
+            );
         }
     }
 

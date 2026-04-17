@@ -40,6 +40,15 @@ struct Args {
     /// Skip alphabet reduction; k-mer index will be in the full alphabet.
     #[arg(long)]
     no_reduce: bool,
+    /// Number of hash-range passes over the DB during the write phase.
+    /// At K=1 the builder writes to the full output in a single scan,
+    /// which thrashes the OS page cache for outputs larger than RAM.
+    /// K × full-DB scans trades CPU for write locality: each pass
+    /// touches 1/K of the output file. Rule of thumb: pick K so that
+    /// `output_size / K ≤ ~1 GB`. At UniRef50 scale, K = 60–100 is
+    /// reasonable.
+    #[arg(long, default_value_t = 1)]
+    hash_range_passes: usize,
 }
 
 fn main() -> Result<()> {
@@ -82,11 +91,15 @@ fn main() -> Result<()> {
         8 * (table_size + 1) / 1024 / 1024,
     );
 
+    eprintln!("hash_range_passes = {}", args.hash_range_passes);
     build_kmi_external(
         &db,
         alphabet,
         reducer,
-        BuildExternalOptions { k: args.k },
+        BuildExternalOptions {
+            k: args.k,
+            hash_range_passes: args.hash_range_passes,
+        },
         &args.out_kmi,
     )
     .context("build_kmi_external failed")?;
