@@ -118,3 +118,88 @@ def test_chunk_size_none_is_single_shot_path(tmp_path: Path):
     corpus = json.loads((out / "corpus" / "corpus_release_manifest.json").read_text())
     # Single-shot path doesn't stamp chunk_size into provenance.
     assert corpus["provenance"].get("chunk_size") is None
+
+
+def test_chunked_provenance_covers_supervision_only_successes(tmp_path: Path, monkeypatch):
+    """Regression: a record that succeeds on supervision but fails on
+    sequence must still appear in the supervision manifest provenance.
+
+    The prior chunked-intake code appended `expanded_paths` only inside
+    the sequence-success block, so the supervision tensors.parquet
+    carried the example but the supervision release_manifest's
+    provenance.input_paths silently dropped that input. The fix
+    appends provenance BEFORE both try blocks (one entry per
+    _expand_chains output), matching the single-shot path's
+    "provenance = what was attempted" semantics.
+    """
+    from ferritin import sequence_example as _seq_mod
+
+    real_build_sequence_example = _seq_mod.build_sequence_example
+    fail_on_stem = FIXTURES[1].stem  # 1ubq
+
+    def _selective_sequence_failure(structure, *args, **kwargs):
+        record_id = kwargs.get("record_id") or ""
+        # Use the prefix because chunked and single-shot may pass
+        # slightly different record_ids (stem vs stem:A).
+        if record_id.startswith(fail_on_stem):
+            raise RuntimeError(f"test-injected failure on {record_id}")
+        return real_build_sequence_example(structure, *args, **kwargs)
+
+    # corpus_smoke imports build_sequence_example function-locally inside
+    # `_build_local_corpus_smoke_release_chunked`, so monkeypatching the
+    # source module picks up on the next call. No need to patch
+    # corpus_smoke itself.
+    monkeypatch.setattr(_seq_mod, "build_sequence_example", _selective_sequence_failure)
+
+    root = ferritin.build_local_corpus_smoke_release(
+        [str(p) for p in FIXTURES],
+        tmp_path / "out",
+        release_id="chunked-seq-fail",
+        chunk_size=1,
+    )
+
+    sup_manifest = json.loads(
+        (root / "prepared" / "supervision_release" / "release_manifest.json").read_text()
+    )
+    seq_manifest = json.loads(
+        (root / "sequence" / "release_manifest.json").read_text()
+    )
+
+    # All three input paths remain in both manifests' provenance even
+    # though one record failed on sequence. If the old skew were still
+    # present, 1ubq's path would be missing from at least one of them.
+    sup_paths = sup_manifest["provenance"]["input_paths"]
+    seq_paths = seq_manifest["provenance"]["input_paths"]
+    assert any(fail_on_stem in p for p in sup_paths), (
+        f"supervision manifest provenance missing {fail_on_stem!r} — skew is back"
+    )
+    assert any(fail_on_stem in p for p in seq_paths), (
+        f"sequence manifest provenance missing {fail_on_stem!r}"
+    )
+
+    # Supervision contains the record. Sequence does not. Sequence has
+    # exactly one failure (the injected one).
+    import pyarrow.parquet as pq
+    sup_tbl = pq.read_table(
+        root / "prepared" / "supervision_release" / "examples" / "tensors.parquet",
+        columns=["record_id"],
+    )
+    sup_rids = set(sup_tbl.column("record_id").to_pylist())
+    assert any(r.startswith(fail_on_stem) for r in sup_rids), (
+        f"expected {fail_on_stem!r} in supervision.parquet but got {sorted(sup_rids)}"
+    )
+
+    seq_tbl = pq.read_table(
+        root / "sequence" / "examples" / "tensors.parquet", columns=["record_id"],
+    )
+    seq_rids = set(seq_tbl.column("record_id").to_pylist())
+    assert not any(r.startswith(fail_on_stem) for r in seq_rids), (
+        f"seq-failed {fail_on_stem!r} unexpectedly appeared in sequence.parquet"
+    )
+
+    # Exactly one sequence-side failure row for the injected PDB.
+    seq_fail_lines = (root / "sequence" / "failures.jsonl").read_text().splitlines()
+    seq_fails = [json.loads(ln) for ln in seq_fail_lines if ln.strip()]
+    assert len(seq_fails) == 1, f"expected 1 seq failure, got {len(seq_fails)}"
+    assert seq_fails[0]["record_id"].startswith(fail_on_stem)
+    assert "test-injected failure" in seq_fails[0]["message"]

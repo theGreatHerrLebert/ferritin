@@ -493,9 +493,27 @@ def _build_local_corpus_smoke_release_chunked(
                 path = e_paths[j]
                 parent = e_parents[j]
 
-                # Supervision side first — sequence side joins against the
-                # same record_id and we want to skip it if supervision
-                # fails (the join would drop it anyway).
+                # Provenance tracking: one entry per *attempted* record,
+                # regardless of per-stage success. Matches the single-shot
+                # path — both supervision and sequence release manifests
+                # list every path the release tried to process, with
+                # per-stage failure detail in failures.jsonl. Prior
+                # behavior filtered this list to "sequence-succeeded"
+                # records only, which silently omitted supervision-only
+                # successes from the supervision manifest provenance.
+                expanded_record_ids.append(rid)
+                expanded_parent_record_ids.append(parent)
+                expanded_source_ids.append(src)
+                expanded_chain_ids.append(cid)
+                expanded_paths.append(path)
+
+                # Supervision and sequence are independent per-record
+                # attempts. Each has its own try/except + failures.jsonl
+                # entry; a failure on one doesn't skip the other. This
+                # mirrors `build_structure_supervision_dataset` and
+                # `build_sequence_dataset` in the single-shot path,
+                # which iterate the same structure list independently.
+                from .failure_taxonomy import classify_exception
                 try:
                     sup_ex = build_structure_supervision_example(
                         struct,
@@ -506,8 +524,9 @@ def _build_local_corpus_smoke_release_chunked(
                         code_rev=code_rev,
                         config_rev=config_rev,
                     )
+                    sup_writer.append(sup_ex)
+                    sup_lengths.append(int(sup_ex.length))
                 except Exception as exc:
-                    from .failure_taxonomy import classify_exception
                     sup_failures.append(
                         FailureRecord(
                             record_id=rid,
@@ -520,10 +539,6 @@ def _build_local_corpus_smoke_release_chunked(
                             provenance={"exception_type": type(exc).__name__},
                         )
                     )
-                    continue
-
-                sup_writer.append(sup_ex)
-                sup_lengths.append(int(sup_ex.length))
 
                 try:
                     if msa_engine is not None and chunk_msas[j] is None and chunk_deletions[j] is None:
@@ -552,13 +567,7 @@ def _build_local_corpus_smoke_release_chunked(
                         )
                     seq_writer.append(seq_ex)
                     seq_lengths.append(int(seq_ex.length))
-                    expanded_record_ids.append(rid)
-                    expanded_parent_record_ids.append(parent)
-                    expanded_source_ids.append(src)
-                    expanded_chain_ids.append(cid)
-                    expanded_paths.append(path)
                 except Exception as exc:
-                    from .failure_taxonomy import classify_exception
                     seq_failures.append(
                         FailureRecord(
                             record_id=rid,
