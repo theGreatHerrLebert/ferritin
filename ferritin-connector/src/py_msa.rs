@@ -141,6 +141,88 @@ impl PySearchEngine {
         Ok(Self { inner, alphabet })
     }
 
+    /// Persist the engine's k-mer index to a `.kmi` file.
+    ///
+    /// Pairs with `open_from_mmseqs_db_with_kmi` on a later session:
+    /// the k-mer build is the expensive construction step, and the
+    /// `.kmi` lets it run once per corpus instead of once per engine.
+    /// Errors if the engine is already backed by an on-disk k-mer
+    /// index — nothing to re-serialize.
+    fn write_kmer_index(&self, path: &str) -> PyResult<()> {
+        self.inner
+            .write_kmer_index(path)
+            .map_err(|e| PyValueError::new_err(format!("write_kmer_index failed: {e}")))
+    }
+
+    /// Open an engine backed by a memory-mapped DB + pre-built `.kmi`.
+    ///
+    /// Neither the DB nor the k-mer postings are loaded into RAM; both
+    /// mmap and page in on demand. Peak resident memory is bounded by
+    /// whatever buckets a query's prefilter touches plus per-hit
+    /// encoded scratch. Use for archive-scale corpora (UniRef50, BFD)
+    /// where building the k-mer index on every engine construction
+    /// is prohibitive.
+    ///
+    /// Consistency checks on the `.kmi`:
+    ///  - `kmer_size == k`
+    ///  - `alphabet_size` matches `reduce_to` if set, else full
+    ///    alphabet size.
+    ///  - Embedded reducer snapshot (full_to_reduced mapping) matches
+    ///    what `(matrix, alphabet, reduce_to)` produces on the open
+    ///    side. Matrix-dependent: two different matrices at the same
+    ///    `reduce_to` can produce different mappings and the engine
+    ///    refuses to silently load an incompatible index.
+    ///
+    /// Options mirror `from_mmseqs_db`.
+    #[classmethod]
+    #[pyo3(signature = (
+        db_prefix,
+        kmi_path,
+        k = 6,
+        reduce_to = Some(13),
+        bit_factor = 2.0,
+        gap_open = -11,
+        gap_extend = -1,
+        min_score = 0,
+        max_prefilter_hits = Some(1000),
+        max_results = None,
+        use_gpu = true,
+    ))]
+    fn open_from_mmseqs_db_with_kmi(
+        _cls: &Bound<'_, pyo3::types::PyType>,
+        db_prefix: &str,
+        kmi_path: &str,
+        k: usize,
+        reduce_to: Option<usize>,
+        bit_factor: f32,
+        gap_open: i32,
+        gap_extend: i32,
+        min_score: i32,
+        max_prefilter_hits: Option<usize>,
+        max_results: Option<usize>,
+        use_gpu: bool,
+    ) -> PyResult<Self> {
+        let alphabet = Alphabet::protein();
+        let matrix = SubstitutionMatrix::blosum62();
+        let opts = SearchOptions {
+            k,
+            reduce_to,
+            bit_factor,
+            diagonal_score_threshold: 0,
+            max_prefilter_hits,
+            gap_open,
+            gap_extend,
+            min_score,
+            max_results,
+            use_gpu,
+        };
+        let inner = CoreSearchEngine::open_from_mmseqs_db_with_kmi(
+            db_prefix, kmi_path, &matrix, alphabet.clone(), opts,
+        )
+        .map_err(|e| PyValueError::new_err(format!("open_from_mmseqs_db_with_kmi failed: {e}")))?;
+        Ok(Self { inner, alphabet })
+    }
+
     /// Number of targets indexed.
     fn target_count(&self) -> usize {
         self.inner.target_count()

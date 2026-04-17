@@ -135,6 +135,7 @@ from .msa_backend import (
     build_search_engine,
     build_search_engine_from_mmseqs_db,
     build_sequence_example_with_msa,
+    open_search_engine_from_mmseqs_db_with_kmi,
     rust_msa_available,
     search_and_build_msa,
 )

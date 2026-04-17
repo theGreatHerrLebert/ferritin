@@ -38,6 +38,51 @@ def rust_msa_available() -> bool:
     return _msa is not None
 
 
+def open_search_engine_from_mmseqs_db_with_kmi(
+    db_prefix: "str | 'os.PathLike[str]'",
+    kmi_path: "str | 'os.PathLike[str]'",
+    *,
+    k: int = 6,
+    reduce_to: Optional[int] = 13,
+    bit_factor: float = 2.0,
+    gap_open: int = -11,
+    gap_extend: int = -1,
+    min_score: int = 0,
+    max_prefilter_hits: Optional[int] = 1000,
+    max_results: Optional[int] = None,
+    use_gpu: bool = True,
+):
+    """Open an engine backed by a memory-mapped DB + pre-built `.kmi`.
+
+    Neither the DB nor the k-mer postings are loaded into RAM; both
+    mmap and page in on demand. Peak resident memory stays bounded by
+    the query's working set, which is what makes full-UniRef50 feasible
+    on a 240 GB monster3.
+
+    Consistency checks on the `.kmi` at open time — kmer_size,
+    alphabet_size, and the full reducer mapping must all match what
+    `(matrix, alphabet, reduce_to)` would produce fresh. Mismatch
+    raises a ValueError from the Rust side pointing at the offending
+    field. Build the `.kmi` once per corpus and reopen on every
+    engine construction.
+    """
+    if _msa is None:
+        raise RuntimeError("Rust MSA backend is not available")
+    return _msa.SearchEngine.open_from_mmseqs_db_with_kmi(
+        str(db_prefix),
+        str(kmi_path),
+        k=k,
+        reduce_to=reduce_to,
+        bit_factor=bit_factor,
+        gap_open=gap_open,
+        gap_extend=gap_extend,
+        min_score=min_score,
+        max_prefilter_hits=max_prefilter_hits,
+        max_results=max_results,
+        use_gpu=use_gpu,
+    )
+
+
 def build_search_engine_from_mmseqs_db(
     prefix: "str | 'os.PathLike[str]'",
     *,
