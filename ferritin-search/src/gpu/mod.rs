@@ -4,6 +4,13 @@
 //! the dispatch framework that the kernel-bearing phases (4.2 batched
 //! diagonal scoring, 4.3 GPU SW, 4.4 libmarv-equivalent) will plug into.
 //!
+//! Reference for the GPU Smith-Waterman / PSSM-SW kernel family:
+//! Kallenborn, Chacon, Hundt, Sirelkhatim, Didi, Cha, Dallago, Mirdita,
+//! Schmidt, Steinegger, "GPU-accelerated homology search with MMseqs2",
+//! *Nat. Methods* 22, 2024-2027 (2025). The "libmarv" naming throughout
+//! the `pssm_sw*.rs` modules refers to the canonical kernel design from
+//! that work.
+//!
 //! Architecture mirrors `ferritin-connector::forcefield::gpu`:
 //!
 //! - [`GpuContext`] is a process-global singleton via `OnceLock`. Probe

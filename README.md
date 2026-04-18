@@ -200,9 +200,11 @@ validation/         benchmarks, reports, and oracle checks
 ferritin is only possible because of the work of the groups whose tools
 and papers it builds on. The structure-alignment core is a Rust port of
 Yang Zhang's TM-align and US-align. The search layer is a port of Martin
-Steinegger and Johannes Söding's MMseqs2, and the experimental structural
-alphabet is inspired by Michel van Kempen and Martin Steinegger's Foldseek
-(independently trained, no GPL-licensed code re-used). The force-field
+Steinegger and Johannes Söding's MMseqs2 — with the GPU path following the
+libmarv kernel design of Felix Kallenborn, the NVIDIA team, Milot Mirdita,
+Bertil Schmidt, Martin Steinegger, and collaborators — and the experimental
+structural alphabet is inspired by Michel van Kempen and Martin Steinegger's
+Foldseek (independently trained, no GPL-licensed code re-used). The force-field
 implementations follow Martin Karplus, Themis Lazaridis, Peter Kollman,
 David Case, and their collaborators (CHARMM19, EEF1, AMBER96, OBC GB).
 OpenMM (Peter Eastman and the Pande Lab), BALL (Andreas Hildebrandt and
@@ -236,6 +238,7 @@ Force fields and implicit solvation:
 Sequence and structure search:
 
 - Steinegger & Söding. "MMseqs2 enables sensitive protein sequence searching for the analysis of massive data sets." *Nat Biotechnol* 35(11), 1026-1028 (2017). https://doi.org/10.1038/nbt.3988 — k-mer prefilter, ungapped/gapped Smith-Waterman, and PSSM/MSA pipeline that ferritin-search ports.
+- Kallenborn, Chacon, Hundt, Sirelkhatim, Didi, Cha, Dallago, Mirdita, Schmidt, Steinegger. "GPU-accelerated homology search with MMseqs2." *Nat Methods* 22, 2024-2027 (2025). https://doi.org/10.1038/s41592-025-02819-8 — libmarv, the canonical GPU Smith-Waterman kernel design that `ferritin-search/src/gpu/pssm_sw*.rs` follows (warp-collaborative PSSM SW, shared-mem PSSM staging, padded-DB coalesced target layout).
 - van Kempen et al. "Fast and accurate protein structure search with Foldseek." *Nat Biotechnol* 42(2), 243-246 (2024). https://doi.org/10.1038/s41587-023-01773-0 — the 3Di structural-alphabet idea that `ferritin-align/src/search/alphabet.rs` builds on. Ferritin ships an experimental, independently-trained 20-letter structural alphabet (no GPL-licensed code re-used); benchmarks under `validation/bench_foldseek_retrieval.py` are currently ~15% behind Foldseek at TM ≥ 0.5 and close to parity at TM ≥ 0.9.
 
 Infrastructure:

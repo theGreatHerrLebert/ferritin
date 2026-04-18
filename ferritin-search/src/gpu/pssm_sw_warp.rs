@@ -1,5 +1,11 @@
 //! GPU dispatch for the warp-collaborative PSSM Smith-Waterman kernel.
 //!
+//! Reference: Kallenborn, Chacon, Hundt, Sirelkhatim, Didi, Cha, Dallago,
+//! Mirdita, Schmidt, Steinegger, "GPU-accelerated homology search with
+//! MMseqs2", *Nat. Methods* 22, 2024-2027 (2025). This is the
+//! warp-collaborative ("libmarv-shape") variant of that work's canonical
+//! GPU SW kernel.
+//!
 //! See `pssm_sw_warp.cu` for the algorithm. This is the phase 4.5a
 //! libmarv-shape kernel: one warp per alignment pair, register-tiled
 //! query DP, shuffle-based diagonal wavefront. It's the counterpart to

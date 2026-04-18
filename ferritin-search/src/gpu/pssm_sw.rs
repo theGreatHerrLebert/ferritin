@@ -1,5 +1,10 @@
 //! GPU dispatch for PSSM Smith-Waterman on PaddedDb.
 //!
+//! Reference: Kallenborn, Chacon, Hundt, Sirelkhatim, Didi, Cha, Dallago,
+//! Mirdita, Schmidt, Steinegger, "GPU-accelerated homology search with
+//! MMseqs2", *Nat. Methods* 22, 2024-2027 (2025). This module implements
+//! the canonical "libmarv" gapped-SW kernel shape from that work.
+//!
 //! Combines the perf primitives from 4.4a (PSSM shared-mem staging)
 //! and 4.4b (PaddedDb transposed-coalesced target layout) into the
 //! canonical libmarv gapped kernel. Same Gotoh affine-gap algorithm
