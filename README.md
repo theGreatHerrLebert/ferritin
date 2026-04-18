@@ -45,6 +45,44 @@ print(hits[0].tm_score_chain1, hits[0].rmsd)
 
 Runnable examples live in [`examples/`](examples/).
 
+## GPU build (optional)
+
+The PyPI wheel is **CPU-only**. Ferritin has GPU-accelerated kernels
+for CHARMM19+EEF1 / AMBER96 / OBC GB energy + forces, SASA, and the
+MMseqs2-style Smith-Waterman / PSSM search, but packaging those into
+a PyPI wheel would pin you to a specific CUDA runtime and balloon the
+wheel size — so the CUDA path is an opt-in local build instead.
+
+Runtime dispatch is silent-fallback: the CPU-only wheel runs fine on a
+GPU box, it just ignores the GPU. To use the GPU, build from source:
+
+```bash
+git clone https://github.com/theGreatHerrLebert/ferritin.git
+cd ferritin
+python -m venv .venv && source .venv/bin/activate
+pip install maturin numpy
+cd ferritin-connector
+maturin develop --release --features cuda
+cd ..
+pip install -e packages/ferritin/
+```
+
+Requirements: CUDA 12.5 runtime on `$LD_LIBRARY_PATH` (`cudarc` is
+pinned to `cuda-12050`), an NVIDIA GPU, an NVCC / driver combination
+that supports your card. Confirm the build picked up the GPU with:
+
+```python
+import ferritin
+print(ferritin.gpu_available(), ferritin.gpu_info())
+```
+
+Validated on RTX 5090 via a 50,000-PDB battle test (99.1% correct in
+3.5h, CHARMM19+EEF1 minimization + SASA fully on CUDA). There is no
+`pip install ferritin[cuda]` today; if you hit friction with the
+source build, open an issue — we'll prioritize a GPU-wheel variant
+(likely published as a separate `ferritin-cuda` package) if there's
+real demand.
+
 ## Persisted Search DBs
 
 For structural-alphabet search, the default persisted path is:
