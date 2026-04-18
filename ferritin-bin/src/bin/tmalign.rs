@@ -11,6 +11,7 @@ use ferritin_io::alignment::read_alignment;
 use ferritin_io::chain_list::read_chain_list;
 use ferritin_io::loader::{load_structure, InputFormat, LoadOptions};
 use ferritin_io::output::{output_results, output_rotation_matrix, OutputOptions};
+use ferritin_io::superpose::output_superpose;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -284,6 +285,14 @@ fn run() -> Result<()> {
                         let mut f = std::fs::File::create(matrix_path)
                             .with_context(|| format!("Failed to create {matrix_path}"))?;
                         output_rotation_matrix(&mut f, &result)?;
+                    }
+
+                    // Write superposed PDB if requested
+                    if let Some(ref super_prefix) = cli.output_super {
+                        let pdb_path = format!("{super_prefix}.pdb");
+                        let mut f = std::fs::File::create(&pdb_path)
+                            .with_context(|| format!("Failed to create {pdb_path}"))?;
+                        output_superpose(&mut f, &result, s1, s2)?;
                     }
                 }
             }
