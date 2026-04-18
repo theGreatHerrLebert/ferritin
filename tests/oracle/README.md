@@ -90,6 +90,8 @@ upstream binaries.
 | [USAlign](https://github.com/pylelab/USalign) | `git clone && make`, put `USalign` on `$PATH` | Set `USALIGN_BIN=/path/to/USalign` if not on `$PATH` |
 | [MMseqs2](https://github.com/soedinglab/MMseqs2) | `conda install -c bioconda mmseqs2`, or the pinned binary release (see `.github/workflows/test.yml` `MMSEQS_VERSION`) | Set `FERRITIN_SEARCH_MMSEQS_BIN=/path/to/mmseqs` and `FERRITIN_SEARCH_REQUIRE_ORACLE=1` to gate |
 | [BALL](https://github.com/hildebrandtlab/BiochemicalAlgorithms.jl) (Julia) | `julia --project=<path>` and `Pkg.add("BiochemicalAlgorithms")` | `ball_energy_raw.jl` / `ball_energy_oracle.jl` shell out; see the scripts in this directory |
+| [BALL C++](https://github.com/BALL-Project/ball) (`libBALL.so`) | Build from source (`cmake + make`); no pip/conda distribution. Used for the CHARMM19 oracle because the SIP Python bindings don't build cleanly on current toolchains. | Standalone C++ binaries under `validation/ball_cpp/` link `libBALL.so` and emit JSON; tests read those |
+| [GROMACS](https://www.gromacs.org) | `conda install -c bioconda gromacs`, `apt install gromacs`, or [build from source](https://manual.gromacs.org/current/install-guide/) | `gmx` / `gmx_mpi` binary on `$PATH`; referenced from `validation/tm_fold_preservation_gromacs.py` as a fold-preservation comparator against ferritin's CHARMM19+EEF1 minimizer |
 
 Tests that `pytest.importorskip` a missing oracle will **skip** rather than fail,
 so you can run `pytest -m oracle` locally and just see results for the tools
