@@ -329,7 +329,8 @@ mod tests {
         // After superposition, xt should be close to ya
         assert!(xt.len() == 2);
         // The transform should exist
-        assert!(transform.t.iter().any(|&v| v != 0.0) || true); // just confirm it ran
+        // Just confirm it ran without panicking; a zero translation is valid here.
+        let _ = transform.t;
     }
 
     #[test]

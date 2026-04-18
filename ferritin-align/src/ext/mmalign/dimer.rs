@@ -350,12 +350,12 @@ pub fn build_dimer_mask(xlen_vec: &[usize], ylen_vec: &[usize]) -> Vec<Vec<bool>
 
     // Allow boundary transitions
     if !xlen_vec.is_empty() {
-        for i in 0..xlen_vec[0] + 1 {
+        for i in 0..=xlen_vec[0] {
             mask[i][0] = true;
         }
     }
     if !ylen_vec.is_empty() {
-        for j in 0..ylen_vec[0] + 1 {
+        for j in 0..=ylen_vec[0] {
             mask[0][j] = true;
         }
     }

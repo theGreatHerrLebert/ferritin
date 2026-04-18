@@ -261,7 +261,7 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
             let is_aa = residue
                 .conformers()
                 .next()
-                .map_or(false, |c| c.is_amino_acid());
+                .is_some_and(|c| c.is_amino_acid());
             if is_aa {
                 chain_residues.push((res_idx, name.clone()));
             }
@@ -374,22 +374,21 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
                 // retained for visibility of unknown ligand atoms.
                 let lookup = get_atom_type_with_aliases(params, &lookup_name, &atom_name)
                     .or_else(|| get_atom_type_with_aliases(params, &base_name, &atom_name));
-                let (amber_type, charge) = match lookup {
-                    Some(e) => (e.amber_type.clone(), e.charge),
-                    None => {
-                        // Only non-H atoms reach here — H would have been
-                        // skipped by the predicate above.
-                        unassigned_atoms.push(format!("{}:{}", base_name, atom_name));
-                        let t = match element.as_str() {
-                            "C" => "CT",
-                            "N" => "N",
-                            "O" => "O",
-                            "S" => "S",
-                            "P" => "P",
-                            _ => "CT",
-                        };
-                        (t.to_string(), 0.0)
-                    }
+                let (amber_type, charge) = if let Some(e) = lookup {
+                    (e.amber_type.clone(), e.charge)
+                } else {
+                    // Only non-H atoms reach here — H would have been
+                    // skipped by the predicate above.
+                    unassigned_atoms.push(format!("{}:{}", base_name, atom_name));
+                    let t = match element.as_str() {
+                        "C" => "CT",
+                        "N" => "N",
+                        "O" => "O",
+                        "S" => "S",
+                        "P" => "P",
+                        _ => "CT",
+                    };
+                    (t.to_string(), 0.0)
                 };
 
                 atoms.push(FFAtom {
@@ -461,7 +460,7 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
             }
         }
         for ((res_idx, prefix), mut digits) in by_prefix {
-            digits.sort();
+            digits.sort_unstable();
             if digits.len() == 2 && digits[0] == 2 && digits[1] == 3 {
                 is_methylene.insert((res_idx, prefix));
             }
@@ -879,7 +878,7 @@ mod tests {
                 let dy = coords[i][1] - coords[j][1];
                 let dz = coords[i][2] - coords[j][2];
                 let r2 = dx * dx + dy * dy + dz * dz;
-                if r2 > 225.0 || r2 < 0.01 {
+                if !(0.01..=225.0).contains(&r2) {
                     continue;
                 } // 15 Å cutoff
 

@@ -281,7 +281,7 @@ impl PySearchEngine {
     }
 }
 
-fn msa_to_pydict<'py>(py: Python<'py>, msa: MsaAssembly) -> PyResult<Bound<'py, PyDict>> {
+fn msa_to_pydict(py: Python<'_>, msa: MsaAssembly) -> PyResult<Bound<'_, PyDict>> {
     let dict = PyDict::new(py);
     let n = msa.n_seqs;
     let l = msa.query_len;
@@ -320,7 +320,7 @@ fn msa_to_pydict<'py>(py: Python<'py>, msa: MsaAssembly) -> PyResult<Bound<'py, 
 }
 
 #[pymodule]
-pub fn py_msa(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_msa(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySearchEngine>()?;
     Ok(())
 }

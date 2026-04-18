@@ -256,36 +256,36 @@ pub fn hwrmsd_main(
 
         if se_result.n_ali8 == 0 {
             // Zero aligned residues: try centered alignment
-            let centered_xa;
-            let centered_ya;
-            if xlen < ylen {
-                let pad = (ylen - xlen) / 2;
-                let mut sxa = String::new();
-                for _ in 0..pad {
-                    sxa.push('-');
+            let (centered_xa, centered_ya) = match xlen.cmp(&ylen) {
+                std::cmp::Ordering::Less => {
+                    let pad = (ylen - xlen) / 2;
+                    let mut sxa = String::new();
+                    for _ in 0..pad {
+                        sxa.push('-');
+                    }
+                    sxa.push_str(&String::from_utf8_lossy(seqx));
+                    while sxa.len() < ylen {
+                        sxa.push('-');
+                    }
+                    (sxa, String::from_utf8_lossy(seqy).to_string())
                 }
-                sxa.push_str(&String::from_utf8_lossy(seqx));
-                while sxa.len() < ylen {
-                    sxa.push('-');
+                std::cmp::Ordering::Greater => {
+                    let pad = (xlen - ylen) / 2;
+                    let mut sya = String::new();
+                    for _ in 0..pad {
+                        sya.push('-');
+                    }
+                    sya.push_str(&String::from_utf8_lossy(seqy));
+                    while sya.len() < xlen {
+                        sya.push('-');
+                    }
+                    (String::from_utf8_lossy(seqx).to_string(), sya)
                 }
-                centered_xa = sxa;
-                centered_ya = String::from_utf8_lossy(seqy).to_string();
-            } else if xlen > ylen {
-                let pad = (xlen - ylen) / 2;
-                let mut sya = String::new();
-                for _ in 0..pad {
-                    sya.push('-');
-                }
-                sya.push_str(&String::from_utf8_lossy(seqy));
-                while sya.len() < xlen {
-                    sya.push('-');
-                }
-                centered_xa = String::from_utf8_lossy(seqx).to_string();
-                centered_ya = sya;
-            } else {
-                centered_xa = String::from_utf8_lossy(seqx).to_string();
-                centered_ya = String::from_utf8_lossy(seqy).to_string();
-            }
+                std::cmp::Ordering::Equal => (
+                    String::from_utf8_lossy(seqx).to_string(),
+                    String::from_utf8_lossy(seqy).to_string(),
+                ),
+            };
 
             invmap_tmp = parse_alignment_into_invmap(&centered_xa, &centered_ya, xlen, ylen);
 

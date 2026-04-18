@@ -47,7 +47,7 @@ impl PyTransform {
 }
 
 #[pymodule]
-pub fn py_transform(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_transform(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTransform>()?;
     Ok(())
 }

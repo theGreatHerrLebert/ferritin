@@ -152,10 +152,9 @@ pub fn se_main(
 
     if hinge > 0 {
         if let Some(existing) = existing_invmap {
-            for j in 0..ylen.min(existing.len()) {
-                invmap[j] = existing[j];
-                invmap0[j] = existing[j];
-            }
+            let n = ylen.min(existing.len());
+            invmap[..n].copy_from_slice(&existing[..n]);
+            invmap0[..n].copy_from_slice(&existing[..n]);
         }
     }
 

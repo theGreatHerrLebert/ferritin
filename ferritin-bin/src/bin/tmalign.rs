@@ -6,7 +6,7 @@ use clap::Parser;
 
 use ferritin_align::core::align::cpalign::cpalign;
 use ferritin_align::core::align::tmalign::tmalign;
-use ferritin_align::core::types::*;
+use ferritin_align::core::types::{AlignOptions, MolType};
 use ferritin_io::alignment::read_alignment;
 use ferritin_io::chain_list::read_chain_list;
 use ferritin_io::loader::{load_structure, InputFormat, LoadOptions};
@@ -143,7 +143,7 @@ fn run() -> Result<()> {
 
     // Parse -a option
     let a_opt = match cli.average.as_deref() {
-        Some("T") | Some("t") | Some("1") => 1,
+        Some("T" | "t" | "1") => 1,
         Some("-1") => -1,
         Some("-2") => -2,
         _ => 0,

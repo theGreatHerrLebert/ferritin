@@ -363,8 +363,8 @@ pub(crate) fn gb_obc_energy(
     sum += sum_self + sum_pair;
     let contribution = -0.5 * tau * K_COULOMB_KCAL * sum;
     if std::env::var("FERRITIN_OBC_DEBUG").is_ok() {
-        let br_min = born.iter().cloned().fold(f64::INFINITY, f64::min);
-        let br_max = born.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let br_min = born.iter().copied().fold(f64::INFINITY, f64::min);
+        let br_max = born.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let br_mean: f64 = born.iter().sum::<f64>() / born.len() as f64;
         eprintln!(
             "[obc] n={} self_sum={:.4} pair_sum={:.4} (e²/Å)  \
@@ -803,7 +803,7 @@ mod tests {
         let d = r * r / (4.0 * alpha2);
         let f_gb = (r * r + alpha2 * (-d).exp()).sqrt();
         let self_pair = 2.0 * 1.0 * 1.0 / r_eff; // q² / R, summed for i and j (both q²=1)
-        let cross_pair = 2.0 * 1.0 * (-1.0) / f_gb; // 2·q_i·q_j / f_GB
+        let cross_pair = -(2.0 * 1.0) / f_gb; // 2·q_i·q_j / f_GB
         let expected = -0.5 * obc.tau() * 332.0 * (self_pair + cross_pair);
 
         let mut solvation = 0.0;

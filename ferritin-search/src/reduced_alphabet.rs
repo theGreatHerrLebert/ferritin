@@ -187,7 +187,7 @@ impl ReducedAlphabet {
 
         // Emit the full → reduced mapping. Sort each class so mapping is
         // deterministic across runs.
-        for cls in classes.iter_mut() {
+        for cls in &mut classes {
             cls.sort_unstable();
         }
         // And assign reduced indices in order of each class's smallest
@@ -418,7 +418,7 @@ mod tests {
                 merged_letters.push(alpha.decode(full_i as u8));
             }
         }
-        merged_letters.sort();
+        merged_letters.sort_unstable();
         // Accept any of the biologically-sensible first-merge pairs:
         // I/L (bioisosteres), D/E (acidic), K/R (basic), F/Y (aromatic),
         // V/I or V/L (aliphatic). We don't pin which one wins because

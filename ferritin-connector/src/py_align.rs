@@ -94,7 +94,7 @@ impl PyAlignResult {
 }
 
 #[pymodule]
-pub fn py_align(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_align(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAlignResult>()?;
     Ok(())
 }

@@ -101,10 +101,8 @@ pub fn aln2invmap(seq_x_aligned: &str, seq_y_aligned: &str, ylen: usize) -> Vec<
         if yb[r] != b'-' {
             j += 1;
         }
-        if xb[r] != b'-' && yb[r] != b'-' {
-            if (j as usize) < ylen {
-                invmap[j as usize] = i;
-            }
+        if xb[r] != b'-' && yb[r] != b'-' && (j as usize) < ylen {
+            invmap[j as usize] = i;
         }
     }
     invmap
@@ -118,7 +116,7 @@ pub fn aln2invmap(seq_x_aligned: &str, seq_y_aligned: &str, ylen: usize) -> Vec<
 fn make_align_opts(opts: &FlexOptions) -> AlignOptions {
     AlignOptions {
         i_opt: opts.i_opt,
-        a_opt: if opts.a_opt { 1 } else { 0 },
+        a_opt: i32::from(opts.a_opt),
         u_opt: opts.u_opt,
         lnorm_ass: opts.lnorm_ass,
         d_opt: opts.d_opt,
@@ -140,7 +138,7 @@ fn make_se_opts(opts: &FlexOptions) -> SeOptions {
         mol_type: opts.mol_type,
         use_user_alignment: opts.i_opt == 3,
         compute_avg: opts.a_opt,
-        u_opt: if opts.u_opt { 1 } else { 0 },
+        u_opt: u8::from(opts.u_opt),
         lnorm_ass: opts.lnorm_ass,
         compute_d_scaled: opts.d_opt,
         d0_scale: opts.d0_scale,
@@ -291,12 +289,7 @@ fn apply_transform(xa: &[Coord3D], transform: &Transform) -> Vec<Coord3D> {
 /// 2. Remove singletons at fragment ends.
 /// 3. Remove dimer inserts.
 /// 4. Remove disconnected singletons (assign to nearest neighbor).
-fn smooth_afp(
-    seq_m: &mut Vec<u8>,
-    seq_m_char: &mut Vec<u8>,
-    seq_y_aligned: &str,
-    num_transforms: usize,
-) {
+fn smooth_afp(seq_m: &mut [u8], seq_m_char: &mut [u8], seq_y_aligned: &str, num_transforms: usize) {
     let yb = seq_y_aligned.as_bytes();
     let mlen = seq_m.len();
 
@@ -907,21 +900,24 @@ pub fn flexalign_main(
 /// Corresponds to C++ `output_flexalign_rotation_matrix`.
 /// Returns the formatted string rather than writing to a file.
 pub fn format_rotation_matrices(transforms: &[Transform]) -> String {
+    use std::fmt::Write;
     let mut s = String::new();
     for (hinge, tr) in transforms.iter().enumerate() {
-        s.push_str(&format!(
-            "------ Hinge {} rotation matrix (Structure_1 -> Structure_2) ------\n",
-            hinge
-        ));
-        s.push_str(&format!(
-            "m {:>18} {:>14} {:>14} {:>14}\n",
+        let _ = writeln!(
+            s,
+            "------ Hinge {hinge} rotation matrix (Structure_1 -> Structure_2) ------"
+        );
+        let _ = writeln!(
+            s,
+            "m {:>18} {:>14} {:>14} {:>14}",
             "t[m]", "u[m][0]", "u[m][1]", "u[m][2]"
-        ));
+        );
         for k in 0..3 {
-            s.push_str(&format!(
-                "{} {:18.10} {:14.10} {:14.10} {:14.10}\n",
+            let _ = writeln!(
+                s,
+                "{} {:18.10} {:14.10} {:14.10} {:14.10}",
                 k, tr.t[k], tr.u[k][0], tr.u[k][1], tr.u[k][2]
-            ));
+            );
         }
     }
     s.push_str("\nCode for rotating Structure 1 from (x,y,z) to (X,Y,Z):\n");
@@ -986,7 +982,7 @@ mod tests {
         assert!(result.is_ok());
         let result = result.unwrap();
         // Identical structures: should align well with 1 transform (0 hinges)
-        assert!(result.transforms.len() >= 1);
+        assert!(!result.transforms.is_empty());
         assert!(result.se_result.tm1 > 0.9, "tm1={}", result.se_result.tm1);
         assert!(result.se_result.tm2 > 0.9, "tm2={}", result.se_result.tm2);
     }

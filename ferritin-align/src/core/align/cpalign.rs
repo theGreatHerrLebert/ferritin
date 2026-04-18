@@ -5,7 +5,7 @@
 use anyhow::Result;
 
 use crate::core::align::tmalign::tmalign;
-use crate::core::types::*;
+use crate::core::types::{AlignOptions, AlignResult, Coord3D};
 
 /// TM-align with circular permutation detection.
 ///

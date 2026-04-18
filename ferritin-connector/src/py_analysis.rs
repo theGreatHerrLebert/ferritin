@@ -55,7 +55,7 @@ fn extract_backbone(pdb: &pdbtbx::PDB) -> (Vec<([f64; 3], [f64; 3], [f64; 3])>, 
             let is_aa = residue
                 .conformers()
                 .next()
-                .map_or(false, |c| c.is_amino_acid());
+                .is_some_and(|c| c.is_amino_acid());
             if !is_aa {
                 continue;
             }
@@ -206,7 +206,7 @@ fn distance_matrix_rust(coords: &[[f64; 3]]) -> Vec<f64> {
 
 /// Extract CA coordinates from a structure as Mx3 numpy array.
 #[pyfunction]
-pub fn extract_ca_coords<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray2<f64>> {
+pub(crate) fn extract_ca_coords<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray2<f64>> {
     let ca = extract_ca(&pdb.inner);
     let n = ca.len();
     let flat: Vec<f64> = ca.into_iter().flat_map(|c| c.into_iter()).collect();
@@ -217,7 +217,7 @@ pub fn extract_ca_coords<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArra
 
 /// Compute CA-CA distance matrix as NxN numpy array.
 #[pyfunction]
-pub fn ca_distance_matrix<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray2<f64>> {
+pub(crate) fn ca_distance_matrix<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray2<f64>> {
     let ca = extract_ca(&pdb.inner);
     let n = ca.len();
     let dm = py.allow_threads(|| distance_matrix_rust(&ca));
@@ -228,7 +228,7 @@ pub fn ca_distance_matrix<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArr
 
 /// Compute CA-CA contact map as NxN boolean numpy array.
 #[pyfunction]
-pub fn ca_contact_map<'py>(
+pub(crate) fn ca_contact_map<'py>(
     py: Python<'py>,
     pdb: &PyPDB,
     cutoff: f64,
@@ -245,7 +245,7 @@ pub fn ca_contact_map<'py>(
 /// Compute backbone phi/psi/omega angles.
 /// Returns tuple of (phi, psi, omega) as 1D numpy arrays. NaN for undefined.
 #[pyfunction]
-pub fn backbone_dihedrals<'py>(
+pub(crate) fn backbone_dihedrals<'py>(
     py: Python<'py>,
     pdb: &PyPDB,
 ) -> (
@@ -264,7 +264,7 @@ pub fn backbone_dihedrals<'py>(
 
 /// Compute centroid of all atom coordinates (first model, primary conformer).
 #[pyfunction]
-pub fn centroid<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray1<f64>> {
+pub(crate) fn centroid<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray1<f64>> {
     let mut sx = 0.0f64;
     let mut sy = 0.0f64;
     let mut sz = 0.0f64;
@@ -282,7 +282,7 @@ pub fn centroid<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray1<f64>> 
 
 /// Compute radius of gyration (first model, primary conformer).
 #[pyfunction]
-pub fn radius_of_gyration(_py: Python<'_>, pdb: &PyPDB) -> f64 {
+pub(crate) fn radius_of_gyration(_py: Python<'_>, pdb: &PyPDB) -> f64 {
     let mut sx = 0.0f64;
     let mut sy = 0.0f64;
     let mut sz = 0.0f64;
@@ -314,15 +314,15 @@ pub fn radius_of_gyration(_py: Python<'_>, pdb: &PyPDB) -> f64 {
 // Batch-parallel functions (rayon + GIL release)
 // ===========================================================================
 
-/// Pre-extract lightweight data from PDB list on the main thread,
-/// then parallelize the computation with rayon.
-/// This avoids cloning entire PDB structures across threads.
+// Pre-extract lightweight data from PDB list on the main thread, then
+// parallelize the computation with rayon. This avoids cloning entire PDB
+// structures across threads.
 
 /// Batch extract CA coordinates from many structures in parallel.
 #[pyfunction]
 #[pyo3(signature = (structures, n_threads=None))]
 #[allow(unused_variables)]
-pub fn batch_extract_ca<'py>(
+pub(crate) fn batch_extract_ca<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     n_threads: Option<i32>,
@@ -354,7 +354,7 @@ pub fn batch_extract_ca<'py>(
 /// Extraction happens on main thread; O(n^2) distance computation is parallelized.
 #[pyfunction]
 #[pyo3(signature = (structures, n_threads=None))]
-pub fn batch_distance_matrices<'py>(
+pub(crate) fn batch_distance_matrices<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     n_threads: Option<i32>,
@@ -398,7 +398,7 @@ pub fn batch_distance_matrices<'py>(
 /// Batch compute CA-CA contact maps in parallel.
 #[pyfunction]
 #[pyo3(signature = (structures, cutoff, n_threads=None))]
-pub fn batch_contact_maps<'py>(
+pub(crate) fn batch_contact_maps<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     cutoff: f64,
@@ -442,7 +442,7 @@ pub fn batch_contact_maps<'py>(
 /// Batch compute backbone dihedrals in parallel.
 #[pyfunction]
 #[pyo3(signature = (structures, n_threads=None))]
-pub fn batch_dihedrals<'py>(
+pub(crate) fn batch_dihedrals<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     n_threads: Option<i32>,
@@ -490,7 +490,7 @@ pub fn batch_dihedrals<'py>(
 /// Batch compute radius of gyration in parallel.
 #[pyfunction]
 #[pyo3(signature = (structures, n_threads=None))]
-pub fn batch_radius_of_gyration<'py>(
+pub(crate) fn batch_radius_of_gyration<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     n_threads: Option<i32>,
@@ -571,7 +571,7 @@ fn permissive_load(path: &str) -> Result<pdbtbx::PDB, String> {
 /// Returns list of (index, Mx3 array) for files that loaded successfully.
 #[pyfunction]
 #[pyo3(signature = (paths, n_threads=None))]
-pub fn load_and_extract_ca<'py>(
+pub(crate) fn load_and_extract_ca<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyList>,
     n_threads: Option<i32>,
@@ -615,7 +615,7 @@ pub fn load_and_extract_ca<'py>(
 /// Load files + compute CA distance matrices in one parallel call.
 #[pyfunction]
 #[pyo3(signature = (paths, n_threads=None))]
-pub fn load_and_distance_matrices<'py>(
+pub(crate) fn load_and_distance_matrices<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyList>,
     n_threads: Option<i32>,
@@ -659,7 +659,7 @@ pub fn load_and_distance_matrices<'py>(
 /// Load files + compute contact maps in one parallel call.
 #[pyfunction]
 #[pyo3(signature = (paths, cutoff, n_threads=None))]
-pub fn load_and_contact_maps<'py>(
+pub(crate) fn load_and_contact_maps<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyList>,
     cutoff: f64,
@@ -705,7 +705,7 @@ pub fn load_and_contact_maps<'py>(
 /// Load files + compute backbone dihedrals in one parallel call.
 #[pyfunction]
 #[pyo3(signature = (paths, n_threads=None))]
-pub fn load_and_dihedrals<'py>(
+pub(crate) fn load_and_dihedrals<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyList>,
     n_threads: Option<i32>,
@@ -760,7 +760,7 @@ pub fn load_and_dihedrals<'py>(
 /// Returns list of dicts with all results for each successfully loaded structure.
 #[pyfunction]
 #[pyo3(signature = (paths, cutoff=8.0, n_threads=None))]
-pub fn load_and_analyze<'py>(
+pub(crate) fn load_and_analyze<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyList>,
     cutoff: f64,
@@ -906,7 +906,7 @@ struct AnalysisBundle {
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_analysis(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_analysis(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Single-structure
     m.add_function(wrap_pyfunction!(extract_ca_coords, m)?)?;
     m.add_function(wrap_pyfunction!(ca_distance_matrix, m)?)?;

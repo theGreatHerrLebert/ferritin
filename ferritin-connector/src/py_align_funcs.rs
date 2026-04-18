@@ -79,7 +79,7 @@ fn run_tmalign(s1: &StructureData, s2: &StructureData, fast: bool) -> Result<Ali
 /// Align two structures using TM-align.
 #[pyfunction]
 #[pyo3(signature = (pdb1, pdb2, chain1=None, chain2=None, fast=false))]
-pub fn tm_align_pair(
+pub(crate) fn tm_align_pair(
     py: Python<'_>,
     pdb1: &PyPDB,
     pdb2: &PyPDB,
@@ -99,7 +99,7 @@ pub fn tm_align_pair(
 /// Align one query against many targets in parallel (TM-align).
 #[pyfunction]
 #[pyo3(signature = (query, targets, n_threads=None, chain=None, fast=false))]
-pub fn tm_align_one_to_many(
+pub(crate) fn tm_align_one_to_many(
     py: Python<'_>,
     query: &PyPDB,
     targets: &Bound<'_, PyList>,
@@ -133,7 +133,7 @@ pub fn tm_align_one_to_many(
 /// Align all pairs between two lists (Cartesian product, TM-align).
 #[pyfunction]
 #[pyo3(signature = (queries, targets, n_threads=None, chain=None, fast=false))]
-pub fn tm_align_many_to_many(
+pub(crate) fn tm_align_many_to_many(
     py: Python<'_>,
     queries: &Bound<'_, PyList>,
     targets: &Bound<'_, PyList>,
@@ -404,7 +404,7 @@ fn run_soialign(s1: &StructureData, s2: &StructureData, fast: bool) -> SoiResult
 /// Align two structures using SOI-align (sequence-order independent).
 #[pyfunction]
 #[pyo3(signature = (pdb1, pdb2, chain1=None, chain2=None, fast=false))]
-pub fn soi_align_pair(
+pub(crate) fn soi_align_pair(
     py: Python<'_>,
     pdb1: &PyPDB,
     pdb2: &PyPDB,
@@ -421,7 +421,7 @@ pub fn soi_align_pair(
 /// SOI-align one query against many targets in parallel.
 #[pyfunction]
 #[pyo3(signature = (query, targets, n_threads=None, chain=None, fast=false))]
-pub fn soi_align_one_to_many(
+pub(crate) fn soi_align_one_to_many(
     py: Python<'_>,
     query: &PyPDB,
     targets: &Bound<'_, PyList>,
@@ -452,7 +452,7 @@ pub fn soi_align_one_to_many(
 /// SOI-align all pairs between two lists (Cartesian product).
 #[pyfunction]
 #[pyo3(signature = (queries, targets, n_threads=None, chain=None, fast=false))]
-pub fn soi_align_many_to_many(
+pub(crate) fn soi_align_many_to_many(
     py: Python<'_>,
     queries: &Bound<'_, PyList>,
     targets: &Bound<'_, PyList>,
@@ -522,7 +522,7 @@ fn run_flexalign(
 /// Align two structures using FlexAlign (flexible, hinge-based).
 #[pyfunction]
 #[pyo3(signature = (pdb1, pdb2, chain1=None, chain2=None, fast=false))]
-pub fn flex_align_pair(
+pub(crate) fn flex_align_pair(
     py: Python<'_>,
     pdb1: &PyPDB,
     pdb2: &PyPDB,
@@ -533,13 +533,13 @@ pub fn flex_align_pair(
     let s1 = extract(pdb1, chain1)?;
     let s2 = extract(pdb2, chain2)?;
     let result = py.allow_threads(|| run_flexalign(&s1, &s2, fast));
-    result.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))
+    result.map_err(pyo3::exceptions::PyRuntimeError::new_err)
 }
 
 /// FlexAlign one query against many targets in parallel.
 #[pyfunction]
 #[pyo3(signature = (query, targets, n_threads=None, chain=None, fast=false))]
-pub fn flex_align_one_to_many(
+pub(crate) fn flex_align_one_to_many(
     py: Python<'_>,
     query: &PyPDB,
     targets: &Bound<'_, PyList>,
@@ -563,14 +563,14 @@ pub fn flex_align_one_to_many(
 
     results
         .into_iter()
-        .map(|r| r.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e)))
+        .map(|r| r.map_err(pyo3::exceptions::PyRuntimeError::new_err))
         .collect()
 }
 
 /// FlexAlign all pairs between two lists (Cartesian product).
 #[pyfunction]
 #[pyo3(signature = (queries, targets, n_threads=None, chain=None, fast=false))]
-pub fn flex_align_many_to_many(
+pub(crate) fn flex_align_many_to_many(
     py: Python<'_>,
     queries: &Bound<'_, PyList>,
     targets: &Bound<'_, PyList>,
@@ -699,7 +699,11 @@ fn extract_chains(pdb: &PyPDB) -> PyResult<Vec<ChainData>> {
 /// complex-level TM-score.
 #[pyfunction]
 #[pyo3(signature = (pdb1, pdb2))]
-pub fn mm_align_pair(py: Python<'_>, pdb1: &PyPDB, pdb2: &PyPDB) -> PyResult<PyMMAlignResult> {
+pub(crate) fn mm_align_pair(
+    py: Python<'_>,
+    pdb1: &PyPDB,
+    pdb2: &PyPDB,
+) -> PyResult<PyMMAlignResult> {
     let chains1 = extract_chains(pdb1)?;
     let chains2 = extract_chains(pdb2)?;
 
@@ -713,7 +717,7 @@ pub fn mm_align_pair(py: Python<'_>, pdb1: &PyPDB, pdb2: &PyPDB) -> PyResult<PyM
 /// MM-align one query complex against many target complexes in parallel.
 #[pyfunction]
 #[pyo3(signature = (query, targets, n_threads=None))]
-pub fn mm_align_one_to_many(
+pub(crate) fn mm_align_one_to_many(
     py: Python<'_>,
     query: &PyPDB,
     targets: &Bound<'_, PyList>,
@@ -746,14 +750,14 @@ pub fn mm_align_one_to_many(
 
     results
         .into_iter()
-        .map(|r| r.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e)))
+        .map(|r| r.map_err(pyo3::exceptions::PyRuntimeError::new_err))
         .collect()
 }
 
 /// MM-align all pairs between two lists of complexes (Cartesian product).
 #[pyfunction]
 #[pyo3(signature = (queries, targets, n_threads=None))]
-pub fn mm_align_many_to_many(
+pub(crate) fn mm_align_many_to_many(
     py: Python<'_>,
     queries: &Bound<'_, PyList>,
     targets: &Bound<'_, PyList>,
@@ -810,7 +814,7 @@ pub fn mm_align_many_to_many(
 // ===========================================================================
 
 #[pymodule]
-pub fn py_align_funcs(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_align_funcs(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // TM-align
     m.add_function(wrap_pyfunction!(tm_align_pair, m)?)?;
     m.add_function(wrap_pyfunction!(tm_align_one_to_many, m)?)?;

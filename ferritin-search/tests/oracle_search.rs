@@ -44,7 +44,7 @@
 //!      Meaningful sensitivity metric on cross-similar corpora.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ferritin_search::alphabet::Alphabet;
@@ -111,7 +111,7 @@ fn find_query_fasta() -> Option<PathBuf> {
 /// Resolve the target FASTA path. Precedence: explicit
 /// `FERRITIN_SEARCH_TARGET_FASTA`, legacy `FERRITIN_SEARCH_EXAMPLE_FASTA`,
 /// fall back to the query FASTA (self-search).
-fn find_target_fasta(query: &PathBuf) -> Option<PathBuf> {
+fn find_target_fasta(query: &Path) -> Option<PathBuf> {
     for var in [
         "FERRITIN_SEARCH_TARGET_FASTA",
         "FERRITIN_SEARCH_EXAMPLE_FASTA",
@@ -125,7 +125,7 @@ fn find_target_fasta(query: &PathBuf) -> Option<PathBuf> {
             };
         }
     }
-    Some(query.clone())
+    Some(query.to_path_buf())
 }
 
 /// Build an in-memory map `accession → numeric_id` from the upstream
@@ -159,10 +159,10 @@ fn parse_m8(text: &str) -> HashMap<String, Vec<String>> {
 /// Run the upstream pipeline on the given query / target FASTAs and
 /// return the m8 output text.
 fn run_upstream_search(
-    mmseqs: &PathBuf,
-    query_fasta: &PathBuf,
-    target_fasta: &PathBuf,
-    workdir: &std::path::Path,
+    mmseqs: &Path,
+    query_fasta: &Path,
+    target_fasta: &Path,
+    workdir: &Path,
 ) -> String {
     let query_db = workdir.join("queryDB");
     let target_db = workdir.join("targetDB");

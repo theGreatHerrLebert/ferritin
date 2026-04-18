@@ -5,20 +5,20 @@
 //! and the internal variant (no terminal atoms).
 
 /// A template atom: (name, element, [x, y, z])
-pub type TplAtom = (&'static str, &'static str, [f64; 3]);
+pub(crate) type TplAtom = (&'static str, &'static str, [f64; 3]);
 
 /// A template bond: (atom_name_1, atom_name_2)
-pub type TplBond = (&'static str, &'static str);
+pub(crate) type TplBond = (&'static str, &'static str);
 
 /// A fragment template: (residue_name, atoms, bonds)
-pub type FragmentTemplate = (&'static str, &'static [TplAtom], &'static [TplBond]);
+pub(crate) type FragmentTemplate = (&'static str, &'static [TplAtom], &'static [TplBond]);
 
 /// Look up a fragment template by residue name.
-pub fn get_template(resname: &str) -> Option<&'static FragmentTemplate> {
+pub(crate) fn get_template(resname: &str) -> Option<&'static FragmentTemplate> {
     TEMPLATES.iter().find(|t| t.0 == resname)
 }
 
-pub static TEMPLATES: &[FragmentTemplate] = &[
+pub(crate) static TEMPLATES: &[FragmentTemplate] = &[
     // ALA: 10 atoms, 9 bonds
     (
         "ALA",

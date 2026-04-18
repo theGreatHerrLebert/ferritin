@@ -1536,6 +1536,7 @@ mod gradient_tests {
     ///   1. eef1_energy() missing 1-2/1-3 exclusions (same on both paths)
     ///   2. compute_energy_and_forces_nbl() silently skipping EEF1 entirely,
     ///      leaving solvation=0 and total missing the solvation term.
+    ///
     /// Bug #1 corrupts both paths by the same amount so a naive "exact vs
     /// nbl" comparison on `solvation` wouldn't necessarily flag it, BUT
     /// bug #2 leaves the NBL solvation at 0 while the exact path computes

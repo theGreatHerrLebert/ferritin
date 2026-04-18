@@ -156,9 +156,7 @@ fn match_points(
         tv2 = tv3_orig;
     }
     if v_norm_sq(tw2) < eps2 && v_norm_sq(tw3) >= eps2 {
-        let tmp = tw2;
-        tw2 = tw3;
-        tw3 = tmp;
+        std::mem::swap(&mut tw2, &mut tw3);
     }
 
     let mut final_translation = v_scale(w1, -1.0);
@@ -229,7 +227,7 @@ fn match_points(
 // ---------------------------------------------------------------------------
 
 /// Result of fragment reconstruction.
-pub struct ReconstructResult {
+pub(crate) struct ReconstructResult {
     /// Number of atoms added.
     pub added: usize,
 }
@@ -289,7 +287,7 @@ fn get_two_reference_atoms<'a>(
 /// Reconstruct missing atoms in a single residue using a fragment template.
 ///
 /// Returns list of (atom_name, element, position) for atoms to add.
-pub fn reconstruct_residue(
+pub(crate) fn reconstruct_residue(
     existing_atoms: &HashMap<String, [f64; 3]>,
     template_atoms: &[TplAtom],
     template_bonds: &[TplBond],
@@ -400,7 +398,7 @@ pub fn reconstruct_residue(
 }
 
 /// Reconstruct missing atoms in all standard amino acid residues of a PDB.
-pub fn reconstruct_fragments(pdb: &mut pdbtbx::PDB) -> ReconstructResult {
+pub(crate) fn reconstruct_fragments(pdb: &mut pdbtbx::PDB) -> ReconstructResult {
     let mut placements: Vec<(usize, usize, String, String, [f64; 3], usize)> = Vec::new();
     let mut max_serial: usize = crate::altloc::pdb_atoms_primary(pdb)
         .map(|a| a.serial_number())
@@ -417,7 +415,7 @@ pub fn reconstruct_fragments(pdb: &mut pdbtbx::PDB) -> ReconstructResult {
             let is_aa = residue
                 .conformers()
                 .next()
-                .map_or(false, |c| c.is_amino_acid());
+                .is_some_and(|c| c.is_amino_acid());
             if !is_aa {
                 continue;
             }

@@ -36,11 +36,11 @@ impl IndexEntry {
     }
 
     pub fn write_line(&self, w: &mut impl Write) -> std::io::Result<()> {
-        write!(w, "{}\t{}\t{}\n", self.key, self.offset, self.length)
+        writeln!(w, "{}\t{}\t{}", self.key, self.offset, self.length)
     }
 }
 
-pub fn read_all(path: impl AsRef<Path>) -> Result<Vec<IndexEntry>> {
+pub(super) fn read_all(path: impl AsRef<Path>) -> Result<Vec<IndexEntry>> {
     let file = std::fs::File::open(path.as_ref())?;
     let reader = BufReader::new(file);
     let mut out = Vec::new();
@@ -55,7 +55,7 @@ pub fn read_all(path: impl AsRef<Path>) -> Result<Vec<IndexEntry>> {
 }
 
 #[allow(dead_code)] // public batch helper; used in tests, exposed for external callers
-pub fn write_all(path: impl AsRef<Path>, entries: &[IndexEntry]) -> Result<()> {
+pub(super) fn write_all(path: impl AsRef<Path>, entries: &[IndexEntry]) -> Result<()> {
     let mut file = std::io::BufWriter::new(std::fs::File::create(path.as_ref())?);
     for e in entries {
         e.write_line(&mut file)?;

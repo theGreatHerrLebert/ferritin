@@ -85,7 +85,7 @@ fn extract_radii(pdb: &pdbtbx::PDB, radii_set: sasa::RadiiSet) -> (Vec<[f64; 3]>
 ///     1D numpy array of per-atom SASA in Angstroms².
 #[pyfunction]
 #[pyo3(signature = (pdb, probe=1.4, n_points=960, radii="bondi"))]
-pub fn atom_sasa<'py>(
+pub(crate) fn atom_sasa<'py>(
     py: Python<'py>,
     pdb: &PyPDB,
     probe: f64,
@@ -104,7 +104,7 @@ pub fn atom_sasa<'py>(
 ///     1D numpy array of per-residue SASA in Angstroms².
 #[pyfunction]
 #[pyo3(signature = (pdb, probe=1.4, n_points=960, radii="bondi"))]
-pub fn residue_sasa<'py>(
+pub(crate) fn residue_sasa<'py>(
     py: Python<'py>,
     pdb: &PyPDB,
     probe: f64,
@@ -127,7 +127,7 @@ pub fn residue_sasa<'py>(
 ///     1D numpy array of RSA values (0.0 to ~1.0+). NaN for unknown residue types.
 #[pyfunction]
 #[pyo3(signature = (pdb, probe=1.4, n_points=960, radii="bondi"))]
-pub fn relative_sasa<'py>(
+pub(crate) fn relative_sasa<'py>(
     py: Python<'py>,
     pdb: &PyPDB,
     probe: f64,
@@ -161,7 +161,7 @@ pub fn relative_sasa<'py>(
 /// Total SASA of a structure.
 #[pyfunction]
 #[pyo3(signature = (pdb, probe=1.4, n_points=960, radii="bondi"))]
-pub fn total_sasa(
+pub(crate) fn total_sasa(
     py: Python<'_>,
     pdb: &PyPDB,
     probe: f64,
@@ -183,7 +183,7 @@ pub fn total_sasa(
 /// Returns list of 1D numpy arrays.
 #[pyfunction]
 #[pyo3(signature = (structures, probe=1.4, n_points=960, n_threads=None, radii="bondi"))]
-pub fn batch_atom_sasa<'py>(
+pub(crate) fn batch_atom_sasa<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     probe: f64,
@@ -224,7 +224,7 @@ pub fn batch_atom_sasa<'py>(
 /// Returns 1D numpy array of total SASA values.
 #[pyfunction]
 #[pyo3(signature = (structures, probe=1.4, n_points=960, n_threads=None, radii="bondi"))]
-pub fn batch_total_sasa<'py>(
+pub(crate) fn batch_total_sasa<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     probe: f64,
@@ -285,7 +285,7 @@ fn permissive_load(path: &str) -> Result<pdbtbx::PDB, String> {
 /// Returns list of (index, total_sasa) for files that loaded successfully.
 #[pyfunction]
 #[pyo3(signature = (paths, probe=1.4, n_points=960, n_threads=None, radii="bondi"))]
-pub fn load_and_sasa<'py>(
+pub(crate) fn load_and_sasa<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyList>,
     probe: f64,
@@ -326,7 +326,7 @@ pub fn load_and_sasa<'py>(
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_sasa(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_sasa(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(atom_sasa, m)?)?;
     m.add_function(wrap_pyfunction!(residue_sasa, m)?)?;
     m.add_function(wrap_pyfunction!(relative_sasa, m)?)?;

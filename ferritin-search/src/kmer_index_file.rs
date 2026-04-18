@@ -217,12 +217,12 @@ pub fn write_kmi(
 /// Two-pass external-memory builder: writes a `.kmi` directly from a
 /// [`DBReader`] without materializing an in-memory [`KmerIndex`].
 ///
-/// Peak resident RAM is bounded by the offsets table (~`8 * (table_size
-/// + 1)` bytes) plus a duplicate cursors array of the same size —
-/// `2 × 8 × 21^6 ≈ 1.4 GB` for the full protein alphabet, `~77 MB` at
-/// the reduced alphabet (`13^6` slots). Orders of magnitude less than
-/// the in-memory build path, which at UniRef50 scale needs ~100 GB
-/// RAM for the postings alone.
+/// Peak resident RAM is bounded by the offsets table
+/// (~`8 * (table_size + 1)` bytes) plus a duplicate cursors array of
+/// the same size — `2 × 8 × 21^6 ≈ 1.4 GB` for the full protein
+/// alphabet, `~77 MB` at the reduced alphabet (`13^6` slots). Orders
+/// of magnitude less than the in-memory build path, which at UniRef50
+/// scale needs ~100 GB RAM for the postings alone.
 ///
 /// Algorithm:
 ///  - **Pass 1**: walk every target, count k-mer occurrences per
@@ -394,15 +394,12 @@ pub fn build_kmi_external(
     // validation after the file is already on disk.
     for k in 0..table_size {
         if cursors[k] != offsets[k + 1] {
-            return Err(ExternalBuildError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "external build inconsistency: cursor[{k}] = {} but offsets[{}] = {}",
-                    cursors[k],
-                    k + 1,
-                    offsets[k + 1],
-                ),
-            )));
+            return Err(ExternalBuildError::Io(std::io::Error::other(format!(
+                "external build inconsistency: cursor[{k}] = {} but offsets[{}] = {}",
+                cursors[k],
+                k + 1,
+                offsets[k + 1],
+            ))));
         }
     }
 
@@ -801,7 +798,7 @@ mod tests {
             (2u32, &[2, 3, 4, 5, 6][..]),
             (3u32, &[0, 1, 2][..]),
         ];
-        KmerIndex::build(encoder, targets.into_iter(), 12).unwrap()
+        KmerIndex::build(encoder, targets, 12).unwrap()
     }
 
     #[test]

@@ -189,7 +189,7 @@ impl PyResidue {
         self.inner
             .conformers()
             .next()
-            .map_or(false, |c| c.is_amino_acid())
+            .is_some_and(|c| c.is_amino_acid())
     }
 
     /// Number of atoms in the primary conformer.
@@ -660,7 +660,7 @@ fn atoms_from_model(model: &pdbtbx::Model) -> Vec<PyAtom> {
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_pdb(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_pdb(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPDB>()?;
     m.add_class::<PyModel>()?;
     m.add_class::<PyChain>()?;

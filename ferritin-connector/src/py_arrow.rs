@@ -139,7 +139,7 @@ fn from_parquet(py: Python<'_>, path: &str) -> PyResult<Vec<(String, PyPDB)>> {
 }
 
 #[pymodule]
-pub fn py_arrow(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_arrow(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_arrow_ipc, m)?)?;
     m.add_function(wrap_pyfunction!(to_structure_arrow_ipc, m)?)?;
     m.add_function(wrap_pyfunction!(from_arrow_ipc, m)?)?;

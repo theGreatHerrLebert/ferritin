@@ -28,7 +28,7 @@ fn build_pool(n_threads: usize) -> rayon::ThreadPool {
 /// (Kabsch & Sander, 1983).
 #[pyfunction]
 #[pyo3(name = "dssp")]
-pub fn compute_dssp(py: Python<'_>, pdb: &PyPDB) -> String {
+pub(crate) fn compute_dssp(py: Python<'_>, pdb: &PyPDB) -> String {
     let residues = dssp::extract_dssp_residues(&pdb.inner);
     py.allow_threads(|| dssp::assign_dssp(&residues))
 }
@@ -37,7 +37,7 @@ pub fn compute_dssp(py: Python<'_>, pdb: &PyPDB) -> String {
 ///
 /// Same as dssp() but returns a numpy array for vectorized operations.
 #[pyfunction]
-pub fn dssp_array<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray1<u8>> {
+pub(crate) fn dssp_array<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray1<u8>> {
     let residues = dssp::extract_dssp_residues(&pdb.inner);
     let ss = py.allow_threads(|| dssp::assign_dssp(&residues));
     ss.bytes().collect::<Vec<u8>>().into_pyarray(py)
@@ -48,7 +48,7 @@ pub fn dssp_array<'py>(py: Python<'py>, pdb: &PyPDB) -> Bound<'py, PyArray1<u8>>
 /// Returns list of SS strings.
 #[pyfunction]
 #[pyo3(signature = (structures, n_threads=None))]
-pub fn batch_dssp(
+pub(crate) fn batch_dssp(
     py: Python<'_>,
     structures: &Bound<'_, PyList>,
     n_threads: Option<i32>,
@@ -81,7 +81,7 @@ pub fn batch_dssp(
 /// Load files and compute DSSP in one parallel call (zero GIL).
 #[pyfunction]
 #[pyo3(signature = (paths, n_threads=None))]
-pub fn load_and_dssp(
+pub(crate) fn load_and_dssp(
     py: Python<'_>,
     paths: &Bound<'_, PyList>,
     n_threads: Option<i32>,
@@ -125,7 +125,7 @@ pub fn load_and_dssp(
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_dssp(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_dssp(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_dssp, m)?)?;
     m.add_function(wrap_pyfunction!(dssp_array, m)?)?;
     m.add_function(wrap_pyfunction!(batch_dssp, m)?)?;

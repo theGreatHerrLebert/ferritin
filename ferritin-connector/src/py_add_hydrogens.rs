@@ -20,6 +20,7 @@ use crate::py_pdb::PyPDB;
 /// same predicate `build_topology` calls. That function filters out:
 ///   * water residues (HOH/WAT/...) under vacuum protein force fields,
 ///   * non-polar hydrogens under polar-H force fields (CHARMM19).
+///
 /// If this function's skip logic drifts from build_topology's, the
 /// coord array length and the atom iteration will desync and the asserts
 /// below will fire.
@@ -135,7 +136,7 @@ fn build_pool(n_threads: usize) -> rayon::ThreadPool {
 /// Returns:
 ///     Tuple of (atoms_added, atoms_skipped).
 #[pyfunction]
-pub fn place_peptide_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize) {
+pub(crate) fn place_peptide_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize) {
     let result = py.allow_threads(|| add_hydrogens::place_peptide_hydrogens(&mut pdb.inner));
     (result.added, result.skipped)
 }
@@ -151,7 +152,7 @@ pub fn place_peptide_hydrogens(py: Python<'_>, pdb: &mut PyPDB) -> (usize, usize
 /// Returns:
 ///     Tuple of ((n_added, n_skipped), Nx3 float64 array of H positions).
 #[pyfunction]
-pub fn place_peptide_hydrogens_with_coords<'py>(
+pub(crate) fn place_peptide_hydrogens_with_coords<'py>(
     py: Python<'py>,
     pdb: &mut PyPDB,
 ) -> ((usize, usize), Bound<'py, PyArray2<f64>>) {
@@ -166,7 +167,7 @@ pub fn place_peptide_hydrogens_with_coords<'py>(
                 let is_aa = residue
                     .conformers()
                     .next()
-                    .map_or(false, |c| c.is_amino_acid());
+                    .is_some_and(|c| c.is_amino_acid());
                 if !is_aa {
                     continue;
                 }
@@ -199,7 +200,7 @@ pub fn place_peptide_hydrogens_with_coords<'py>(
 /// force field is a polar-H united-atom model like CHARMM19.
 #[pyfunction]
 #[pyo3(signature = (pdb, polar_only=false))]
-pub fn place_sidechain_hydrogens(
+pub(crate) fn place_sidechain_hydrogens(
     py: Python<'_>,
     pdb: &mut PyPDB,
     polar_only: bool,
@@ -218,7 +219,11 @@ pub fn place_sidechain_hydrogens(
 /// the sidechain (backbone amide is always placed). Use for CHARMM19.
 #[pyfunction]
 #[pyo3(signature = (pdb, polar_only=false))]
-pub fn place_all_hydrogens(py: Python<'_>, pdb: &mut PyPDB, polar_only: bool) -> (usize, usize) {
+pub(crate) fn place_all_hydrogens(
+    py: Python<'_>,
+    pdb: &mut PyPDB,
+    polar_only: bool,
+) -> (usize, usize) {
     let result =
         py.allow_threads(|| add_hydrogens::place_all_hydrogens(&mut pdb.inner, polar_only));
     (result.added, result.skipped)
@@ -236,7 +241,7 @@ pub fn place_all_hydrogens(py: Python<'_>, pdb: &mut PyPDB, polar_only: bool) ->
 /// Returns (n_added, n_skipped).
 #[pyfunction]
 #[pyo3(signature = (pdb, include_water=false))]
-pub fn place_general_hydrogens(
+pub(crate) fn place_general_hydrogens(
     py: Python<'_>,
     pdb: &mut PyPDB,
     include_water: bool,
@@ -252,7 +257,7 @@ pub fn place_general_hydrogens(
 /// by comparing against template structures from the BALL fragment database.
 /// Returns the number of atoms added.
 #[pyfunction]
-pub fn reconstruct_fragments(py: Python<'_>, pdb: &mut PyPDB) -> usize {
+pub(crate) fn reconstruct_fragments(py: Python<'_>, pdb: &mut PyPDB) -> usize {
     let result = py.allow_threads(|| crate::reconstruct::reconstruct_fragments(&mut pdb.inner));
     result.added
 }
@@ -262,7 +267,7 @@ pub fn reconstruct_fragments(py: Python<'_>, pdb: &mut PyPDB) -> usize {
 /// Returns list of (n_added, n_skipped) tuples.
 #[pyfunction]
 #[pyo3(signature = (structures, n_threads=None))]
-pub fn batch_place_peptide_hydrogens(
+pub(crate) fn batch_place_peptide_hydrogens(
     py: Python<'_>,
     structures: &Bound<'_, PyList>,
     n_threads: Option<i32>,
@@ -369,7 +374,7 @@ impl PrepareResult {
 #[pyfunction]
 #[pyo3(signature = (structures, reconstruct=true, hydrogens="all", include_water=false, minimize=true, minimize_method="lbfgs", minimize_steps=500, gradient_tolerance=0.1, n_threads=None, strip_hydrogens=true, ff="charmm19_eef1", constrain_heavy=None))]
 #[allow(clippy::too_many_arguments)]
-pub fn batch_prepare(
+pub(crate) fn batch_prepare(
     py: Python<'_>,
     structures: &Bound<'_, PyList>,
     reconstruct: bool,
@@ -627,7 +632,7 @@ where
                         // Minimize H positions and apply coords back to PDB
                         let has_any_h = crate::altloc::pdb_atoms_primary(pdb).any(|a| {
                             a.element()
-                                .map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")
+                                .is_some_and(|e| e.symbol() == "H" || e.symbol() == "D")
                         });
                         if !skipped_no_protein && minimize && (h_added > 0 || has_any_h) {
                             let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
@@ -703,7 +708,7 @@ where
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_add_hydrogens(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_add_hydrogens(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(place_peptide_hydrogens, m)?)?;
     m.add_function(wrap_pyfunction!(place_peptide_hydrogens_with_coords, m)?)?;
     m.add_function(wrap_pyfunction!(place_sidechain_hydrogens, m)?)?;

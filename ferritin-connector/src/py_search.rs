@@ -321,7 +321,7 @@ fn build_result_dict<'py>(
 ///   features: Nx10 float64 array of geometric features
 ///   chain_ids, residue_names, residue_numbers, insertion_codes metadata
 #[pyfunction]
-pub fn encode_alphabet(py: Python<'_>, pdb: &PyPDB) -> PyResult<PyObject> {
+pub(crate) fn encode_alphabet(py: Python<'_>, pdb: &PyPDB) -> PyResult<PyObject> {
     let records = extract_backbone_records(&pdb.inner);
     let result = py.allow_threads(|| encode_records(&records));
     let dict = build_result_dict(py, &records, result)?;
@@ -333,7 +333,7 @@ pub fn encode_alphabet(py: Python<'_>, pdb: &PyPDB) -> PyResult<PyObject> {
 /// Returns a list of dicts with the same schema as `encode_alphabet`.
 #[pyfunction]
 #[pyo3(signature = (structures, n_threads=None))]
-pub fn batch_encode_alphabet<'py>(
+pub(crate) fn batch_encode_alphabet<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     n_threads: Option<i32>,
@@ -370,7 +370,7 @@ pub fn batch_encode_alphabet<'py>(
 /// Score candidate target strings with Foldseek-style ungapped diagonal scoring.
 #[pyfunction]
 #[pyo3(signature = (query_alphabet, query_aa, target_alphabets, target_aas, n_threads=None))]
-pub fn diagonal_rescore_batch(
+pub(crate) fn diagonal_rescore_batch(
     py: Python<'_>,
     query_alphabet: String,
     query_aa: String,
@@ -403,7 +403,7 @@ pub fn diagonal_rescore_batch(
 }
 
 #[pymodule]
-pub fn py_search(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_search(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(encode_alphabet, m)?)?;
     m.add_function(wrap_pyfunction!(batch_encode_alphabet, m)?)?;
     m.add_function(wrap_pyfunction!(diagonal_rescore_batch, m)?)?;

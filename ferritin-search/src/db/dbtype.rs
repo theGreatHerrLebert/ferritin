@@ -8,7 +8,7 @@ use super::{DbError, Result};
 /// `DBReader::getExtendedDbtype`):
 /// - bit 31:      compression flag (1 = zstd-compressed payloads)
 /// - bits 30..17: extended flags (14 bits; see [`ExtendedDbtype`]). Upstream
-///                accesses these via `(u32 >> 16) & 0x7FFE`.
+///   accesses these via `(u32 >> 16) & 0x7FFE`.
 /// - bit 16:      reserved (cleared by upstream's `0x7FFE` extended mask)
 /// - bits 15..0:  base dbtype (16 bits; see constants on [`Dbtype`])
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

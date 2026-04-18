@@ -33,7 +33,7 @@ fn permissive_options() -> pdbtbx::ReadOptions {
 /// Returns:
 ///     PyPDB: The parsed structure.
 #[pyfunction]
-pub fn load(path: &str) -> PyResult<PyPDB> {
+pub(crate) fn load(path: &str) -> PyResult<PyPDB> {
     let (pdb, _errors) = permissive_options().read(path).map_err(|errs| {
         let msg = errs
             .iter()
@@ -47,7 +47,7 @@ pub fn load(path: &str) -> PyResult<PyPDB> {
 
 /// Load a structure, forcing PDB format.
 #[pyfunction]
-pub fn load_pdb(path: &str) -> PyResult<PyPDB> {
+pub(crate) fn load_pdb(path: &str) -> PyResult<PyPDB> {
     let mut opts = permissive_options();
     opts.set_format(pdbtbx::Format::Pdb);
 
@@ -64,7 +64,7 @@ pub fn load_pdb(path: &str) -> PyResult<PyPDB> {
 
 /// Load a structure, forcing mmCIF format.
 #[pyfunction]
-pub fn load_mmcif(path: &str) -> PyResult<PyPDB> {
+pub(crate) fn load_mmcif(path: &str) -> PyResult<PyPDB> {
     let mut opts = permissive_options();
     opts.set_format(pdbtbx::Format::Mmcif);
 
@@ -85,7 +85,7 @@ pub fn load_mmcif(path: &str) -> PyResult<PyPDB> {
 ///     pdb: The structure to save.
 ///     path: Output file path (.pdb or .cif/.mmcif).
 #[pyfunction]
-pub fn save(pdb: &PyPDB, path: &str) -> PyResult<()> {
+pub(crate) fn save(pdb: &PyPDB, path: &str) -> PyResult<()> {
     pdbtbx::save(&pdb.inner, path, pdbtbx::StrictnessLevel::Loose).map_err(|errs| {
         let msg = errs
             .iter()
@@ -98,7 +98,7 @@ pub fn save(pdb: &PyPDB, path: &str) -> PyResult<()> {
 
 /// Save a structure, forcing PDB format.
 #[pyfunction]
-pub fn save_pdb(pdb: &PyPDB, path: &str) -> PyResult<()> {
+pub(crate) fn save_pdb(pdb: &PyPDB, path: &str) -> PyResult<()> {
     pdbtbx::save_pdb(&pdb.inner, path, pdbtbx::StrictnessLevel::Loose).map_err(|errs| {
         let msg = errs
             .iter()
@@ -111,7 +111,7 @@ pub fn save_pdb(pdb: &PyPDB, path: &str) -> PyResult<()> {
 
 /// Save a structure, forcing mmCIF format.
 #[pyfunction]
-pub fn save_mmcif(pdb: &PyPDB, path: &str) -> PyResult<()> {
+pub(crate) fn save_mmcif(pdb: &PyPDB, path: &str) -> PyResult<()> {
     pdbtbx::save_mmcif(&pdb.inner, path, pdbtbx::StrictnessLevel::Loose).map_err(|errs| {
         let msg = errs
             .iter()
@@ -162,7 +162,7 @@ fn load_one(path: &str) -> Result<pdbtbx::PDB, String> {
 ///     IOError if any file fails to load.
 #[pyfunction]
 #[pyo3(signature = (paths, n_threads=None))]
-pub fn batch_load(
+pub(crate) fn batch_load(
     py: Python<'_>,
     paths: &Bound<'_, PyList>,
     n_threads: Option<i32>,
@@ -204,7 +204,7 @@ pub fn batch_load(
 ///     The index is the position in the original paths list.
 #[pyfunction]
 #[pyo3(signature = (paths, n_threads=None))]
-pub fn batch_load_tolerant(
+pub(crate) fn batch_load_tolerant(
     py: Python<'_>,
     paths: &Bound<'_, PyList>,
     n_threads: Option<i32>,
@@ -233,7 +233,7 @@ pub fn batch_load_tolerant(
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_io(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_io(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load, m)?)?;
     m.add_function(wrap_pyfunction!(load_pdb, m)?)?;
     m.add_function(wrap_pyfunction!(load_mmcif, m)?)?;

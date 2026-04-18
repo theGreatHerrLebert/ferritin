@@ -481,8 +481,7 @@ impl SearchEngine {
     pub fn write_kmer_index(&self, path: impl AsRef<Path>) -> Result<(), KmiWriterError> {
         match &self.index {
             KmerIndexStorage::InMemory(idx) => write_kmi(idx, self.reducer.as_ref(), path),
-            KmerIndexStorage::OnDisk(_) => Err(KmiWriterError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            KmerIndexStorage::OnDisk(_) => Err(KmiWriterError::Io(std::io::Error::other(
                 "engine already backs its k-mer index on disk; nothing to serialize",
             ))),
         }
@@ -501,6 +500,7 @@ impl SearchEngine {
     ///  - `kmer_size == opts.k`
     ///  - `alphabet_size == reducer.reduced_size` if a reducer is
     ///    configured, or `alphabet.size()` otherwise.
+    ///
     /// Mismatch raises `BuildFromDbError::KmiParamMismatch`.
     pub fn open_from_mmseqs_db_with_kmi(
         db_prefix: impl AsRef<Path>,

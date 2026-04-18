@@ -58,7 +58,7 @@ fn coords_to_flat(coords: &[Coord3D]) -> Vec<f64> {
 ///     Tuple of (rmsd, rotation_matrix_3x3, translation_3).
 ///     RMSD is the root-mean-square deviation after optimal superposition.
 #[pyfunction]
-pub fn kabsch_superpose<'py>(
+pub(crate) fn kabsch_superpose<'py>(
     py: Python<'py>,
     x: PyReadonlyArray2<'py, f64>,
     y: PyReadonlyArray2<'py, f64>,
@@ -105,7 +105,7 @@ pub fn kabsch_superpose<'py>(
 /// Returns:
 ///     RMSD as float.
 #[pyfunction]
-pub fn rmsd_no_super<'py>(
+pub(crate) fn rmsd_no_super<'py>(
     x: PyReadonlyArray2<'py, f64>,
     y: PyReadonlyArray2<'py, f64>,
 ) -> PyResult<f64> {
@@ -142,7 +142,10 @@ pub fn rmsd_no_super<'py>(
 /// Returns:
 ///     RMSD after optimal superposition.
 #[pyfunction]
-pub fn rmsd<'py>(x: PyReadonlyArray2<'py, f64>, y: PyReadonlyArray2<'py, f64>) -> PyResult<f64> {
+pub(crate) fn rmsd<'py>(
+    x: PyReadonlyArray2<'py, f64>,
+    y: PyReadonlyArray2<'py, f64>,
+) -> PyResult<f64> {
     let xc = numpy_to_coords(&x)?;
     let yc = numpy_to_coords(&y)?;
     if xc.len() != yc.len() {
@@ -173,7 +176,7 @@ pub fn rmsd<'py>(x: PyReadonlyArray2<'py, f64>, y: PyReadonlyArray2<'py, f64>) -
 /// Returns:
 ///     Nx3 numpy array of transformed coordinates.
 #[pyfunction]
-pub fn apply_transform<'py>(
+pub(crate) fn apply_transform<'py>(
     py: Python<'py>,
     coords: PyReadonlyArray2<'py, f64>,
     rotation: PyReadonlyArray2<'py, f64>,
@@ -232,7 +235,7 @@ pub fn apply_transform<'py>(
 /// Returns:
 ///     String of length N with characters H/E/T/C.
 #[pyfunction]
-pub fn assign_secondary_structure<'py>(coords: PyReadonlyArray2<'py, f64>) -> PyResult<String> {
+pub(crate) fn assign_secondary_structure(coords: PyReadonlyArray2<'_, f64>) -> PyResult<String> {
     let xc = numpy_to_coords(&coords)?;
     let sec = make_sec(&xc);
     Ok(sec.into_iter().collect())
@@ -256,7 +259,7 @@ pub fn assign_secondary_structure<'py>(coords: PyReadonlyArray2<'py, f64>) -> Py
 /// Returns:
 ///     Tuple of (tm_score, n_aligned, rmsd, rotation_3x3, translation_3).
 #[pyfunction]
-pub fn tm_score<'py>(
+pub(crate) fn tm_score<'py>(
     py: Python<'py>,
     x: PyReadonlyArray2<'py, f64>,
     y: PyReadonlyArray2<'py, f64>,
@@ -302,7 +305,7 @@ pub fn tm_score<'py>(
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(kabsch_superpose, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd, m)?)?;
     m.add_function(wrap_pyfunction!(rmsd_no_super, m)?)?;

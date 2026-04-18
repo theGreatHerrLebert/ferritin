@@ -165,7 +165,7 @@ struct CellList {
 
 impl CellList {
     fn new(coords: &[[f64; 3]], radii: &[f64], probe: f64) -> Self {
-        let max_r = radii.iter().cloned().fold(0.0_f64, f64::max);
+        let max_r = radii.iter().copied().fold(0.0_f64, f64::max);
         // Cell size must be >= diameter of largest expanded sphere
         // so any neighbor is in adjacent cells
         let cell_size = 2.0 * (max_r + probe) + 0.01;
@@ -272,6 +272,7 @@ impl CellList {
 /// Below this, the GPU kernel launch overhead dominates the compute gain.
 /// At 500 atoms with 960 test points, the GPU starts winning on the
 /// RTX 5090 (~2k CUDA cores saturated).
+#[cfg(feature = "cuda")]
 const SASA_GPU_THRESHOLD: usize = 500;
 
 pub fn shrake_rupley(coords: &[[f64; 3]], radii: &[f64], probe: f64, n_points: usize) -> Vec<f64> {

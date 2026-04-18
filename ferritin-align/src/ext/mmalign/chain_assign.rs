@@ -119,16 +119,15 @@ pub fn enhanced_greedy_search(
                     }
                     total_score += delta_score;
                     break 'outer;
-                } else {
-                    // Revert
-                    assign1_tmp[i] = assign1[i];
-                    if old_i >= 0 {
-                        assign1_tmp[old_i as usize] = assign1[old_i as usize];
-                    }
-                    assign2_tmp[j] = assign2[j];
-                    if old_j >= 0 {
-                        assign2_tmp[old_j as usize] = assign2[old_j as usize];
-                    }
+                }
+                // Revert
+                assign1_tmp[i] = assign1[i];
+                if old_i >= 0 {
+                    assign1_tmp[old_i as usize] = assign1[old_i as usize];
+                }
+                assign2_tmp[j] = assign2[j];
+                if old_j >= 0 {
+                    assign2_tmp[old_j as usize] = assign2[old_j as usize];
                 }
             }
             if delta_score > 0.0 {
@@ -364,16 +363,15 @@ pub fn hetero_refined_greedy_search(
                     delta_score = mm_score - mm_score_old;
                     mm_score_old = mm_score;
                     break;
-                } else {
-                    // Revert
-                    assign1_tmp[i] = assign1[i];
-                    if old_i >= 0 {
-                        assign1_tmp[old_i as usize] = assign1[old_i as usize];
-                    }
-                    assign2_tmp[j] = assign2[j];
-                    if old_j >= 0 {
-                        assign2_tmp[old_j as usize] = assign2[old_j as usize];
-                    }
+                }
+                // Revert
+                assign1_tmp[i] = assign1[i];
+                if old_i >= 0 {
+                    assign1_tmp[old_i as usize] = assign1[old_i as usize];
+                }
+                assign2_tmp[j] = assign2[j];
+                if old_j >= 0 {
+                    assign2_tmp[old_j as usize] = assign2[old_j as usize];
                 }
             }
         }

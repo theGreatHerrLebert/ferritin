@@ -153,27 +153,15 @@ pub fn mmalign_iter(
         best_score = total_score;
 
         // Save best state
-        if chain_map.is_empty() {
-            best_state = copy_chain_assign_data(
-                chain1_num,
-                chain2_num,
-                &tmp_state.seqx_a_mat,
-                &tmp_state.seqy_a_mat,
-                &tmp_state.assign1,
-                &tmp_state.assign2,
-                &tmp_state.tm_mat,
-            );
-        } else {
-            best_state = copy_chain_assign_data(
-                chain1_num,
-                chain2_num,
-                &tmp_state.seqx_a_mat,
-                &tmp_state.seqy_a_mat,
-                &tmp_state.assign1,
-                &tmp_state.assign2,
-                &tmp_state.tm_mat,
-            );
-        }
+        best_state = copy_chain_assign_data(
+            chain1_num,
+            chain2_num,
+            &tmp_state.seqx_a_mat,
+            &tmp_state.seqy_a_mat,
+            &tmp_state.assign1,
+            &tmp_state.assign2,
+            &tmp_state.tm_mat,
+        );
     }
 
     (best_score, best_state)

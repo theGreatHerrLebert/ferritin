@@ -27,11 +27,11 @@ use std::collections::{HashMap, HashSet};
 /// never reaching `gradient_tolerance`. Stripping and re-placing the H
 /// from clean geometry rescues every such structure tested in the 50K
 /// benchmark (~9% of stragglers).
-pub fn strip_hydrogens(pdb: &mut pdbtbx::PDB) -> usize {
+pub(crate) fn strip_hydrogens(pdb: &mut pdbtbx::PDB) -> usize {
     let before = pdb.atom_count();
     pdb.remove_atoms_by(|atom| {
         atom.element()
-            .map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")
+            .is_some_and(|e| e.symbol() == "H" || e.symbol() == "D")
     });
     before.saturating_sub(pdb.atom_count())
 }
@@ -56,7 +56,7 @@ struct HPlacement {
 }
 
 /// Result of peptide hydrogen placement.
-pub struct AddHydrogensResult {
+pub(crate) struct AddHydrogensResult {
     /// Number of H atoms added.
     pub added: usize,
     /// Number of residues skipped (missing backbone atoms, proline, N-terminal).
@@ -119,7 +119,7 @@ fn has_backbone_h(residue: &pdbtbx::Residue) -> bool {
 /// C(i-1)→N and CA→N vectors, at 1.02 Å from N.
 ///
 /// Returns the number of atoms added and skipped.
-pub fn place_peptide_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
+pub(crate) fn place_peptide_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
     // --- Read pass: compute all H positions ---
     let mut placements: Vec<HPlacement> = Vec::new();
     let mut skipped = 0;
@@ -149,7 +149,7 @@ pub fn place_peptide_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
             let is_aa = residue
                 .conformers()
                 .next()
-                .map_or(false, |c| c.is_amino_acid());
+                .is_some_and(|c| c.is_amino_acid());
 
             if !is_aa {
                 prev_backbone = None;
@@ -927,7 +927,7 @@ fn compute_sidechain_h(
                     Some(v) => *v,
                     None => continue,
                 };
-                result.push((name.to_string(), place_tet1h(p, n1, n2, n3, *bl)));
+                result.push(((*name).to_string(), place_tet1h(p, n1, n2, n3, *bl)));
             }
             SidechainH::Tet2 {
                 names,
@@ -1003,7 +1003,7 @@ fn compute_sidechain_h(
                     None => continue,
                 };
                 result.push((
-                    name.to_string(),
+                    (*name).to_string(),
                     place_aromatic1h(p, r1, r2, AROMATIC_CH_BOND_LENGTH),
                 ));
             }
@@ -1028,7 +1028,7 @@ fn compute_sidechain_h(
                 if *parent == "SG" && is_disulfide(p, all_sg_positions) {
                     continue;
                 }
-                result.push((name.to_string(), place_oh1h(p, n, *bl)));
+                result.push(((*name).to_string(), place_oh1h(p, n, *bl)));
             }
             SidechainH::PlanarNH2 {
                 names,
@@ -1079,7 +1079,10 @@ fn compute_sidechain_h(
 /// N/O/S (guanidinium, amide, hydroxyl, thiol, imidazole, indole N-H,
 /// and the N-terminal NH3+) are added. This matches GROMACS's
 /// pdb2gmx hydrogen database for polar-H united-atom force fields.
-pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> AddHydrogensResult {
+pub(crate) fn place_sidechain_hydrogens(
+    pdb: &mut pdbtbx::PDB,
+    polar_only: bool,
+) -> AddHydrogensResult {
     let mut placements: Vec<(usize, usize, String, [f64; 3], usize)> = Vec::new();
     let mut skipped = 0;
     let mut max_serial: usize = crate::altloc::pdb_atoms_primary(pdb)
@@ -1117,7 +1120,7 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> Add
         let aa_indices: Vec<usize> = chain
             .residues()
             .enumerate()
-            .filter(|(_, r)| r.conformers().next().map_or(false, |c| c.is_amino_acid()))
+            .filter(|(_, r)| r.conformers().next().is_some_and(|c| c.is_amino_acid()))
             .map(|(i, _)| i)
             .collect();
         let first_aa = aa_indices.first().copied();
@@ -1127,7 +1130,7 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> Add
             let is_aa = residue
                 .conformers()
                 .next()
-                .map_or(false, |c| c.is_amino_acid());
+                .is_some_and(|c| c.is_amino_acid());
             if !is_aa {
                 continue;
             }
@@ -1255,7 +1258,7 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> Add
 /// backbone amide H is always polar so `place_peptide_hydrogens` is
 /// called unconditionally; only `place_sidechain_hydrogens` branches
 /// on the flag.
-pub fn place_all_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> AddHydrogensResult {
+pub(crate) fn place_all_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> AddHydrogensResult {
     let r1 = place_peptide_hydrogens(pdb);
     let r2 = place_sidechain_hydrogens(pdb, polar_only);
     AddHydrogensResult {
@@ -1424,7 +1427,7 @@ pub(crate) const WATER_NAMES: &[&str] = &["HOH", "WAT", "H2O", "TIP", "TIP3", "S
 
 /// Check whether a residue name refers to a water molecule.
 pub(crate) fn is_water_residue(name: &str) -> bool {
-    WATER_NAMES.iter().any(|&w| w == name)
+    WATER_NAMES.contains(&name)
 }
 
 /// Return true if the given `(residue, hydrogen_atom_name)` pair is a
@@ -1438,6 +1441,7 @@ pub(crate) fn is_water_residue(name: &str) -> bool {
 /// to keep in CHARMM19 mode". Cross-referenced against:
 ///   * BALL /data/CHARMM/EEF1/param19_eef1.ini residue templates
 ///   * GROMACS /share/top/gromos54a7.ff/aminoacids.hdb placement rules
+///
 /// Both oracles agree on the set below. If you add support for a new
 /// residue (non-standard AA, modified residue), extend this function.
 pub(crate) fn is_polar_sidechain_h(residue: &str, h_name: &str) -> bool {
@@ -1513,7 +1517,10 @@ fn place_water_h(o_pos: [f64; 3]) -> [[f64; 3]; 2] {
 /// the user wants all atoms present for visualization or non-FF downstream
 /// tools. For a CHARMM19 energy run, use `place_all_hydrogens(pdb, true)`
 /// directly instead.
-pub fn place_general_hydrogens(pdb: &mut pdbtbx::PDB, include_water: bool) -> AddHydrogensResult {
+pub(crate) fn place_general_hydrogens(
+    pdb: &mut pdbtbx::PDB,
+    include_water: bool,
+) -> AddHydrogensResult {
     // First: place standard AA hydrogens (all atoms, not polar-only —
     // this mode is for non-FF consumers).
     let standard = place_all_hydrogens(pdb, false);
@@ -1535,7 +1542,7 @@ pub fn place_general_hydrogens(pdb: &mut pdbtbx::PDB, include_water: bool) -> Ad
             let is_standard_aa = residue
                 .conformers()
                 .next()
-                .map_or(false, |c| c.is_amino_acid());
+                .is_some_and(|c| c.is_amino_acid());
 
             // Skip standard amino acids (already handled by Phase 1+2)
             if is_standard_aa {
@@ -1738,7 +1745,7 @@ mod tests {
         let n_residues: usize = pdb
             .chains()
             .flat_map(|c| c.residues())
-            .filter(|r| r.conformers().next().map_or(false, |c| c.is_amino_acid()))
+            .filter(|r| r.conformers().next().is_some_and(|c| c.is_amino_acid()))
             .count();
 
         let n_proline: usize = pdb
@@ -1788,7 +1795,7 @@ mod tests {
                 let is_aa = residue
                     .conformers()
                     .next()
-                    .map_or(false, |c| c.is_amino_acid());
+                    .is_some_and(|c| c.is_amino_acid());
                 if !is_aa {
                     continue;
                 }
@@ -1857,7 +1864,7 @@ mod tests {
         assert!(
             !pdb.atoms().any(|a| a
                 .element()
-                .map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")),
+                .is_some_and(|e| e.symbol() == "H" || e.symbol() == "D")),
             "1crn fixture should be heavy-atom only"
         );
 
@@ -1875,7 +1882,7 @@ mod tests {
         assert!(
             !pdb.atoms().any(|a| a
                 .element()
-                .map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")),
+                .is_some_and(|e| e.symbol() == "H" || e.symbol() == "D")),
             "no H atoms should remain after strip"
         );
 

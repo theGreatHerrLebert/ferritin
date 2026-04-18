@@ -28,7 +28,7 @@ impl SourceEntry {
     }
 
     pub fn write_line(&self, w: &mut impl Write) -> std::io::Result<()> {
-        write!(w, "{}\t{}\n", self.file_number, self.filename)
+        writeln!(w, "{}\t{}", self.file_number, self.filename)
     }
 }
 

@@ -955,7 +955,7 @@ mod plateau_tests {
     #[test]
     fn small_change_increments_counter() {
         // Energy moved by 1e-8 of magnitude — well below PLATEAU_REL_TOL=1e-6.
-        let (counter, plateaued) = check_energy_plateau(Some(-1000.0), -1000.000_01, 0);
+        let (counter, plateaued) = check_energy_plateau(Some(-1000.0), -1000.00001, 0);
         assert_eq!(counter, 1);
         assert!(!plateaued);
     }
@@ -964,7 +964,7 @@ mod plateau_tests {
     fn patience_threshold_triggers_convergence() {
         // After PLATEAU_PATIENCE-1 tiny-change steps, one more triggers it.
         let (counter, plateaued) =
-            check_energy_plateau(Some(-1000.0), -1000.000_01, PLATEAU_PATIENCE - 1);
+            check_energy_plateau(Some(-1000.0), -1000.00001, PLATEAU_PATIENCE - 1);
         assert_eq!(counter, PLATEAU_PATIENCE);
         assert!(plateaued);
     }

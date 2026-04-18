@@ -34,7 +34,7 @@
 /// Any strictly positive value is used as-is.
 ///
 /// See the module-level docs for the full `n_threads` convention.
-pub fn resolve_threads(n: Option<i32>) -> usize {
+pub(crate) fn resolve_threads(n: Option<i32>) -> usize {
     match n {
         None => 0,
         Some(n) if n <= 0 => 0,
@@ -44,7 +44,7 @@ pub fn resolve_threads(n: Option<i32>) -> usize {
 
 /// Build a rayon thread pool with the given thread count.
 /// `n_threads = 0` means use all available CPUs.
-pub fn build_pool(n_threads: usize) -> rayon::ThreadPool {
+pub(crate) fn build_pool(n_threads: usize) -> rayon::ThreadPool {
     let mut builder = rayon::ThreadPoolBuilder::new();
     if n_threads > 0 {
         builder = builder.num_threads(n_threads);
@@ -82,7 +82,7 @@ fn available_memory_bytes() -> usize {
 /// # Arguments
 /// * `requested` — User-requested thread count (None = use all)
 /// * `per_task_bytes` — Estimated peak working set per parallel task
-pub fn auto_threads(requested: Option<i32>, per_task_bytes: usize) -> usize {
+pub(crate) fn auto_threads(requested: Option<i32>, per_task_bytes: usize) -> usize {
     let cpus = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);

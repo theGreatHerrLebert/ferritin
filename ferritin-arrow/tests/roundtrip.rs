@@ -32,7 +32,7 @@ fn test_roundtrip_all_test_pdbs() {
     let mut entries: Vec<_> = fs::read_dir(test_path)
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "pdb"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "pdb"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
 
@@ -44,12 +44,11 @@ fn test_roundtrip_all_test_pdbs() {
         let path = entry.path();
         let name = path.file_stem().unwrap().to_str().unwrap();
 
-        let pdb = match load_pdb(path.to_str().unwrap()) {
-            Some(p) => p,
-            None => {
-                n_skipped += 1;
-                continue;
-            }
+        let pdb = if let Some(p) = load_pdb(path.to_str().unwrap()) {
+            p
+        } else {
+            n_skipped += 1;
+            continue;
         };
 
         // Count atoms across ALL models (not just first)

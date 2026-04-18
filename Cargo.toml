@@ -25,7 +25,8 @@ categories = ["science", "science::bioinformatics"]
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
 unreachable_pub = "warn"
-elided_lifetimes_in_paths = "warn"
+# elided_lifetimes_in_paths is noisy in PyO3 macro-generated code; revisit
+# once #[pyclass] macros emit explicit lifetimes.
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -57,6 +58,16 @@ redundant_closure_for_method_calls = "allow"
 needless_pass_by_value = "allow"
 map_unwrap_or = "allow"
 assigning_clones = "allow"
+type_complexity = "allow"               # algorithmic tuple signatures from C++ port
+default_trait_access = "allow"          # ZstdLevel::default() is the idiomatic call site
+fn_params_excessive_bools = "allow"     # PyO3 boundary functions thread through CLI flags
+struct_excessive_bools = "allow"
+return_self_not_must_use = "allow"      # builder-style APIs are obvious without #[must_use]
+used_underscore_binding = "allow"       # _name bindings document intent in math kernels
+unnecessary_wraps = "allow"             # Result-returning is preserved for API stability
+ref_option = "allow"
+naive_bytecount = "allow"
+float_cmp = "allow"                     # asserts in tests legitimately compare exact floats
 
 [profile.release]
 opt-level = 3

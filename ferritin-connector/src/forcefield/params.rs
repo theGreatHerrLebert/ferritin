@@ -205,8 +205,8 @@ impl AmberParams {
 
             // Properties
             if line.starts_with('@') {
-                if line.starts_with("@SCEE=") {
-                    if let Ok(v) = line[6..].parse::<f64>() {
+                if let Some(rest) = line.strip_prefix("@SCEE=") {
+                    if let Ok(v) = rest.parse::<f64>() {
                         params.scee = v;
                     }
                 }
@@ -274,11 +274,7 @@ impl AmberParams {
                                 f,
                                 div: div.max(1.0),
                             };
-                            params
-                                .torsions
-                                .entry(key)
-                                .or_insert_with(Vec::new)
-                                .push(term);
+                            params.torsions.entry(key).or_default().push(term);
                         }
                     }
                 }
@@ -303,17 +299,13 @@ impl AmberParams {
                                 f,
                                 div: div.max(1.0),
                             };
-                            params
-                                .improper_torsions
-                                .entry(key)
-                                .or_insert_with(Vec::new)
-                                .push(term);
+                            params.improper_torsions.entry(key).or_default().push(term);
                         }
                     }
                 }
                 "ResidueImproperTorsions" => {
                     // Single column: residue:atom names
-                    if fields.len() >= 1 {
+                    if !fields.is_empty() {
                         let name = fields[0].trim().to_string();
                         if name.contains(':') {
                             params.residue_impropers.insert(name);
@@ -342,9 +334,8 @@ impl AmberParams {
                                 amber_type: atype,
                                 charge: q,
                             };
-                            if name.starts_with("*:") {
-                                let atom_name = name[2..].to_string();
-                                params.wildcard_types.insert(atom_name, entry);
+                            if let Some(atom_name) = name.strip_prefix("*:") {
+                                params.wildcard_types.insert(atom_name.to_string(), entry);
                             } else {
                                 params.atom_types.insert(name.to_string(), entry);
                             }
@@ -1077,12 +1068,11 @@ mod tests {
             "../../test-pdbs/1crn.pdb",
         ];
         let pdb_path = candidates.iter().find(|p| std::path::Path::new(p).exists());
-        let pdb_path = match pdb_path {
-            Some(p) => *p,
-            None => {
-                eprintln!("SKIP: 1crn.pdb not found in expected locations");
-                return;
-            }
+        let pdb_path = if let Some(p) = pdb_path {
+            *p
+        } else {
+            eprintln!("SKIP: 1crn.pdb not found in expected locations");
+            return;
         };
 
         let (pdb, _errors) = pdbtbx::open(pdb_path).expect("failed to load 1crn");

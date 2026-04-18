@@ -30,7 +30,7 @@ fn build_pool(n_threads: usize) -> rayon::ThreadPool {
 ///     Nx4 float64 array of H-bond data.
 #[pyfunction]
 #[pyo3(signature = (pdb, energy_cutoff=-0.5))]
-pub fn backbone_hbonds<'py>(
+pub(crate) fn backbone_hbonds<'py>(
     py: Python<'py>,
     pdb: &PyPDB,
     energy_cutoff: f64,
@@ -56,7 +56,7 @@ pub fn backbone_hbonds<'py>(
 /// Returns Nx3 numpy array: [donor_atom_idx, acceptor_atom_idx, distance]
 #[pyfunction]
 #[pyo3(signature = (pdb, dist_cutoff=3.5))]
-pub fn geometric_hbonds<'py>(
+pub(crate) fn geometric_hbonds<'py>(
     py: Python<'py>,
     pdb: &PyPDB,
     dist_cutoff: f64,
@@ -79,7 +79,7 @@ pub fn geometric_hbonds<'py>(
 /// Returns 1D array of length n_residues.
 #[pyfunction]
 #[pyo3(signature = (pdb, energy_cutoff=-0.5))]
-pub fn hbond_count_per_residue<'py>(
+pub(crate) fn hbond_count_per_residue<'py>(
     py: Python<'py>,
     pdb: &PyPDB,
     energy_cutoff: f64,
@@ -106,7 +106,7 @@ pub fn hbond_count_per_residue<'py>(
 /// Returns list of Nx4 arrays.
 #[pyfunction]
 #[pyo3(signature = (structures, energy_cutoff=-0.5, n_threads=None))]
-pub fn batch_backbone_hbonds<'py>(
+pub(crate) fn batch_backbone_hbonds<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     energy_cutoff: f64,
@@ -153,7 +153,7 @@ pub fn batch_backbone_hbonds<'py>(
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_hbond(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_hbond(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(backbone_hbonds, m)?)?;
     m.add_function(wrap_pyfunction!(geometric_hbonds, m)?)?;
     m.add_function(wrap_pyfunction!(hbond_count_per_residue, m)?)?;

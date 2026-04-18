@@ -111,7 +111,7 @@ impl NeighborList {
 
                     // Check this cell + 13 forward neighbors (half-shell to avoid double counting)
                     // Offsets: (0,0,0) for intra-cell, then 13 forward neighbors
-                    for &(dx, dy, dz) in HALF_SHELL.iter() {
+                    for &(dx, dy, dz) in &HALF_SHELL {
                         let nx = cx as isize + dx;
                         let ny = cy as isize + dy;
                         let nz = cz as isize + dz;

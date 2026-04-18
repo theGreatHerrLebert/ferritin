@@ -123,7 +123,7 @@ impl KmerEncoder {
     ) -> impl Iterator<Item = (usize, u64)> + 'a {
         let k = self.kmer_size;
         (0..seq.len().saturating_sub(k - 1))
-            .filter(move |&pos| !seq[pos..pos + k].iter().any(|&b| b == skip_idx))
+            .filter(move |&pos| !seq[pos..pos + k].contains(&skip_idx))
             .map(move |pos| (pos, self.encode(&seq[pos..pos + k])))
     }
 }
@@ -396,8 +396,8 @@ mod tests {
         let enc = KmerEncoder::new(4, 2);
         let seq: Vec<u8> = vec![0, 1, 0, 1, 0]; // "ACACA": "AC" at 0, "CA" at 1, "AC" at 2, "CA" at 3
         let idx = KmerIndex::build(enc, [(7u32, seq.as_slice())], 99).unwrap();
-        let ac_hash = 0 + 1 * 4; // =4
-        let ca_hash = 1 + 0 * 4; // =1
+        let ac_hash = 4; // =4
+        let ca_hash = 1; // =1
         let ac_hits = idx.lookup_hash(ac_hash);
         assert_eq!(ac_hits.len(), 2);
         assert_eq!(ac_hits[0].pos, 0);
@@ -443,7 +443,7 @@ mod tests {
             99,
         )
         .unwrap();
-        assert_eq!(idx.total_hits(), 3 + 0 + 2);
+        assert_eq!(idx.total_hits(), 3 + 2);
     }
 
     #[test]

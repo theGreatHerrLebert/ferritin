@@ -24,7 +24,7 @@ const BEND_THRESHOLD: f64 = 70.0;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct DsspResidue {
+pub(crate) struct DsspResidue {
     pub n: [f64; 3],
     pub ca: [f64; 3],
     pub c: [f64; 3],
@@ -44,7 +44,7 @@ fn normalize(v: [f64; 3]) -> [f64; 3] {
     [v[0] / len, v[1] / len, v[2] / len]
 }
 
-pub fn extract_dssp_residues(pdb: &pdbtbx::PDB) -> Vec<DsspResidue> {
+pub(crate) fn extract_dssp_residues(pdb: &pdbtbx::PDB) -> Vec<DsspResidue> {
     let mut residues = Vec::new();
     let mut chain_idx = 0;
 
@@ -60,7 +60,7 @@ pub fn extract_dssp_residues(pdb: &pdbtbx::PDB) -> Vec<DsspResidue> {
             let is_aa = residue
                 .conformers()
                 .next()
-                .map_or(false, |c| c.is_amino_acid());
+                .is_some_and(|c| c.is_amino_acid());
             if !is_aa {
                 continue;
             }
@@ -189,7 +189,7 @@ fn hbond_energy(acc: &DsspResidue, don: &DsspResidue) -> f64 {
 // ---------------------------------------------------------------------------
 
 /// Assign DSSP secondary structure.
-pub fn assign_dssp(residues: &[DsspResidue]) -> String {
+pub(crate) fn assign_dssp(residues: &[DsspResidue]) -> String {
     let n = residues.len();
     if n == 0 {
         return String::new();
@@ -454,7 +454,7 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
 
 /// Assign DSSP from a pdbtbx PDB structure.
 #[allow(dead_code)]
-pub fn dssp_from_pdb(pdb: &pdbtbx::PDB) -> String {
+pub(crate) fn dssp_from_pdb(pdb: &pdbtbx::PDB) -> String {
     let residues = extract_dssp_residues(pdb);
     assign_dssp(&residues)
 }

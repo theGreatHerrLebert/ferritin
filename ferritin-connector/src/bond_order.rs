@@ -7,7 +7,7 @@ use std::collections::{HashSet, VecDeque};
 
 /// Bond order values matching BALL convention.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum BondOrder {
+pub(crate) enum BondOrder {
     Single,
     Double,
     Triple,
@@ -15,7 +15,7 @@ pub enum BondOrder {
 }
 
 impl BondOrder {
-    pub fn as_f64(self) -> f64 {
+    pub(crate) fn as_f64(self) -> f64 {
         match self {
             BondOrder::Single => 1.0,
             BondOrder::Double => 2.0,
@@ -27,7 +27,7 @@ impl BondOrder {
 
 /// A bond with order information.
 #[derive(Clone, Debug)]
-pub struct OrderedBond {
+pub(crate) struct OrderedBond {
     pub i: usize,
     pub j: usize,
     pub order: BondOrder,
@@ -36,7 +36,7 @@ pub struct OrderedBond {
 
 /// Atom info for general H placement.
 #[derive(Clone, Debug)]
-pub struct AtomInfo {
+pub(crate) struct AtomInfo {
     pub pos: [f64; 3],
     pub element: String,
     #[allow(dead_code)]
@@ -47,7 +47,7 @@ pub struct AtomInfo {
 }
 
 /// Full connectivity graph with bond orders and ring info.
-pub struct MolGraph {
+pub(crate) struct MolGraph {
     pub atoms: Vec<AtomInfo>,
     pub bonds: Vec<OrderedBond>,
 }
@@ -133,7 +133,7 @@ fn estimate_bond_order(elem_a: &str, elem_b: &str, dist: f64) -> Option<BondOrde
                 None
             }
         }
-        ("O", "P") | ("O", "S") => {
+        ("O", "P" | "S") => {
             if dist < 1.55 {
                 Some(BondOrder::Double)
             } else if dist < 1.75 {
@@ -263,7 +263,11 @@ fn refine_aromatic_bonds(atoms: &[AtomInfo], bonds: &mut [OrderedBond]) {
 
 /// Build a molecular graph from atom positions and elements.
 /// Infers bonds from distances, estimates bond orders, detects rings.
-pub fn build_mol_graph(positions: &[[f64; 3]], elements: &[String], names: &[String]) -> MolGraph {
+pub(crate) fn build_mol_graph(
+    positions: &[[f64; 3]],
+    elements: &[String],
+    names: &[String],
+) -> MolGraph {
     let n = positions.len();
 
     // Step 1: Find bonds and estimate orders from distances
@@ -321,7 +325,7 @@ pub fn build_mol_graph(positions: &[[f64; 3]], elements: &[String], names: &[Str
 
 /// Expected number of bonds for an element (from periodic table group).
 /// This is the key function from BALL's _get_connectivity.
-pub fn expected_valence(element: &str) -> u8 {
+pub(crate) fn expected_valence(element: &str) -> u8 {
     match element {
         "H" | "D" | "F" | "Cl" | "Br" | "I" => 1,
         "O" | "S" | "Se" => 2,
@@ -334,7 +338,7 @@ pub fn expected_valence(element: &str) -> u8 {
 }
 
 /// Sum of bond orders for an atom in the molecular graph.
-pub fn sum_bond_orders(graph: &MolGraph, atom_idx: usize) -> f64 {
+pub(crate) fn sum_bond_orders(graph: &MolGraph, atom_idx: usize) -> f64 {
     let atom = &graph.atoms[atom_idx];
     let mut sum = 0.0;
     for &bond_idx in &atom.bonds {
@@ -391,7 +395,7 @@ fn mmff94_electronegativity(element: &str) -> f64 {
 /// Calculate X-H bond length using the modified Schomaker-Stevenson rule (MMFF94).
 /// Formula: r_XH = r_X + r_H - c * |χ_X - χ_H|^n
 /// where c = 0.05, n = 1.4
-pub fn mmff94_bond_length(element: &str) -> f64 {
+pub(crate) fn mmff94_bond_length(element: &str) -> f64 {
     let r_x = mmff94_radius(element);
     let r_h = mmff94_radius("H");
     let chi_x = mmff94_electronegativity(element);

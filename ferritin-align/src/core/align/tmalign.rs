@@ -14,7 +14,9 @@ use crate::core::align::initial_ss::get_initial_ss;
 use crate::core::align::initial_ssplus::get_initial_ssplus;
 use crate::core::kabsch::{kabsch, KabschMode};
 use crate::core::tmscore::{detailed_search, detailed_search_standard, tmscore8_search};
-use crate::core::types::*;
+use crate::core::types::{
+    dist_squared, AlignOptions, AlignResult, Coord3D, DPWorkspace, MolType, TMParams, Transform,
+};
 
 /// Approximate TM-score given a rotation matrix and alignment map.
 /// Used for TMcut early termination.

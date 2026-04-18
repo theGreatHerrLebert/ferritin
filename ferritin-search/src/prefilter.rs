@@ -26,8 +26,6 @@
 
 use std::collections::HashMap;
 
-#[cfg(test)]
-use crate::kmer::KmerIndex;
 use crate::kmer::KmerLookup;
 use crate::kmer_generator::{generate_similar_kmers, ScoreMatrix};
 
@@ -49,7 +47,7 @@ pub struct PrefilterHit {
 
 /// Prefilter tuning knobs. Defaults keep every seq with at least one
 /// diagonal hit and return them all.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PrefilterOptions {
     /// Drop hits whose `diagonal_score` is below this threshold. `0` keeps
     /// everything.
@@ -60,16 +58,6 @@ pub struct PrefilterOptions {
     /// If set, this `seq_id` is excluded from the results — the typical
     /// "don't return the query against itself" case.
     pub exclude_self: Option<u32>,
-}
-
-impl Default for PrefilterOptions {
-    fn default() -> Self {
-        Self {
-            score_threshold: 0,
-            max_hits: None,
-            exclude_self: None,
-        }
-    }
 }
 
 /// Run the diagonal-voting prefilter for a single query.
@@ -173,7 +161,7 @@ pub fn diagonal_prefilter_sensitive<L: KmerLookup>(
     for q_pos in 0..query.len().saturating_sub(k - 1) {
         let window = &query[q_pos..q_pos + k];
         // Skip X-containing windows just like the exact-match path.
-        if window.iter().any(|&b| b == skip_idx) {
+        if window.contains(&skip_idx) {
             continue;
         }
         // Same rationale as diagonal_prefilter: collect the

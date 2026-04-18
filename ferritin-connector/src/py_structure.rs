@@ -67,7 +67,7 @@ impl PyStructureData {
 }
 
 #[pymodule]
-pub fn py_structure(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_structure(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStructureData>()?;
     Ok(())
 }

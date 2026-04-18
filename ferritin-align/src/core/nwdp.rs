@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(j2i.len(), 3);
         // Each position in secy should align to a valid position in secx or -1
         for &val in &j2i {
-            assert!(val == -1 || (val >= 0 && val < 5));
+            assert!(val == -1 || (0..5).contains(&val));
         }
     }
 }

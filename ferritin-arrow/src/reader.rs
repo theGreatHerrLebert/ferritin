@@ -84,7 +84,7 @@ mod tests {
 
         let dir = std::env::temp_dir();
         let path = dir.join("ferritin_reader_test.parquet");
-        write_parquet(&path, &atom_schema(), &[batch.clone()]).unwrap();
+        write_parquet(&path, &atom_schema(), std::slice::from_ref(&batch)).unwrap();
 
         let read_back = read_parquet(&path).unwrap();
         assert_eq!(read_back.num_rows(), 2);

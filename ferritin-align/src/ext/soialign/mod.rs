@@ -389,7 +389,7 @@ pub fn soialign_main(
 
     // Filter aligned pairs by score_d8 distance cutoff
     let mut n_ali = 0usize;
-    let n_ali8;
+
     let mut m1 = Vec::new();
     let mut m2 = Vec::new();
     let mut xtm = Vec::new();
@@ -416,7 +416,7 @@ pub fn soialign_main(
             fwdmap0[i] = -1;
         }
     }
-    n_ali8 = m1.len();
+    let n_ali8 = m1.len();
 
     // Update invmap_final from filtered fwdmap
     invmap_final = vec![-1i32; ylen];

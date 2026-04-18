@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use ferritin_align::core::align::cpalign::cpalign;
 use ferritin_align::core::align::tmalign::tmalign;
-use ferritin_align::core::types::*;
+use ferritin_align::core::types::{AlignOptions, AlignResult, StructureData, Transform};
 use ferritin_align::ext::flexalign::{flexalign_main, FlexOptions};
 use ferritin_align::ext::soialign::{soialign_main, SoiOptions};
 use ferritin_io::alignment::read_alignment;
@@ -201,7 +201,7 @@ fn make_load_opts(cli: &Cli) -> LoadOptions {
 
 fn parse_a_opt(cli: &Cli) -> i32 {
     match cli.average.as_deref() {
-        Some("T") | Some("t") | Some("1") => 1,
+        Some("T" | "t" | "1") => 1,
         Some("-1") => -1,
         Some("-2") => -2,
         _ => 0,

@@ -150,8 +150,8 @@ pub fn load_structure(path: &str, opts: &LoadOptions) -> Result<Vec<StructureDat
             }
         }
         2 => {
-            // Split by chain
-            for model in pdb.models() {
+            // Split by chain — only first model
+            if let Some(model) = pdb.models().next() {
                 for chain in model.chains() {
                     let data = extract_structure_data(
                         &pdb,
@@ -165,8 +165,6 @@ pub fn load_structure(path: &str, opts: &LoadOptions) -> Result<Vec<StructureDat
                         results.push(data);
                     }
                 }
-                // Only first model's chains for split_opt=2
-                break;
             }
         }
         _ => {}

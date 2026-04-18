@@ -313,19 +313,18 @@ pub struct AlphabetResult {
     pub valid: Vec<bool>,
 }
 
-impl AlphabetResult {
-    /// Convert states to a string using the structural alphabet characters.
-    pub fn to_string(&self) -> String {
-        self.states
-            .iter()
-            .map(|&s| {
-                if (s as usize) < NUM_STATES {
-                    STATE_CHARS[s as usize]
-                } else {
-                    'X'
-                }
-            })
-            .collect()
+impl std::fmt::Display for AlphabetResult {
+    /// Render states as a string using the structural alphabet characters.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for &s in &self.states {
+            let c = if (s as usize) < NUM_STATES {
+                STATE_CHARS[s as usize]
+            } else {
+                'X'
+            };
+            f.write_str(c.encode_utf8(&mut [0u8; 4]))?;
+        }
+        Ok(())
     }
 }
 

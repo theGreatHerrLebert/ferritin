@@ -47,7 +47,7 @@ pub fn sec2sq(
         let end = secy_bond[ju][1] as usize;
         for jj in start..end {
             let ii = invmap[jj];
-            if ii >= 0 && (i - ii) as i64 * (j as i32 - jj as i32) as i64 <= 0 {
+            if ii >= 0 && (i - ii) as i64 * (j - jj as i32) as i64 <= 0 {
                 return false;
             }
         }

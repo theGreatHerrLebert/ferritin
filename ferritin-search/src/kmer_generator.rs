@@ -208,7 +208,7 @@ mod tests {
 
         // Verify the exact set by decoding hashes back.
         let mut found: Vec<(u64, i32)> = results;
-        found.sort();
+        found.sort_unstable();
         let expected = [
             (enc.encode(&[0, 0, 0]), 3),
             (enc.encode(&[0, 0, 1]), 2),
@@ -216,7 +216,7 @@ mod tests {
             (enc.encode(&[1, 0, 0]), 2),
         ];
         let mut expected = expected.to_vec();
-        expected.sort();
+        expected.sort_unstable();
         assert_eq!(found, expected);
     }
 
@@ -272,19 +272,18 @@ mod tests {
         for a in 0..3u8 {
             for b in 0..3u8 {
                 for c in 0..3u8 {
-                    let s = scores[0 * 3 + a as usize]
-                        + scores[1 * 3 + b as usize]
-                        + scores[2 * 3 + c as usize];
+                    let s =
+                        scores[a as usize] + scores[3 + b as usize] + scores[2 * 3 + c as usize];
                     if s >= threshold {
                         expected.push((enc.encode(&[a, b, c]), s));
                     }
                 }
             }
         }
-        expected.sort();
+        expected.sort_unstable();
 
         let mut actual = generate_similar_kmers(&enc, &q, &scores, threshold);
-        actual.sort();
+        actual.sort_unstable();
 
         assert_eq!(actual, expected);
     }

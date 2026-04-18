@@ -34,11 +34,7 @@ impl LookupEntry {
     }
 
     pub fn write_line(&self, w: &mut impl Write) -> std::io::Result<()> {
-        write!(
-            w,
-            "{}\t{}\t{}\n",
-            self.key, self.accession, self.file_number
-        )
+        writeln!(w, "{}\t{}\t{}", self.key, self.accession, self.file_number)
     }
 }
 

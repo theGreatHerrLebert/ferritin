@@ -597,7 +597,7 @@ fn extract_example_from_pdb(
     })
 }
 
-fn example_to_dict<'py>(py: Python<'py>, ex: ExtractedExample) -> PyResult<Bound<'py, PyDict>> {
+fn example_to_dict(py: Python<'_>, ex: ExtractedExample) -> PyResult<Bound<'_, PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("aatype", ex.aatype.into_pyarray(py))?;
     dict.set_item("residue_index", ex.residue_index.into_pyarray(py))?;
@@ -708,10 +708,7 @@ fn example_to_dict<'py>(py: Python<'py>, ex: ExtractedExample) -> PyResult<Bound
     Ok(dict)
 }
 
-fn batch_to_dict<'py>(
-    py: Python<'py>,
-    batch: Vec<ExtractedExample>,
-) -> PyResult<Bound<'py, PyDict>> {
+fn batch_to_dict(py: Python<'_>, batch: Vec<ExtractedExample>) -> PyResult<Bound<'_, PyDict>> {
     let b = batch.len();
     let n_max = batch.iter().map(|ex| ex.length).max().unwrap_or(0);
 
@@ -961,12 +958,12 @@ fn extract_structure_supervision_chain<'py>(
 
 #[pyfunction]
 #[pyo3(signature = (structures, chain_ids=None, n_threads=None))]
-fn batch_extract_structure_supervision<'py>(
-    py: Python<'py>,
+fn batch_extract_structure_supervision(
+    py: Python<'_>,
     structures: Vec<Py<PyPDB>>,
     chain_ids: Option<Vec<Option<String>>>,
     n_threads: Option<i32>,
-) -> PyResult<Bound<'py, PyDict>> {
+) -> PyResult<Bound<'_, PyDict>> {
     let n = structures.len();
     let chain_ids = match chain_ids {
         Some(ids) if ids.len() != n => {
@@ -1004,7 +1001,7 @@ fn batch_extract_structure_supervision<'py>(
 }
 
 #[pymodule]
-pub fn py_supervision(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_supervision(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(extract_structure_supervision_chain, m)?)?;
     m.add_function(wrap_pyfunction!(batch_extract_structure_supervision, m)?)?;
     Ok(())

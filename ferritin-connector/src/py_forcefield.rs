@@ -19,7 +19,7 @@ use crate::py_pdb::PyPDB;
 /// topology / charge diagnostics stay on-parity with the energy path.
 #[pyfunction]
 #[pyo3(signature = (pdb, ff="amber96"))]
-pub fn dump_topology<'py>(py: Python<'py>, pdb: &PyPDB, ff: &str) -> PyResult<PyObject> {
+pub(crate) fn dump_topology(py: Python<'_>, pdb: &PyPDB, ff: &str) -> PyResult<PyObject> {
     let topo = match ff {
         "charmm" | "charmm19" | "charmm19_eef1" => {
             topology::build_topology(&pdb.inner, &params::charmm19_eef1())
@@ -91,7 +91,7 @@ fn build_pool(n_threads: usize) -> rayon::ThreadPool {
 ///         paths so cross-path parity can be verified from Python.
 #[pyfunction]
 #[pyo3(signature = (pdb, ff="amber96", nbl_threshold=None, nonbonded_cutoff=None))]
-pub fn compute_energy(
+pub(crate) fn compute_energy(
     py: Python<'_>,
     pdb: &PyPDB,
     ff: &str,
@@ -252,8 +252,8 @@ fn run_minimize(
 
 #[pyfunction]
 #[pyo3(signature = (pdb, max_steps=500, gradient_tolerance=0.1, method="sd"))]
-pub fn minimize_hydrogens<'py>(
-    py: Python<'py>,
+pub(crate) fn minimize_hydrogens(
+    py: Python<'_>,
     pdb: &PyPDB,
     max_steps: usize,
     gradient_tolerance: f64,
@@ -317,8 +317,8 @@ pub fn minimize_hydrogens<'py>(
 /// Returns dict with same format as minimize_hydrogens.
 #[pyfunction]
 #[pyo3(signature = (pdb, max_steps=1000, gradient_tolerance=0.1, method="sd"))]
-pub fn minimize_structure<'py>(
-    py: Python<'py>,
+pub(crate) fn minimize_structure(
+    py: Python<'_>,
     pdb: &PyPDB,
     max_steps: usize,
     gradient_tolerance: f64,
@@ -403,7 +403,7 @@ fn minimize_h_single(
 /// Returns list of dicts (same format as minimize_hydrogens).
 #[pyfunction]
 #[pyo3(signature = (structures, max_steps=500, gradient_tolerance=0.1, n_threads=None, method="sd"))]
-pub fn batch_minimize_hydrogens<'py>(
+pub(crate) fn batch_minimize_hydrogens<'py>(
     py: Python<'py>,
     structures: &Bound<'py, PyList>,
     max_steps: usize,
@@ -493,7 +493,7 @@ pub fn batch_minimize_hydrogens<'py>(
 /// Load files and minimize hydrogens in one parallel call (zero GIL).
 #[pyfunction]
 #[pyo3(signature = (paths, max_steps=500, gradient_tolerance=0.1, n_threads=None, method="sd"))]
-pub fn load_and_minimize_hydrogens<'py>(
+pub(crate) fn load_and_minimize_hydrogens<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyList>,
     max_steps: usize,
@@ -583,7 +583,7 @@ pub fn load_and_minimize_hydrogens<'py>(
 ///     energy: final energy components dict.
 #[pyfunction]
 #[pyo3(signature = (pdb, n_steps=1000, dt=0.001, temperature=300.0, thermostat_tau=0.2, snapshot_freq=10, shake=false))]
-pub fn run_md(
+pub(crate) fn run_md(
     py: Python<'_>,
     pdb: &PyPDB,
     n_steps: usize,
@@ -692,7 +692,7 @@ pub fn run_md(
 /// GPU was detected at runtime. This is the same check the minimizer and
 /// SASA functions use internally to decide whether to dispatch to GPU.
 #[pyfunction]
-pub fn gpu_available() -> bool {
+pub(crate) fn gpu_available() -> bool {
     #[cfg(feature = "cuda")]
     {
         crate::forcefield::gpu::GpuContext::try_global().is_some()
@@ -708,7 +708,7 @@ pub fn gpu_available() -> bool {
 /// Returns dict with keys: name, compute_capability, total_memory_mb,
 /// cuda_compiled (bool — whether the binary has the cuda feature).
 #[pyfunction]
-pub fn gpu_info(py: Python<'_>) -> PyResult<PyObject> {
+pub(crate) fn gpu_info(py: Python<'_>) -> PyResult<PyObject> {
     let dict = pyo3::types::PyDict::new(py);
 
     #[cfg(feature = "cuda")]
@@ -738,7 +738,7 @@ pub fn gpu_info(py: Python<'_>) -> PyResult<PyObject> {
 // ---------------------------------------------------------------------------
 
 #[pymodule]
-pub fn py_forcefield(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn py_forcefield(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_energy, m)?)?;
     m.add_function(wrap_pyfunction!(dump_topology, m)?)?;
     m.add_function(wrap_pyfunction!(minimize_hydrogens, m)?)?;
