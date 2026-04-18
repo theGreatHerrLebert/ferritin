@@ -73,6 +73,34 @@ interfaces, assumptions, and formats. Even if all components are individually co
 Ferritin's response is to consolidate the parts that are widely used, conceptually stable, and already well understood, and bring them into a single framework where they can be composed easily, executed at scale, and validated against strong external references as a core requirement rather than an afterthought. The goal is not
 to recreate functionality. It is to make that functionality reliably usable under rapid iteration.
 
+## On Credit and Invisible Debt
+
+The Acknowledgements section of this project tries to be thorough. The tools that serve as oracles
+are named. The papers behind the algorithms are cited. The people whose implementations made this
+possible are credited by name. That part is tractable because the sources are known.
+
+AI-assisted development adds a layer that is harder to account for. When a model generates a
+solution, it draws on a large amount of human work absorbed during training: code from public
+repositories, ideas from blog posts and papers, design patterns that someone worked out carefully
+and shared openly. By the time any of it reaches your codebase, the original authors are not
+visible. There is no import statement to follow, no citation to add.
+
+Legally, this is fine, and that question has been examined at length by people better qualified
+than me to answer it. But the scientific community also runs on something less formal: a shared
+understanding that ideas have origins and that people deserve credit for their contributions. We are
+a somewhat strange family of largely unrelated people, held together more by norms than by
+contracts (that are non-permanent for most of us anyways). Those norms are worth respecting even
+when nothing formally requires it.
+
+The practical response is not complicated. Credit what you can trace, be transparent about how the
+work was done, and treat the Acknowledgements as a genuine attempt at accounting rather than a
+formality. That is what this project tries to do.
+
+The broader question of how attribution should work under AI-assisted development is one the
+scientific community will figure out over time, the same way it worked out norms around data
+sharing and reproducibility. It is a real question worth taking seriously, but hardly a reason to
+stop building things.
+
 ## Trust as a Design Principle
 
 Good software design has always orbited around abstraction. We build layers so we do not have to
