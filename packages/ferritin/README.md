@@ -121,6 +121,54 @@ PDB like `1ake` (chains A + B) becomes two records (`1ake_A`, `1ake_B`)
 with separate supervision rows, torsions, and rigidgroup frames. Single-chain
 structures pass through unchanged with `record_id` preserved.
 
+## Install
+
+Published package path:
+
+```bash
+pip install ferritin
+```
+
+Local checkout path:
+
+```bash
+cd ferritin-connector
+maturin develop --release
+pip install -e ../packages/ferritin/
+```
+
+## Search DB serving
+
+Persisted search DBs now default to writing both:
+
+- the canonical Parquet corpus files
+- the eager compiled serving layout used for repeated low-latency queries
+
+Typical path:
+
+```python
+import ferritin
+
+db = ferritin.build_search_db(["1crn.pdb", "1ubq.pdb"], out="search_db", k=6)
+hits = ferritin.search(ferritin.load("1crn.pdb"), "search_db", rerank=False)
+```
+
+If you explicitly want Parquet-only storage, keep it lazy on purpose:
+
+```python
+ferritin.save_search_db(db, "search_db", write_compiled=False)
+lazy = ferritin.load_search_db("search_db", prefer_compiled=False)
+```
+
+If you're reopening an older Parquet-only DB and want it upgraded in place
+without a separate `compile_search_db()` call, use:
+
+```python
+db = ferritin.load_search_db("search_db", auto_compile_missing=True)
+# or:
+hits = ferritin.search(query, "search_db", auto_compile_missing=True)
+```
+
 ## Known v0 characteristics
 
 - `rigidgroup_frame_fraction` and `chi_angle_fraction` on raw PDBs run
@@ -131,8 +179,6 @@ structures pass through unchanged with `record_id` preserved.
   redundancy removal. Homologues can land in the same *or* different
   splits depending on the id. For leakage-free splits use
   `split_assignments` from an external cluster file.
-- PyPI wheel not shipped yet; install via `maturin develop --release` in
-  `ferritin-connector/` plus `PYTHONPATH=packages/ferritin/src`.
 
 ## Smaller building blocks
 

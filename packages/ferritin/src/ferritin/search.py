@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import json
 import hashlib
 import shutil
+import warnings
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from dataclasses import field
@@ -30,8 +32,6 @@ from .io import batch_load_tolerant
 SEARCH_DB_VERSION = 4
 POSTINGS_BUCKET_COUNT = 64
 COMPILED_LAYOUT_VERSION = 1
-
-_FOLDSEEK_3DI_MATRIX_PATH = Path("/scratch/TMAlign/foldseek-src/data/mat3di.out")
 
 _BLOSUM62_ALPHABET = "ARNDCQEGHILKMFPSTWYVX"
 _BLOSUM62_ROWS = [
@@ -65,6 +65,32 @@ _AA3_TO_1 = {
     "SER": "S", "THR": "T", "TRP": "W", "TYR": "Y", "VAL": "V",
     "MSE": "M", "SEC": "U", "PYL": "O",
 }
+_DEFAULT_SA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
+
+
+def _require_search_backend():
+    if _search is None:
+        raise ImportError(
+            "ferritin search encoding requires the native ferritin-connector "
+            "extension. Install `ferritin` from PyPI or build "
+            "`ferritin-connector` with `maturin develop --release`."
+        )
+    return _search
+
+
+def _candidate_foldseek_3di_matrix_paths() -> List[Path]:
+    candidates: List[Path] = []
+    env_path = os.environ.get("FERRITIN_FOLDSEEK_3DI_MATRIX")
+    if env_path:
+        candidates.append(Path(env_path).expanduser())
+
+    module_path = Path(__file__).resolve()
+    if len(module_path.parents) >= 5:
+        repo_root = module_path.parents[4]
+        candidates.append(repo_root.parent / "foldseek-src" / "data" / "mat3di.out")
+        candidates.append(repo_root / "foldseek-src" / "data" / "mat3di.out")
+
+    return candidates
 
 
 def _normalize_k_values(k: Union[int, Sequence[int]]) -> List[int]:
@@ -150,9 +176,11 @@ class SearchDB:
     root_path: Optional[str] = field(default=None, repr=False, compare=False)
     n_entries: Optional[int] = field(default=None, repr=False, compare=False)
     structure_cache: "OrderedDict[str, Any]" = field(default_factory=OrderedDict, repr=False, compare=False)
+    entry_cache: "OrderedDict[int, SearchEntry]" = field(default_factory=OrderedDict, repr=False, compare=False)
     posting_bucket_cache: "OrderedDict[tuple[str, int], Dict[str, List[int]]]" = field(default_factory=OrderedDict, repr=False, compare=False)
     positional_posting_bucket_cache: "OrderedDict[tuple[str, int], Dict[str, Dict[int, List[int]]]]" = field(default_factory=OrderedDict, repr=False, compare=False)
     cache_max_size: int = field(default=128, repr=False, compare=False)
+    entry_cache_max_size: int = field(default=512, repr=False, compare=False)
     posting_cache_max_size: int = field(default=64, repr=False, compare=False)
 
     def __len__(self) -> int:
@@ -183,10 +211,12 @@ def encode_alphabet(structure) -> Dict[str, Any]:
         chain_ids, residue_names, residue_numbers, insertion_codes metadata
 
     Agent Notes:
+        INVARIANT: Residue encoding itself is Rust-backed; downstream DB/query orchestration is separate.
         WATCH: Output is residue-level over amino-acid residues only, not atoms.
         PREFER: Use valid_mask to filter termini, chain breaks, and incomplete residues.
     """
-    result = _search.encode_alphabet(_get_ptr(structure))
+    backend = _require_search_backend()
+    result = backend.encode_alphabet(_get_ptr(structure))
     result["states"] = np.asarray(result["states"])
     result["valid_mask"] = np.asarray(result["valid_mask"], dtype=bool)
     result["partners"] = np.asarray(result["partners"])
@@ -205,11 +235,13 @@ def batch_encode_alphabet(
     Returns a list of dicts with the same schema as `encode_alphabet()`.
 
     Agent Notes:
+        INVARIANT: This batching goes through the Rust encoding kernel; it is not a Python loop wrapper.
         PREFER: Use this for corpus-scale encoding instead of Python loops.
         WATCH: Output order matches the input structure order.
     """
+    backend = _require_search_backend()
     ptrs = [_get_ptr(s) for s in structures]
-    results = _search.batch_encode_alphabet(ptrs, n_threads)
+    results = backend.batch_encode_alphabet(ptrs, n_threads)
     normalized = []
     for result in results:
         result["states"] = np.asarray(result["states"])
@@ -413,6 +445,78 @@ def _compiled_positional_postings_path(root: Path, *, kind: str) -> Path:
     return _compiled_root(root) / f"positional_postings_{kind}.arrow"
 
 
+def _warn_missing_compiled_search_layout(root: Path, version: int) -> None:
+    warnings.warn(
+        "Compiled search layout not found for "
+        f"{root}. Loading lazy Parquet-backed search DB version {version}; "
+        "query-time serving will stay more Python/PyArrow-heavy until you run "
+        "`compile_search_db(path)` or resave with the default "
+        "`write_compiled=True`.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
+def _load_compiled_search_db(root: Path) -> SearchDB:
+    payload = json.loads(_compiled_manifest_path(root).read_text(encoding="utf-8"))
+    if int(payload["layout_version"]) != COMPILED_LAYOUT_VERSION:
+        raise ValueError(
+            f"Unsupported compiled search layout version {payload['layout_version']}. "
+            f"Expected {COMPILED_LAYOUT_VERSION}."
+        )
+    entries = [_entry_row_to_obj(row, idx) for idx, row in enumerate(paf.read_table(_compiled_entries_path(root)).to_pylist())]
+    postings = _load_compiled_postings(_compiled_postings_path(root, kind="sa"))
+    aa_postings = _load_compiled_postings(_compiled_postings_path(root, kind="aa"))
+    positional_postings = _load_compiled_positional_postings(_compiled_positional_postings_path(root, kind="sa"))
+    aa_positional_postings = _load_compiled_positional_postings(_compiled_positional_postings_path(root, kind="aa"))
+    return SearchDB(
+        version=SEARCH_DB_VERSION,
+        k=int(payload["k"]),
+        entries=entries,
+        postings=postings,
+        aa_postings=aa_postings,
+        positional_postings=positional_postings,
+        aa_positional_postings=aa_positional_postings,
+        k_values=[int(value) for value in payload.get("k_values", [int(payload["k"])])],
+        posting_keys_include_k=bool(payload.get("posting_keys_include_k", False)),
+        root_path=str(root),
+        n_entries=len(entries),
+    )
+
+
+def _write_compiled_search_layout(db: SearchDB, root: Path) -> None:
+    compiled_root = _compiled_root(root)
+    compiled_root.mkdir(parents=True, exist_ok=True)
+    compiled_manifest = {
+        "layout_version": COMPILED_LAYOUT_VERSION,
+        "k": db.k,
+        "k_values": list(db.k_values),
+        "posting_keys_include_k": db.posting_keys_include_k,
+        "n_entries": len(db),
+        "entries_file": "entries.arrow",
+        "sa_postings_file": "postings_sa.arrow",
+        "aa_postings_file": "postings_aa.arrow",
+        "sa_positional_postings_file": "positional_postings_sa.arrow",
+        "aa_positional_postings_file": "positional_postings_aa.arrow",
+    }
+    _compiled_manifest_path(root).write_text(json.dumps(compiled_manifest, indent=2), encoding="utf-8")
+    entry_rows = [asdict(entry) for entry in (db.entries or [])]
+    paf.write_feather(
+        pa.Table.from_pylist(entry_rows) if entry_rows else _empty_entries_table(),
+        _compiled_entries_path(root),
+    )
+    paf.write_feather(_postings_grouped_table(db.postings or {}), _compiled_postings_path(root, kind="sa"))
+    paf.write_feather(_postings_grouped_table(db.aa_postings or {}), _compiled_postings_path(root, kind="aa"))
+    paf.write_feather(
+        _positional_postings_table(db.positional_postings or {}),
+        _compiled_positional_postings_path(root, kind="sa"),
+    )
+    paf.write_feather(
+        _positional_postings_table(db.aa_positional_postings or {}),
+        _compiled_positional_postings_path(root, kind="aa"),
+    )
+
+
 def _bucket_file(root: Path, *, kind: str, bucket: int) -> Path:
     return root / "postings" / f"kind={kind}" / f"bucket={bucket:02d}.parquet"
 
@@ -514,10 +618,21 @@ def _jaccard(shared: int, left: int, right: int) -> float:
 def _parse_substitution_matrix(path: Path) -> tuple[str, Dict[str, Dict[str, int]]]:
     lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
     rows = [line for line in lines if line and not line.startswith("#")]
+    if not rows:
+        raise ValueError(f"substitution matrix file is empty: {path}")
+    if len(rows) < 2:
+        raise ValueError(f"substitution matrix file has no score rows: {path}")
     alphabet = rows[0].split()
+    if not alphabet:
+        raise ValueError(f"substitution matrix header is empty: {path}")
     matrix: Dict[str, Dict[str, int]] = {}
     for row in rows[1:]:
         parts = row.split()
+        if len(parts) != len(alphabet) + 1:
+            raise ValueError(
+                f"substitution matrix row has {len(parts) - 1} scores, "
+                f"expected {len(alphabet)}: {path}"
+            )
         matrix[parts[0]] = {alphabet[i]: int(parts[i + 1]) for i in range(len(alphabet))}
     return "".join(alphabet), matrix
 
@@ -526,11 +641,30 @@ _AA_MATRIX = {
     aa: {_BLOSUM62_ALPHABET[j]: score for j, score in enumerate(row)}
     for aa, row in zip(_BLOSUM62_ALPHABET, _BLOSUM62_ROWS)
 }
-try:
-    _SA_ALPHABET, _SA_MATRIX = _parse_substitution_matrix(_FOLDSEEK_3DI_MATRIX_PATH)
-except OSError:
-    _SA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
-    _SA_MATRIX = {aa: {bb: (6 if aa == bb else -2) for bb in _SA_ALPHABET} for aa in _SA_ALPHABET}
+
+
+def _load_sa_matrix() -> tuple[str, Dict[str, Dict[str, int]], str]:
+    env_path = os.environ.get("FERRITIN_FOLDSEEK_3DI_MATRIX")
+    env_override = Path(env_path).expanduser() if env_path else None
+    for path in _candidate_foldseek_3di_matrix_paths():
+        try:
+            alphabet, matrix = _parse_substitution_matrix(path)
+            return alphabet, matrix, str(path)
+        except OSError:
+            continue
+        except ValueError:
+            if env_override is not None and path == env_override:
+                raise
+            continue
+
+    matrix = {
+        aa: {bb: (6 if aa == bb else -2) for bb in _DEFAULT_SA_ALPHABET}
+        for aa in _DEFAULT_SA_ALPHABET
+    }
+    return _DEFAULT_SA_ALPHABET, matrix, "fallback"
+
+
+_SA_ALPHABET, _SA_MATRIX, _SA_MATRIX_SOURCE = _load_sa_matrix()
 
 
 def _matrix_score(matrix: Dict[str, Dict[str, int]], left: str, right: str) -> int:
@@ -958,16 +1092,48 @@ def _fetch_posting_counts_bucketed_cached(
     return counts
 
 
-def _fetch_entries_by_index(root: Path, indices: Sequence[int]) -> Dict[int, SearchEntry]:
+def _fetch_entries_by_index(
+    root: Path,
+    indices: Sequence[int],
+    *,
+    db: Optional[SearchDB] = None,
+) -> Dict[int, SearchEntry]:
     if not indices:
         return {}
-    dataset = pads.dataset(root / "entries.parquet", format="parquet")
-    table = dataset.to_table(
-        filter=pads.field("entry_index").isin([int(i) for i in indices]),
-    )
-    rows = table.to_pylist()
-    entries = [_entry_row_to_obj(row) for row in rows]
-    return {entry.entry_index: entry for entry in entries}
+    ordered_indices = [int(i) for i in indices]
+    entries_by_index: Dict[int, SearchEntry] = {}
+    missing_indices = ordered_indices
+
+    if db is not None:
+        missing_indices = []
+        for idx in ordered_indices:
+            cached = db.entry_cache.get(idx)
+            if cached is None:
+                missing_indices.append(idx)
+                continue
+            db.entry_cache.move_to_end(idx)
+            entries_by_index[idx] = cached
+
+    if missing_indices:
+        table = pq.read_table(
+            root / "entries.parquet",
+            filters=[("entry_index", "in", sorted(set(missing_indices)))],
+        )
+        fetched_entries = [_entry_row_to_obj(row) for row in table.to_pylist()]
+        for entry in fetched_entries:
+            entries_by_index[entry.entry_index] = entry
+            if db is not None:
+                db.entry_cache[entry.entry_index] = entry
+                db.entry_cache.move_to_end(entry.entry_index)
+        if db is not None:
+            while len(db.entry_cache) > db.entry_cache_max_size:
+                db.entry_cache.popitem(last=False)
+
+    return {
+        idx: entries_by_index[idx]
+        for idx in ordered_indices
+        if idx in entries_by_index
+    }
 
 
 def _entries_by_index(entries: Sequence[SearchEntry]) -> Dict[int, SearchEntry]:
@@ -986,7 +1152,9 @@ def build_search_db(
     Files that fail to load are skipped using ferritin's tolerant batch loader.
 
     Agent Notes:
+        INVARIANT: Residue encoding is Rust-backed; DB materialization and postings persistence are Python/PyArrow today.
         PREFER: Build from many paths at once so load + encoding stay batched.
+        PREFER: If you pass out=, the persisted DB also writes the eager compiled serving layout by default.
         WATCH: Only successfully loaded inputs are indexed; source_index preserves the original path position.
     """
     k_values = _normalize_k_values(k)
@@ -1081,32 +1249,23 @@ def compile_search_db(
             n_entries=len(entries),
         )
 
-    compiled_root = _compiled_root(root)
-    compiled_root.mkdir(parents=True, exist_ok=True)
-    compiled_manifest = {
-        "layout_version": COMPILED_LAYOUT_VERSION,
-        "k": db.k,
-        "k_values": list(db.k_values),
-        "posting_keys_include_k": db.posting_keys_include_k,
-        "n_entries": len(db),
-        "entries_file": "entries.arrow",
-        "sa_postings_file": "postings_sa.arrow",
-        "aa_postings_file": "postings_aa.arrow",
-        "sa_positional_postings_file": "positional_postings_sa.arrow",
-        "aa_positional_postings_file": "positional_postings_aa.arrow",
-    }
-    _compiled_manifest_path(root).write_text(json.dumps(compiled_manifest, indent=2), encoding="utf-8")
-    entry_rows = [asdict(entry) for entry in (db.entries or [])]
-    paf.write_feather(pa.Table.from_pylist(entry_rows) if entry_rows else _empty_entries_table(), _compiled_entries_path(root))
-    paf.write_feather(_postings_grouped_table(db.postings or {}), _compiled_postings_path(root, kind="sa"))
-    paf.write_feather(_postings_grouped_table(db.aa_postings or {}), _compiled_postings_path(root, kind="aa"))
-    paf.write_feather(_positional_postings_table(db.positional_postings or {}), _compiled_positional_postings_path(root, kind="sa"))
-    paf.write_feather(_positional_postings_table(db.aa_positional_postings or {}), _compiled_positional_postings_path(root, kind="aa"))
+    _write_compiled_search_layout(db, root)
     return load_search_db(root)
 
 
-def save_search_db(db: SearchDB, path: Union[str, Path]) -> None:
-    """Persist a search database as a versioned manifest + Parquet directory."""
+def save_search_db(
+    db: SearchDB,
+    path: Union[str, Path],
+    *,
+    write_compiled: bool = True,
+) -> None:
+    """Persist a search database as a versioned manifest + Parquet directory.
+
+    Agent Notes:
+        PREFER: Keep write_compiled=True for the common "build once, query many times" path.
+        COST: The compiled layout duplicates the serving index on disk to reduce Python/PyArrow work at query time.
+        WATCH: Set write_compiled=False only when you explicitly want Parquet-only storage.
+    """
     root = Path(path)
     root.mkdir(parents=True, exist_ok=True)
     for generated_dir in ("postings", "positional_postings", "compiled"):
@@ -1136,36 +1295,26 @@ def save_search_db(db: SearchDB, path: Union[str, Path]) -> None:
     _write_bucketed_postings(root, kind="aa", postings=db.aa_postings or {})
     _write_bucketed_positional_postings(root, kind="sa", postings=db.positional_postings or {})
     _write_bucketed_positional_postings(root, kind="aa", postings=db.aa_positional_postings or {})
+    if write_compiled:
+        _write_compiled_search_layout(db, root)
 
 
-def load_search_db(path: Union[str, Path], *, prefer_compiled: bool = True) -> SearchDB:
-    """Load a search database written by save_search_db()."""
+def load_search_db(
+    path: Union[str, Path],
+    *,
+    prefer_compiled: bool = True,
+    auto_compile_missing: bool = False,
+) -> SearchDB:
+    """Load a search database written by save_search_db().
+
+    Agent Notes:
+        PREFER: Keep prefer_compiled=True for repeated query workloads; DBs saved with default settings already include the compiled layout.
+        PREFER: Set auto_compile_missing=True when you want older Parquet-only DBs upgraded in place during load.
+        WATCH: With prefer_compiled=True, lazy older/Parquet-only DBs warn before falling back to Python/PyArrow-backed serving.
+    """
     root = Path(path)
     if prefer_compiled and _compiled_manifest_path(root).exists():
-        payload = json.loads(_compiled_manifest_path(root).read_text(encoding="utf-8"))
-        if int(payload["layout_version"]) != COMPILED_LAYOUT_VERSION:
-            raise ValueError(
-                f"Unsupported compiled search layout version {payload['layout_version']}. "
-                f"Expected {COMPILED_LAYOUT_VERSION}."
-            )
-        entries = [_entry_row_to_obj(row, idx) for idx, row in enumerate(paf.read_table(_compiled_entries_path(root)).to_pylist())]
-        postings = _load_compiled_postings(_compiled_postings_path(root, kind="sa"))
-        aa_postings = _load_compiled_postings(_compiled_postings_path(root, kind="aa"))
-        positional_postings = _load_compiled_positional_postings(_compiled_positional_postings_path(root, kind="sa"))
-        aa_positional_postings = _load_compiled_positional_postings(_compiled_positional_postings_path(root, kind="aa"))
-        return SearchDB(
-            version=SEARCH_DB_VERSION,
-            k=int(payload["k"]),
-            entries=entries,
-            postings=postings,
-            aa_postings=aa_postings,
-            positional_postings=positional_postings,
-            aa_positional_postings=aa_positional_postings,
-            k_values=[int(value) for value in payload.get("k_values", [int(payload["k"])])],
-            posting_keys_include_k=bool(payload.get("posting_keys_include_k", False)),
-            root_path=str(root),
-            n_entries=len(entries),
-        )
+        return _load_compiled_search_db(root)
 
     payload = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     version = int(payload["version"])
@@ -1188,7 +1337,12 @@ def load_search_db(path: Union[str, Path], *, prefer_compiled: bool = True) -> S
             n_entries=len(entries),
         )
 
+    if prefer_compiled and auto_compile_missing and version in {3, SEARCH_DB_VERSION}:
+        return compile_search_db(root)
+
     if version == 3:
+        if prefer_compiled:
+            _warn_missing_compiled_search_layout(root, version)
         return SearchDB(
             version=version,
             k=int(payload["k"]),
@@ -1201,6 +1355,8 @@ def load_search_db(path: Union[str, Path], *, prefer_compiled: bool = True) -> S
             n_entries=int(payload["n_entries"]),
         )
 
+    if prefer_compiled:
+        _warn_missing_compiled_search_layout(root, version)
     return SearchDB(
         version=version,
         k=int(payload["k"]),
@@ -1219,15 +1375,17 @@ def warm_search_db(
     *,
     kinds: Sequence[str] = ("sa", "aa"),
     posting_cache_max_size: Optional[int] = None,
+    auto_compile_missing: bool = False,
 ) -> SearchDB:
     """Warm the postings cache for a lazy Parquet-backed search DB.
 
     Agent Notes:
+        PREFER: Set auto_compile_missing=True when warming a persisted Parquet-only DB that you want upgraded in place first.
         PREFER: Call this once before latency-sensitive query batches on large lazy DBs.
         COST: Warmup reads postings shards into memory and trades startup time for steadier query latency.
     """
     if isinstance(db, (str, Path)):
-        db = load_search_db(db)
+        db = load_search_db(db, auto_compile_missing=auto_compile_missing)
     if posting_cache_max_size is not None:
         if posting_cache_max_size < 1:
             raise ValueError(f"posting_cache_max_size must be >= 1, got {posting_cache_max_size}")
@@ -1281,8 +1439,17 @@ def search(
     diagonal_prefilter_top_k: int = 1000,
     cache_max_size: Optional[int] = None,
     posting_cache_max_size: Optional[int] = None,
+    auto_compile_missing: bool = False,
 ) -> List[SearchHit]:
-    """Search a structural-alphabet DB using a structure or encoded query."""
+    """Search a structural-alphabet DB using a structure or encoded query.
+
+    Agent Notes:
+        INVARIANT: Query encoding is Rust-backed; DB serving/caching stays in Python/PyArrow; diagonal rescoring uses Rust when available and otherwise falls back to Python.
+        PREFER: Persisted DBs saved with default settings already include the compiled layout; use compile_search_db() only when upgrading an older Parquet-only DB.
+        PREFER: Set auto_compile_missing=True to upgrade a Parquet-only DB in place instead of warning and staying lazy.
+        WATCH: Passing an encoded query dict skips TM-align reranking because no original structure is available.
+        COST: Lazy DB search avoids eager materialization but pays extra Parquet reads on first access; path-based loads warn when they fall back there.
+    """
     if top_k < 1:
         raise ValueError(f"top_k must be >= 1, got {top_k}")
     if rerank_top_k < 1:
@@ -1294,7 +1461,7 @@ def search(
     if diagonal_prefilter_top_k < 1:
         raise ValueError(f"diagonal_prefilter_top_k must be >= 1, got {diagonal_prefilter_top_k}")
     if isinstance(db, (str, Path)):
-        db = load_search_db(db)
+        db = load_search_db(db, auto_compile_missing=auto_compile_missing)
     if cache_max_size is not None:
         if cache_max_size < 1:
             raise ValueError(f"cache_max_size must be >= 1, got {cache_max_size}")
@@ -1322,7 +1489,11 @@ def search(
         else:
             shared_counts = _fetch_posting_counts_bucketed_cached(db, root, kind="sa", kmers=query_kmers)
             shared_aa_counts = _fetch_posting_counts_bucketed_cached(db, root, kind="aa", kmers=query_aa_kmers)
-        entry_lookup = _fetch_entries_by_index(root, sorted(set(shared_counts) | set(shared_aa_counts)))
+        entry_lookup = _fetch_entries_by_index(
+            root,
+            sorted(set(shared_counts) | set(shared_aa_counts)),
+            db=db if db.version >= 4 else None,
+        )
     else:
         shared_counts = {}
         for kmer in query_kmers:

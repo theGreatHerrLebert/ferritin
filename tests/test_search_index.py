@@ -1,10 +1,12 @@
 import os
 import tempfile
 import importlib
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
 import ferritin
+import pytest
 
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -14,6 +16,47 @@ SEARCH_MOD = importlib.import_module("ferritin.search")
 
 
 class TestSearchDB:
+    def test_load_sa_matrix_uses_env_override(self, monkeypatch, tmp_path):
+        matrix_path = tmp_path / "mat3di.out"
+        matrix_path.write_text(
+            "# demo matrix\n"
+            "A C X\n"
+            "A 6 -2 -1\n"
+            "C -2 6 -1\n"
+            "X -1 -1 6\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("FERRITIN_FOLDSEEK_3DI_MATRIX", str(matrix_path))
+
+        alphabet, matrix, source = SEARCH_MOD._load_sa_matrix()
+
+        assert alphabet == "ACX"
+        assert matrix["A"]["C"] == -2
+        assert source == str(matrix_path)
+
+    def test_load_sa_matrix_falls_back_without_candidates(self):
+        with patch.object(SEARCH_MOD, "_candidate_foldseek_3di_matrix_paths", return_value=[]):
+            alphabet, matrix, source = SEARCH_MOD._load_sa_matrix()
+
+        assert alphabet == SEARCH_MOD._DEFAULT_SA_ALPHABET
+        assert matrix["A"]["A"] == 6
+        assert matrix["A"]["C"] == -2
+        assert source == "fallback"
+
+    def test_load_sa_matrix_raises_for_invalid_env_override(self, monkeypatch, tmp_path):
+        matrix_path = tmp_path / "mat3di.out"
+        matrix_path.write_text("not a valid matrix\n", encoding="utf-8")
+        monkeypatch.setenv("FERRITIN_FOLDSEEK_3DI_MATRIX", str(matrix_path))
+
+        with pytest.raises(ValueError, match="substitution matrix"):
+            SEARCH_MOD._load_sa_matrix()
+
+    def test_encode_alphabet_raises_clean_error_without_native_backend(self):
+        with patch.object(SEARCH_MOD, "_search", None):
+            with pytest.raises(ImportError, match="ferritin-connector"):
+                SEARCH_MOD.encode_alphabet(object())
+
     def test_build_search_db_skips_failed_loads(self):
         paths = [CRAMBIN, "/does/not/exist.pdb", UBIQ]
         db = ferritin.build_search_db(paths, k=4, n_threads=2)
@@ -61,12 +104,15 @@ class TestSearchDB:
             assert (root / "entries.parquet").exists()
             assert (root / "postings").exists()
             assert (root / "positional_postings").exists()
+            assert (root / "compiled" / "manifest.json").exists()
 
             assert isinstance(loaded, ferritin.SearchDB)
             assert loaded.version == db.version
             assert loaded.k == db.k
             assert loaded.k_values == db.k_values
             assert loaded.root_path == path
+            assert loaded.entries is not None
+            assert loaded.postings is not None
             assert len(loaded) == len(db)
             hits = ferritin.search(ferritin.load(CRAMBIN), loaded, top_k=1, rerank=False)
             assert hits[0].source_path == CRAMBIN
@@ -78,8 +124,69 @@ class TestSearchDB:
             loaded = ferritin.load_search_db(path)
 
             assert len(db) == len(loaded)
+            assert loaded.entries is not None
+            assert loaded.postings is not None
             hits = ferritin.search(ferritin.load(UBIQ), loaded, top_k=1, rerank=False)
             assert hits[0].source_path == UBIQ
+
+    def test_save_search_db_can_skip_compiled_layout(self):
+        db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "search_db")
+            ferritin.save_search_db(db, path, write_compiled=False)
+            root = Path(path)
+            loaded = ferritin.load_search_db(path, prefer_compiled=False)
+
+            assert not (root / "compiled" / "manifest.json").exists()
+            assert loaded.entries is None
+            assert loaded.postings is None
+            assert loaded.root_path == path
+
+    def test_load_search_db_warns_when_compiled_layout_is_missing(self):
+        db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "search_db")
+            ferritin.save_search_db(db, path, write_compiled=False)
+
+            with pytest.warns(UserWarning, match="Compiled search layout not found"):
+                loaded = ferritin.load_search_db(path)
+
+            assert loaded.entries is None
+            assert loaded.postings is None
+
+    def test_load_search_db_prefer_compiled_false_skips_warning(self):
+        db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "search_db")
+            ferritin.save_search_db(db, path, write_compiled=False)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                loaded = ferritin.load_search_db(path, prefer_compiled=False)
+
+            assert caught == []
+            assert loaded.entries is None
+            assert loaded.postings is None
+
+    def test_load_search_db_can_auto_compile_missing_layout(self):
+        db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "search_db")
+            root = Path(path)
+            ferritin.save_search_db(db, path, write_compiled=False)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                loaded = ferritin.load_search_db(path, auto_compile_missing=True)
+
+            assert caught == []
+            assert (root / "compiled" / "manifest.json").exists()
+            assert loaded.entries is not None
+            assert loaded.postings is not None
 
     def test_search_accepts_db_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -90,6 +197,44 @@ class TestSearchDB:
 
         assert len(hits) == 1
         assert hits[0].source_path == UBIQ
+
+    def test_search_path_warns_when_it_falls_back_to_lazy_db(self):
+        db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
+        query = ferritin.load(UBIQ)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "search_db")
+            ferritin.save_search_db(db, path, write_compiled=False)
+
+            with pytest.warns(UserWarning, match="Compiled search layout not found"):
+                hits = ferritin.search(query, path, top_k=1, rerank=False)
+
+        assert len(hits) == 1
+        assert hits[0].source_path == UBIQ
+
+    def test_search_path_can_auto_compile_missing_layout(self):
+        db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
+        query = ferritin.load(UBIQ)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "search_db")
+            root = Path(path)
+            ferritin.save_search_db(db, path, write_compiled=False)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                hits = ferritin.search(
+                    query,
+                    path,
+                    top_k=1,
+                    rerank=False,
+                    auto_compile_missing=True,
+                )
+
+            assert caught == []
+            assert (root / "compiled" / "manifest.json").exists()
+            assert len(hits) == 1
+            assert hits[0].source_path == UBIQ
 
     def test_search_without_rerank_returns_prefilter_scores(self):
         db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
@@ -155,8 +300,8 @@ class TestSearchDB:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "search_db")
-            ferritin.save_search_db(db, path)
-            loaded = ferritin.load_search_db(path)
+            ferritin.save_search_db(db, path, write_compiled=False)
+            loaded = ferritin.load_search_db(path, prefer_compiled=False)
 
             read_calls = []
             real_read_table = SEARCH_MOD.pq.read_table
@@ -172,6 +317,37 @@ class TestSearchDB:
 
             assert first_call_count > 0
             assert len(read_calls) == first_call_count
+
+    def test_lazy_db_reuses_entry_cache(self):
+        db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
+        query = ferritin.load(CRAMBIN)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "search_db")
+            ferritin.save_search_db(db, path, write_compiled=False)
+            loaded = ferritin.load_search_db(path, prefer_compiled=False)
+
+            read_calls = []
+            real_read_table = SEARCH_MOD.pq.read_table
+
+            def tracked_read_table(*args, **kwargs):
+                read_calls.append(str(args[0]))
+                return real_read_table(*args, **kwargs)
+
+            with patch.object(SEARCH_MOD.pq, "read_table", side_effect=tracked_read_table):
+                ferritin.search(query, loaded, top_k=2, rerank=False)
+                entry_reads_after_first = [
+                    call for call in read_calls
+                    if call.endswith("entries.parquet")
+                ]
+                ferritin.search(query, loaded, top_k=2, rerank=False)
+
+            entry_reads_after_second = [
+                call for call in read_calls
+                if call.endswith("entries.parquet")
+            ]
+            assert len(entry_reads_after_first) > 0
+            assert len(entry_reads_after_second) == len(entry_reads_after_first)
 
     def test_lazy_db_uses_positional_posting_cache(self):
         db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
@@ -193,8 +369,8 @@ class TestSearchDB:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "search_db")
-            ferritin.save_search_db(db, path)
-            loaded = ferritin.load_search_db(path)
+            ferritin.save_search_db(db, path, write_compiled=False)
+            loaded = ferritin.load_search_db(path, prefer_compiled=False)
 
             assert loaded.posting_bucket_cache == {}
 
@@ -209,13 +385,31 @@ class TestSearchDB:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "search_db")
-            ferritin.save_search_db(db, path)
+            ferritin.save_search_db(db, path, write_compiled=False)
 
-            warmed = ferritin.warm_search_db(path, posting_cache_max_size=128)
+            with pytest.warns(UserWarning, match="Compiled search layout not found"):
+                warmed = ferritin.warm_search_db(path, posting_cache_max_size=128)
 
             assert isinstance(warmed, ferritin.SearchDB)
             assert warmed.root_path == path
             assert len(warmed.posting_bucket_cache) > 0
+
+    def test_warm_search_db_can_auto_compile_missing_layout(self):
+        db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "search_db")
+            root = Path(path)
+            ferritin.save_search_db(db, path, write_compiled=False)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                warmed = ferritin.warm_search_db(path, auto_compile_missing=True)
+
+            assert caught == []
+            assert (root / "compiled" / "manifest.json").exists()
+            assert warmed.entries is not None
+            assert warmed.postings is not None
 
     def test_compile_search_db_writes_compiled_layout(self):
         db = ferritin.build_search_db([CRAMBIN, UBIQ], k=4, n_threads=2)

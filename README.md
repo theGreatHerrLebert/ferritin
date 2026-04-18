@@ -18,21 +18,65 @@ If you want a Python package that can sit inside your own pipeline and do the ex
 pip install ferritin
 ```
 
+Ferritin is batch-first. The single-structure helpers are there, but the
+default shape is "load many, compute many, prepare many":
+
 ```python
 import ferritin
 
-s = ferritin.load("1crn.pdb")
+paths = ["1crn.pdb", "1ubq.pdb", "1bpi.pdb"]
+structures = ferritin.batch_load(paths, n_threads=-1)
 
-tm = ferritin.tm_align(s, ferritin.load("1ubq.pdb"))
-print(tm.tm_score_chain1, tm.rmsd)
+sasa = ferritin.batch_total_sasa(structures, n_threads=-1)
+dssp = ferritin.batch_dssp(structures, n_threads=-1)
+prep = ferritin.batch_prepare(
+    structures,
+    hydrogens="backbone",
+    minimize=True,
+    n_threads=-1,
+)
+hits = ferritin.tm_align_one_to_many(structures[0], structures[1:], n_threads=-1)
 
-print(ferritin.total_sasa(s))
-print(ferritin.dssp(s)[:10])
-
-prepared = ferritin.prepare(s)
+print(sasa)
+print(dssp[0][:10])
+print(prep[0].final_energy)
+print(hits[0].tm_score_chain1, hits[0].rmsd)
 ```
 
 Runnable examples live in [`examples/`](examples/).
+
+## Persisted Search DBs
+
+For structural-alphabet search, the default persisted path is:
+
+```python
+import ferritin
+
+db = ferritin.build_search_db(["1crn.pdb", "1ubq.pdb"], out="search_db", k=6)
+hits = ferritin.search(ferritin.load("1crn.pdb"), "search_db", top_k=5, rerank=False)
+```
+
+That writes the Parquet corpus and the eager compiled serving layout together,
+so later path-based queries load the faster serving representation by default.
+
+If you intentionally want Parquet-only storage, opt in explicitly:
+
+```python
+ferritin.save_search_db(db, "search_db", write_compiled=False)
+lazy = ferritin.load_search_db("search_db", prefer_compiled=False)
+```
+
+If you already have an older Parquet-only DB and want to upgrade it in place on
+first use, use `auto_compile_missing=True`:
+
+```python
+hits = ferritin.search(
+    ferritin.load("1crn.pdb"),
+    "search_db",
+    rerank=False,
+    auto_compile_missing=True,
+)
+```
 
 ## What Ferritin Covers
 
@@ -90,6 +134,10 @@ import ferritin
 ```
 
 The Python package is the main user-facing surface and exposes the Rust-backed APIs directly.
+
+Short structured Agent Notes exist on selected public boundary functions where
+misuse is easy or scaling/cost tradeoffs matter; they are not intended to
+annotate the full public API uniformly.
 
 **CLI**
 

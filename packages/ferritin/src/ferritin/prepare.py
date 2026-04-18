@@ -37,6 +37,7 @@ def _get_ptr(structure):
 # to kJ/mol via compute_energy / minimize_hydrogens, so the PrepReport
 # dataclass also exposes kJ/mol by default and we convert on the way out.
 _KCAL_TO_KJ = 4.184
+_VALID_HYDROGEN_MODES = {"backbone", "all", "general", "none"}
 
 
 def _convert_prep_result_to_kj(r: dict) -> dict:
@@ -68,8 +69,8 @@ class PrepReport:
         atoms_reconstructed: Heavy atoms added by fragment reconstruction.
         hydrogens_added: Hydrogen atoms placed.
         hydrogens_skipped: Residues where H placement was skipped (e.g., missing backbone).
-        initial_energy: Total energy before minimization (kcal/mol).
-        final_energy: Total energy after minimization (kcal/mol).
+        initial_energy: Total energy before minimization (kJ/mol).
+        final_energy: Total energy after minimization (kJ/mol).
         components: Per-component energy breakdown at the post-minimization
             geometry, in the same units as ``initial_energy`` /
             ``final_energy``. Keys: ``bond_stretch``, ``angle_bend``,
@@ -115,7 +116,7 @@ class PrepReport:
             )
         else:
             lines.append(
-                f"  energy={self.initial_energy:.1f} -> {self.final_energy:.1f} kcal/mol"
+                f"  energy={self.initial_energy:.1f} -> {self.final_energy:.1f} kJ/mol"
             )
             lines.append(
                 f"  minimizer={self.minimizer_steps} steps, converged={self.converged}"
@@ -126,6 +127,14 @@ class PrepReport:
             lines.append(f"  warnings={self.warnings}")
         lines.append(")")
         return "\n".join(lines)
+
+
+def _normalize_hydrogens_mode(hydrogens: str, report: PrepReport) -> str:
+    mode = hydrogens.lower()
+    if mode not in _VALID_HYDROGEN_MODES:
+        report.warnings.append(f"Unknown hydrogens option '{hydrogens}', skipping")
+        return "none"
+    return mode
 
 
 def prepare(
@@ -186,16 +195,20 @@ def prepare(
     ptr = _get_ptr(structure)
     report = PrepReport()
     _maybe_warn_ff(ff)
+    hydrogens = _normalize_hydrogens_mode(hydrogens, report)
 
     # Step 0: Optionally strip existing hydrogens.
     if strip_hydrogens:
         # Use the batch path so strip+reconstruct+place+minimize all run in
-        # one Rust call (cleaner and consistent with batch_prepare).
+        # one Rust call. Single-structure prepare is documented as a
+        # hydrogen-placement / hydrogen-minimization workflow, so freeze
+        # heavy atoms explicitly even on CHARMM.
         results = _add_h.batch_prepare(
             [ptr], reconstruct, hydrogens, include_water,
             minimize, minimize_method, minimize_steps, gradient_tolerance, None,
             True,
             ff,
+            True,
         )
         if results:
             r = _convert_prep_result_to_kj(results[0])
@@ -239,18 +252,18 @@ def prepare(
         added, skipped = _add_h.place_general_hydrogens(ptr, include_water)
         report.hydrogens_added = added
         report.hydrogens_skipped = skipped
-    elif hydrogens != "none":
-        report.warnings.append(f"Unknown hydrogens option '{hydrogens}', skipping")
 
     # Step 3: Minimize hydrogen positions
     # Use batch_prepare for a single structure so coords are applied back in Rust.
     if minimize and report.hydrogens_added > 0:
-        # Run minimization via the Rust batch path (applies coords in-place)
+        # Run minimization via the Rust batch path (applies coords in-place).
+        # Keep this hydrogen-only to match the public prepare() contract.
         results = _add_h.batch_prepare(
             [ptr], False, "none", False,
             True, minimize_method, minimize_steps, gradient_tolerance, None,
             False,
             ff,
+            True,
         )
         if results:
             r = _convert_prep_result_to_kj(results[0])
@@ -262,7 +275,7 @@ def prepare(
             report.skipped_no_protein = r["skipped_no_protein"]
 
     # Step 4: Check force field coverage
-    energy_result = _ff.compute_energy(ptr, "amber96")
+    energy_result = _ff.compute_energy(ptr, ff, None, None)
     report.n_unassigned_atoms = energy_result.get("n_unassigned_atoms", 0)
     if report.n_unassigned_atoms > 10:
         report.warnings.append(
