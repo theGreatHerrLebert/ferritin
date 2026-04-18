@@ -47,7 +47,12 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --manifest-path ferritin-connector/Cargo.toml
+          # -i 3.12 -i 3.13 is needed so maturin picks up both supported
+          # interpreters. Inside the manylinux docker container used for
+          # linux targets the default `python3` search finds e.g. 3.8 and
+          # fails our requires-python >= 3.12; enumerating the two we
+          # support produces two wheels per target.
+          args: --release --out dist --manifest-path ferritin-connector/Cargo.toml -i 3.12 -i 3.13
           manylinux: ${{ matrix.manylinux || 'auto' }}
 
       - name: Upload wheels
