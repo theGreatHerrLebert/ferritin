@@ -37,8 +37,16 @@ impl CubicSwitch {
         let sq_cutoff = cutoff * cutoff;
         let sq_cuton = cuton * cuton;
         let range = sq_cutoff - sq_cuton;
-        let inv_range_cubed = if range > 0.0 { 1.0 / (range * range * range) } else { 0.0 };
-        Self { sq_cutoff, sq_cuton, inv_range_cubed }
+        let inv_range_cubed = if range > 0.0 {
+            1.0 / (range * range * range)
+        } else {
+            0.0
+        };
+        Self {
+            sq_cutoff,
+            sq_cuton,
+            inv_range_cubed,
+        }
     }
 
     /// Returns (switch_value, d_switch / d_r2) for a given squared distance.
@@ -52,7 +60,8 @@ impl CubicSwitch {
         }
         let diff_off = self.sq_cutoff - r2;
         let diff_on = self.sq_cuton - r2;
-        let sw = diff_off * diff_off
+        let sw = diff_off
+            * diff_off
             * (self.sq_cutoff + 2.0 * r2 - 3.0 * self.sq_cuton)
             * self.inv_range_cubed;
         // sw(r²) = (a - r²)² (a + 2r² - 3b) / (a - b)³  where a=sq_cutoff, b=sq_cuton
@@ -90,7 +99,12 @@ pub fn compute_energy_auto(
     nbl_threshold: usize,
 ) -> EnergyResult {
     if coords.len() > nbl_threshold {
-        let nbl = NeighborList::build(coords, params.nonbonded_cutoff(), &topo.excluded_pairs, &topo.pairs_14);
+        let nbl = NeighborList::build(
+            coords,
+            params.nonbonded_cutoff(),
+            &topo.excluded_pairs,
+            &topo.pairs_14,
+        );
         compute_energy_nbl(coords, topo, params, &nbl)
     } else {
         compute_energy_impl(coords, topo, params, false)
@@ -224,7 +238,11 @@ fn compute_energy_impl(
             let qi = topo.atoms[i].charge;
             let qj = topo.atoms[j].charge;
             if qi.abs() > 1e-10 && qj.abs() > 1e-10 {
-                let denom = if distance_dependent_dielectric { r * r } else { r };
+                let denom = if distance_dependent_dielectric {
+                    r * r
+                } else {
+                    r
+                };
                 result.electrostatic += switch_val * scale_es * coulomb_factor * qi * qj / denom;
             }
         }
@@ -277,7 +295,12 @@ pub fn compute_energy_and_forces_auto(
     nbl_threshold: usize,
 ) -> (EnergyResult, Vec<[f64; 3]>) {
     if coords.len() > nbl_threshold {
-        let nbl = NeighborList::build(coords, params.nonbonded_cutoff(), &topo.excluded_pairs, &topo.pairs_14);
+        let nbl = NeighborList::build(
+            coords,
+            params.nonbonded_cutoff(),
+            &topo.excluded_pairs,
+            &topo.pairs_14,
+        );
         compute_energy_and_forces_nbl(coords, topo, params, &nbl)
     } else {
         compute_energy_and_forces_impl(coords, topo, params, false)
@@ -315,7 +338,9 @@ fn compute_energy_and_forces_impl(
             let dy = coords[j][1] - coords[i][1];
             let dz = coords[j][2] - coords[i][2];
             let r = (dx * dx + dy * dy + dz * dz).sqrt();
-            if r < 1e-10 { continue; }
+            if r < 1e-10 {
+                continue;
+            }
 
             let dr = r - bp.r0;
             result.bond_stretch += bp.k * dr * dr;
@@ -351,7 +376,9 @@ fn compute_energy_and_forces_impl(
             let rjk = sub(&coords[k], &coords[j]);
             let rji_len = norm(&rji);
             let rjk_len = norm(&rjk);
-            if rji_len < 1e-10 || rjk_len < 1e-10 { continue; }
+            if rji_len < 1e-10 || rjk_len < 1e-10 {
+                continue;
+            }
 
             let cos_theta = dot(&rji, &rjk) / (rji_len * rjk_len);
             let sin_theta = (1.0 - cos_theta * cos_theta).max(1e-12).sqrt();
@@ -555,10 +582,22 @@ pub fn compute_energy_and_forces_nbl(
 
     // --- Torsions ---
     torsion_energy_and_forces(
-        &topo.torsions, coords, topo, params, &mut result.torsion, &mut forces, false,
+        &topo.torsions,
+        coords,
+        topo,
+        params,
+        &mut result.torsion,
+        &mut forces,
+        false,
     );
     torsion_energy_and_forces(
-        &topo.improper_torsions, coords, topo, params, &mut result.improper_torsion, &mut forces, true,
+        &topo.improper_torsions,
+        coords,
+        topo,
+        params,
+        &mut result.improper_torsion,
+        &mut forces,
+        true,
     );
 
     // --- Nonbonded via neighbor list ---
@@ -653,7 +692,14 @@ pub fn compute_energy_and_forces_nbl(
     // on 30k atoms it's 75× faster, which makes LBFGS heavy-atom
     // minimization on large proteins tractable.
     if params.has_eef1() {
-        eef1_energy_and_forces_nbl(coords, topo, params, &mut result.solvation, &mut forces, nbl);
+        eef1_energy_and_forces_nbl(
+            coords,
+            topo,
+            params,
+            &mut result.solvation,
+            &mut forces,
+            nbl,
+        );
     }
 
     // --- OBC GB implicit solvent (if enabled) ---
@@ -702,7 +748,9 @@ fn bonded_energy_and_forces(
             let dy = coords[j][1] - coords[i][1];
             let dz = coords[j][2] - coords[i][2];
             let r = (dx * dx + dy * dy + dz * dz).sqrt();
-            if r < 1e-10 { continue; }
+            if r < 1e-10 {
+                continue;
+            }
             let dr = r - bp.r0;
             result.bond_stretch += bp.k * dr * dr;
             let f_mag = -2.0 * bp.k * dr / r;
@@ -733,7 +781,9 @@ fn bonded_energy_and_forces(
             let rjk = sub(&coords[k], &coords[j]);
             let rji_len = norm(&rji);
             let rjk_len = norm(&rjk);
-            if rji_len < 1e-10 || rjk_len < 1e-10 { continue; }
+            if rji_len < 1e-10 || rjk_len < 1e-10 {
+                continue;
+            }
 
             let cos_theta = dot(&rji, &rjk) / (rji_len * rjk_len);
             let sin_theta = (1.0 - cos_theta * cos_theta).max(1e-12).sqrt();
@@ -784,7 +834,9 @@ fn eef1_energy(
 
     // Self-solvation: Σ ΔG_ref
     for atom in &topo.atoms {
-        if atom.is_hydrogen { continue; }
+        if atom.is_hydrogen {
+            continue;
+        }
         if let Some(eef) = params.get_eef1(&atom.amber_type) {
             *solvation += eef.dg_ref;
         }
@@ -799,15 +851,21 @@ fn eef1_energy(
     // topo.excluded_pairs directly. 1-4 pairs ARE kept (BALL keeps them too,
     // unscaled for EEF1).
     for i in 0..n {
-        if topo.atoms[i].is_hydrogen { continue; }
+        if topo.atoms[i].is_hydrogen {
+            continue;
+        }
         let eef_i = match params.get_eef1(&topo.atoms[i].amber_type) {
             Some(e) => e,
             None => continue,
         };
 
         for j in (i + 1)..n {
-            if topo.atoms[j].is_hydrogen { continue; }
-            if topo.excluded_pairs.contains(&(i, j)) { continue; }
+            if topo.atoms[j].is_hydrogen {
+                continue;
+            }
+            if topo.excluded_pairs.contains(&(i, j)) {
+                continue;
+            }
             let eef_j = match params.get_eef1(&topo.atoms[j].amber_type) {
                 Some(e) => e,
                 None => continue,
@@ -817,22 +875,24 @@ fn eef1_energy(
             let dy = coords[i][1] - coords[j][1];
             let dz = coords[i][2] - coords[j][2];
             let r2 = dx * dx + dy * dy + dz * dz;
-            if r2 > cutoff_sq || r2 < 0.01 { continue; }
+            if r2 > cutoff_sq || r2 < 0.01 {
+                continue;
+            }
 
             let r = r2.sqrt();
 
             // Contribution from atom j excluding atom i's solvation
             if eef_i.dg_free.abs() > 1e-10 && eef_j.volume > 1e-10 {
                 let dr = (r - eef_i.r_min) / eef_i.sigma;
-                *solvation += -0.5 * eef_j.volume * eef_i.dg_free
-                    * (-dr * dr).exp() / (eef_i.sigma * PI_SQRT_PI * r2);
+                *solvation += -0.5 * eef_j.volume * eef_i.dg_free * (-dr * dr).exp()
+                    / (eef_i.sigma * PI_SQRT_PI * r2);
             }
 
             // Contribution from atom i excluding atom j's solvation
             if eef_j.dg_free.abs() > 1e-10 && eef_i.volume > 1e-10 {
                 let dr = (r - eef_j.r_min) / eef_j.sigma;
-                *solvation += -0.5 * eef_i.volume * eef_j.dg_free
-                    * (-dr * dr).exp() / (eef_j.sigma * PI_SQRT_PI * r2);
+                *solvation += -0.5 * eef_i.volume * eef_j.dg_free * (-dr * dr).exp()
+                    / (eef_j.sigma * PI_SQRT_PI * r2);
             }
         }
     }
@@ -851,7 +911,9 @@ fn eef1_energy_and_forces(
 
     // Self-solvation (no force contribution — constant per atom)
     for atom in &topo.atoms {
-        if atom.is_hydrogen { continue; }
+        if atom.is_hydrogen {
+            continue;
+        }
         if let Some(eef) = params.get_eef1(&atom.amber_type) {
             *solvation += eef.dg_ref;
         }
@@ -860,15 +922,21 @@ fn eef1_energy_and_forces(
     // Pair exclusion + forces. Skip 1-2 and 1-3 bonded partners — see the
     // comment in eef1_energy() above for rationale.
     for i in 0..n {
-        if topo.atoms[i].is_hydrogen { continue; }
+        if topo.atoms[i].is_hydrogen {
+            continue;
+        }
         let eef_i = match params.get_eef1(&topo.atoms[i].amber_type) {
             Some(e) => e,
             None => continue,
         };
 
         for j in (i + 1)..n {
-            if topo.atoms[j].is_hydrogen { continue; }
-            if topo.excluded_pairs.contains(&(i, j)) { continue; }
+            if topo.atoms[j].is_hydrogen {
+                continue;
+            }
+            if topo.excluded_pairs.contains(&(i, j)) {
+                continue;
+            }
             let eef_j = match params.get_eef1(&topo.atoms[j].amber_type) {
                 Some(e) => e,
                 None => continue,
@@ -878,7 +946,9 @@ fn eef1_energy_and_forces(
             let dy = coords[i][1] - coords[j][1];
             let dz = coords[i][2] - coords[j][2];
             let r2 = dx * dx + dy * dy + dz * dz;
-            if r2 > cutoff_sq || r2 < 0.01 { continue; }
+            if r2 > cutoff_sq || r2 < 0.01 {
+                continue;
+            }
 
             let r = r2.sqrt();
             let inv_r = 1.0 / r;
@@ -966,7 +1036,9 @@ fn eef1_energy_and_forces_nbl(
 
     // Self-solvation: Σ ΔG_ref (constant per atom, no force contribution)
     for atom in &topo.atoms {
-        if atom.is_hydrogen { continue; }
+        if atom.is_hydrogen {
+            continue;
+        }
         if let Some(eef) = params.get_eef1(&atom.amber_type) {
             *solvation += eef.dg_ref;
         }
@@ -975,8 +1047,12 @@ fn eef1_energy_and_forces_nbl(
     // Pair exclusion + forces — iterate NBL pairs instead of all i<j.
     for pair in &nbl.pairs {
         let (i, j) = (pair.i, pair.j);
-        if topo.atoms[i].is_hydrogen { continue; }
-        if topo.atoms[j].is_hydrogen { continue; }
+        if topo.atoms[i].is_hydrogen {
+            continue;
+        }
+        if topo.atoms[j].is_hydrogen {
+            continue;
+        }
 
         let eef_i = match params.get_eef1(&topo.atoms[i].amber_type) {
             Some(e) => e,
@@ -992,7 +1068,9 @@ fn eef1_energy_and_forces_nbl(
         let dz = coords[i][2] - coords[j][2];
         let r2 = dx * dx + dy * dy + dz * dz;
         // EEF1 cutoff (9 Å) is tighter than NBL cutoff (15 Å).
-        if r2 > cutoff_sq || r2 < 0.01 { continue; }
+        if r2 > cutoff_sq || r2 < 0.01 {
+            continue;
+        }
 
         let r = r2.sqrt();
         let inv_r = 1.0 / r;
@@ -1110,7 +1188,9 @@ fn torsion_energy_and_forces(
 
         // Force distribution (BALL formula)
         let len_a23 = norm(&a23);
-        if len_a23 < 1e-10 { continue; }
+        if len_a23 < 1e-10 {
+            continue;
+        }
 
         let n1_cross_a23 = cross(&n1, &a23);
         let n2_cross_a23 = cross(&n2, &a23);
@@ -1227,9 +1307,9 @@ mod gradient_tests {
     //! bugs that silently broke the minimizer. Any future refactor of the force
     //! computation should keep these passing.
     use super::*;
+    use crate::add_hydrogens;
     use crate::forcefield::params::{amber96, amber96_obc};
     use crate::forcefield::topology::build_topology;
-    use crate::add_hydrogens;
     use pdbtbx;
     use std::path::PathBuf;
     use std::sync::OnceLock;
@@ -1393,7 +1473,12 @@ mod gradient_tests {
         let ff = amber96();
         let topo = build_topology(pdb, &ff);
         let coords = collect_coords(pdb);
-        let nbl = NeighborList::build(&coords, ff.nonbonded_cutoff(), &topo.excluded_pairs, &topo.pairs_14);
+        let nbl = NeighborList::build(
+            &coords,
+            ff.nonbonded_cutoff(),
+            &topo.excluded_pairs,
+            &topo.pairs_14,
+        );
         let (_, forces) = compute_energy_and_forces_nbl(&coords, &topo, &ff, &nbl);
 
         let eps = 1e-5;
@@ -1459,7 +1544,12 @@ mod gradient_tests {
         let pdb = crambin_with_h();
         let topo = build_topology(pdb, ff);
         let coords = collect_coords(pdb);
-        let nbl = NeighborList::build(&coords, ff.nonbonded_cutoff(), &topo.excluded_pairs, &topo.pairs_14);
+        let nbl = NeighborList::build(
+            &coords,
+            ff.nonbonded_cutoff(),
+            &topo.excluded_pairs,
+            &topo.pairs_14,
+        );
 
         let e_exact = compute_energy_impl(&coords, &topo, ff, false);
         let e_nbl = compute_energy_nbl(&coords, &topo, ff, &nbl);
@@ -1473,7 +1563,11 @@ mod gradient_tests {
             ("bond_stretch", e_exact.bond_stretch, e_nbl.bond_stretch),
             ("angle_bend", e_exact.angle_bend, e_nbl.angle_bend),
             ("torsion", e_exact.torsion, e_nbl.torsion),
-            ("improper_torsion", e_exact.improper_torsion, e_nbl.improper_torsion),
+            (
+                "improper_torsion",
+                e_exact.improper_torsion,
+                e_nbl.improper_torsion,
+            ),
             ("vdw", e_exact.vdw, e_nbl.vdw),
             ("electrostatic", e_exact.electrostatic, e_nbl.electrostatic),
             ("solvation", e_exact.solvation, e_nbl.solvation),
@@ -1483,7 +1577,11 @@ mod gradient_tests {
             assert!(
                 (exact - nbl).abs() < tol,
                 "[{}] {}: exact={:.9} nbl={:.9} diff={:.2e}",
-                ff_name, name, exact, nbl, (exact - nbl).abs()
+                ff_name,
+                name,
+                exact,
+                nbl,
+                (exact - nbl).abs()
             );
         }
     }
@@ -1543,7 +1641,11 @@ mod gradient_tests {
             ("bond_stretch", e_exact.bond_stretch, e_nbl.bond_stretch),
             ("angle_bend", e_exact.angle_bend, e_nbl.angle_bend),
             ("torsion", e_exact.torsion, e_nbl.torsion),
-            ("improper_torsion", e_exact.improper_torsion, e_nbl.improper_torsion),
+            (
+                "improper_torsion",
+                e_exact.improper_torsion,
+                e_nbl.improper_torsion,
+            ),
             ("vdw", e_exact.vdw, e_nbl.vdw),
             ("electrostatic", e_exact.electrostatic, e_nbl.electrostatic),
             ("solvation", e_exact.solvation, e_nbl.solvation),
@@ -1618,7 +1720,9 @@ mod gradient_tests {
             assert!(
                 diff < 1e-5,
                 "CubicSwitch dsw/dr² mismatch at r²={}: analytical={:.6e}, numerical={:.6e}",
-                r2, dsw_analytical, dsw_numerical
+                r2,
+                dsw_analytical,
+                dsw_numerical
             );
         }
     }
@@ -1678,7 +1782,11 @@ mod gradient_tests {
             ("bond_stretch", e_orig.bond_stretch, e_xform.bond_stretch),
             ("angle_bend", e_orig.angle_bend, e_xform.angle_bend),
             ("torsion", e_orig.torsion, e_xform.torsion),
-            ("improper_torsion", e_orig.improper_torsion, e_xform.improper_torsion),
+            (
+                "improper_torsion",
+                e_orig.improper_torsion,
+                e_xform.improper_torsion,
+            ),
             ("vdw", e_orig.vdw, e_xform.vdw),
             ("electrostatic", e_orig.electrostatic, e_xform.electrostatic),
             ("solvation", e_orig.solvation, e_xform.solvation),
@@ -1693,7 +1801,13 @@ mod gradient_tests {
             assert!(
                 diff < rel_tol,
                 "[{}/{}] {}: orig={:.9} xform={:.9} diff={:.3e} tol={:.3e}",
-                ff_name, transform_name, name, orig, xform, diff, rel_tol
+                ff_name,
+                transform_name,
+                name,
+                orig,
+                xform,
+                diff,
+                rel_tol
             );
         }
     }
@@ -1709,9 +1823,12 @@ mod gradient_tests {
         for &delta in &[[0.5, 0.0, 0.0], [10.0, 20.0, 30.0], [1000.0, -500.0, 250.0]] {
             let translated = translate(&coords, delta);
             assert_symmetry(
-                ff, ff_name,
+                ff,
+                ff_name,
                 &format!("translate{:?}", delta),
-                &coords, &translated, &topo,
+                &coords,
+                &translated,
+                &topo,
                 1e-6,
             );
         }
@@ -1737,9 +1854,12 @@ mod gradient_tests {
             // rotation on coords ~10 Å changes FP ordering in dist() and
             // dot() calls, which gives O(1e-9) drift on large components.
             assert_symmetry(
-                ff, ff_name,
+                ff,
+                ff_name,
                 &format!("rotate_z({:.3})", theta),
-                &coords, &rotated, &topo,
+                &coords,
+                &rotated,
+                &topo,
                 1e-4,
             );
         }
@@ -1777,7 +1897,13 @@ mod gradient_tests {
             mag < tol,
             "[{}] Σforces = ({:.3e}, {:.3e}, {:.3e}), |Σ|={:.3e} > tol={:.3e}. \
              max per-atom force magnitude = {:.3e}",
-            ff_name, sum[0], sum[1], sum[2], mag, tol, max_f
+            ff_name,
+            sum[0],
+            sum[1],
+            sum[2],
+            mag,
+            tol,
+            max_f
         );
     }
 

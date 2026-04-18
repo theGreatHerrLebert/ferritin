@@ -37,12 +37,14 @@ pub fn dump_topology<'py>(py: Python<'py>, pdb: &PyPDB, ff: &str) -> PyResult<Py
     };
     let dict = pyo3::types::PyDict::new(py);
     let bonds: Vec<(usize, usize)> = topo.bonds.iter().map(|b| (b.i, b.j)).collect();
-    let angles: Vec<(usize, usize, usize)> =
-        topo.angles.iter().map(|a| (a.i, a.j, a.k)).collect();
+    let angles: Vec<(usize, usize, usize)> = topo.angles.iter().map(|a| (a.i, a.j, a.k)).collect();
     let torsions: Vec<(usize, usize, usize, usize)> =
         topo.torsions.iter().map(|t| (t.i, t.j, t.k, t.l)).collect();
-    let impropers: Vec<(usize, usize, usize, usize)> =
-        topo.improper_torsions.iter().map(|t| (t.i, t.j, t.k, t.l)).collect();
+    let impropers: Vec<(usize, usize, usize, usize)> = topo
+        .improper_torsions
+        .iter()
+        .map(|t| (t.i, t.j, t.k, t.l))
+        .collect();
     // Map each topology atom back to its (residue_idx, residue_name,
     // atom_name, amber_type, charge) so diff tools can print both
     // identity and the assigned force-field class.
@@ -150,12 +152,10 @@ pub fn compute_energy(
             (topo, result)
         }
         _ => {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                format!(
-                    "Unknown force field '{ff}'. Use 'amber96', 'amber96_obc' \
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown force field '{ff}'. Use 'amber96', 'amber96_obc' \
                      (alias: 'amber96+obc', 'amber96_obc2'), or 'charmm19_eef1'."
-                )
-            ));
+            )));
         }
     };
 
@@ -211,19 +211,41 @@ fn run_minimize(
     method: &str,
 ) -> minimize::MinimizeResult {
     match method {
-        "sd" | "steepest_descent" => {
-            minimize::steepest_descent(coords, topo, amber, max_steps, gradient_tolerance, constrained)
-        }
-        "cg" | "conjugate_gradient" => {
-            minimize::conjugate_gradient(coords, topo, amber, max_steps, gradient_tolerance, constrained)
-        }
-        "lbfgs" | "l-bfgs" => {
-            minimize::lbfgs(coords, topo, amber, max_steps, gradient_tolerance, constrained)
-        }
+        "sd" | "steepest_descent" => minimize::steepest_descent(
+            coords,
+            topo,
+            amber,
+            max_steps,
+            gradient_tolerance,
+            constrained,
+        ),
+        "cg" | "conjugate_gradient" => minimize::conjugate_gradient(
+            coords,
+            topo,
+            amber,
+            max_steps,
+            gradient_tolerance,
+            constrained,
+        ),
+        "lbfgs" | "l-bfgs" => minimize::lbfgs(
+            coords,
+            topo,
+            amber,
+            max_steps,
+            gradient_tolerance,
+            constrained,
+        ),
         _ => {
             // Default to SD for backward compat, but this should ideally error.
             // The Python layer validates method names before calling.
-            minimize::steepest_descent(coords, topo, amber, max_steps, gradient_tolerance, constrained)
+            minimize::steepest_descent(
+                coords,
+                topo,
+                amber,
+                max_steps,
+                gradient_tolerance,
+                constrained,
+            )
         }
     }
 }
@@ -244,7 +266,15 @@ pub fn minimize_hydrogens<'py>(
     let method = method.to_string();
 
     let result = py.allow_threads(|| {
-        run_minimize(&coords, &topo, &amber, max_steps, gradient_tolerance, &constrained, &method)
+        run_minimize(
+            &coords,
+            &topo,
+            &amber,
+            max_steps,
+            gradient_tolerance,
+            &constrained,
+            &method,
+        )
     });
 
     let n = result.coords.len();
@@ -301,7 +331,15 @@ pub fn minimize_structure<'py>(
     let method = method.to_string();
 
     let result = py.allow_threads(|| {
-        run_minimize(&coords, &topo, &amber, max_steps, gradient_tolerance, &constrained, &method)
+        run_minimize(
+            &coords,
+            &topo,
+            &amber,
+            max_steps,
+            gradient_tolerance,
+            &constrained,
+            &method,
+        )
     });
 
     let n = result.coords.len();
@@ -349,7 +387,15 @@ fn minimize_h_single(
     let topo = topology::build_topology(pdb, &amber);
     let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
     let constrained: Vec<bool> = topo.atoms.iter().map(|a| !a.is_hydrogen).collect();
-    run_minimize(&coords, &topo, &amber, max_steps, gradient_tolerance, &constrained, method)
+    run_minimize(
+        &coords,
+        &topo,
+        &amber,
+        max_steps,
+        gradient_tolerance,
+        &constrained,
+        method,
+    )
 }
 
 /// Batch minimize hydrogen positions for many structures in parallel.
@@ -414,18 +460,29 @@ pub fn batch_minimize_hydrogens<'py>(
                 .reshape([n, 3])
                 .expect("reshape");
             dict.set_item("coords", coords_arr).unwrap();
-            dict.set_item("initial_energy", result.initial_energy).unwrap();
+            dict.set_item("initial_energy", result.initial_energy)
+                .unwrap();
             dict.set_item("final_energy", result.energy.total).unwrap();
             dict.set_item("steps", result.steps).unwrap();
             dict.set_item("converged", result.converged).unwrap();
 
             let components = pyo3::types::PyDict::new(py);
-            components.set_item("bond_stretch", result.energy.bond_stretch).unwrap();
-            components.set_item("angle_bend", result.energy.angle_bend).unwrap();
-            components.set_item("torsion", result.energy.torsion).unwrap();
-            components.set_item("improper_torsion", result.energy.improper_torsion).unwrap();
+            components
+                .set_item("bond_stretch", result.energy.bond_stretch)
+                .unwrap();
+            components
+                .set_item("angle_bend", result.energy.angle_bend)
+                .unwrap();
+            components
+                .set_item("torsion", result.energy.torsion)
+                .unwrap();
+            components
+                .set_item("improper_torsion", result.energy.improper_torsion)
+                .unwrap();
             components.set_item("vdw", result.energy.vdw).unwrap();
-            components.set_item("electrostatic", result.energy.electrostatic).unwrap();
+            components
+                .set_item("electrostatic", result.energy.electrostatic)
+                .unwrap();
             dict.set_item("energy_components", components).unwrap();
 
             dict.into_any().unbind()
@@ -468,7 +525,8 @@ pub fn load_and_minimize_hydrogens<'py>(
                 .enumerate()
                 .filter_map(|(i, path)| {
                     opts.read(path).ok().map(|(pdb, _)| {
-                        let result = minimize_h_single(&pdb, max_steps, gradient_tolerance, &method);
+                        let result =
+                            minimize_h_single(&pdb, max_steps, gradient_tolerance, &method);
                         (i, result)
                     })
                 })
@@ -492,7 +550,8 @@ pub fn load_and_minimize_hydrogens<'py>(
                 .reshape([nn, 3])
                 .expect("reshape");
             dict.set_item("coords", coords_arr).unwrap();
-            dict.set_item("initial_energy", result.initial_energy).unwrap();
+            dict.set_item("initial_energy", result.initial_energy)
+                .unwrap();
             dict.set_item("final_energy", result.energy.total).unwrap();
             dict.set_item("steps", result.steps).unwrap();
             dict.set_item("converged", result.converged).unwrap();
@@ -553,8 +612,15 @@ pub fn run_md(
     // Run MD (release GIL)
     let result = py.allow_threads(move || {
         md::velocity_verlet_constrained(
-            &coords, &topo_clone, &amber_clone, n_steps, dt, temperature,
-            thermostat_tau, snap_freq, &constraints,
+            &coords,
+            &topo_clone,
+            &amber_clone,
+            n_steps,
+            dt,
+            temperature,
+            thermostat_tau,
+            snap_freq,
+            &constraints,
         )
     });
 
@@ -562,13 +628,25 @@ pub fn run_md(
     let dict = pyo3::types::PyDict::new(py);
 
     // Final coords
-    let flat: Vec<f64> = result.coords.iter().flat_map(|c| c.iter().copied()).collect();
-    let coords_arr = PyArray1::from_vec(py, flat).reshape([n, 3]).expect("reshape");
+    let flat: Vec<f64> = result
+        .coords
+        .iter()
+        .flat_map(|c| c.iter().copied())
+        .collect();
+    let coords_arr = PyArray1::from_vec(py, flat)
+        .reshape([n, 3])
+        .expect("reshape");
     dict.set_item("coords", coords_arr)?;
 
     // Final velocities
-    let flat_v: Vec<f64> = result.velocities.iter().flat_map(|v| v.iter().copied()).collect();
-    let vel_arr = PyArray1::from_vec(py, flat_v).reshape([n, 3]).expect("reshape");
+    let flat_v: Vec<f64> = result
+        .velocities
+        .iter()
+        .flat_map(|v| v.iter().copied())
+        .collect();
+    let vel_arr = PyArray1::from_vec(py, flat_v)
+        .reshape([n, 3])
+        .expect("reshape");
     dict.set_item("velocities", vel_arr)?;
 
     // Trajectory frames

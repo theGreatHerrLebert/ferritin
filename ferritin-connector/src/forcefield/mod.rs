@@ -8,12 +8,12 @@
 //!
 //! Parameters from AMBER96 (parm96.dat).
 
-pub mod params;
-pub mod topology;
 pub mod energy;
 pub mod gb_obc;
-pub mod neighbor_list;
-pub mod minimize;
-pub mod md;
 #[cfg(feature = "cuda")]
 pub(crate) mod gpu;
+pub mod md;
+pub mod minimize;
+pub mod neighbor_list;
+pub mod params;
+pub mod topology;

@@ -2,7 +2,7 @@
 //!
 //! Bridges pdbtbx's PDB/mmCIF parser to TMAlign's internal `StructureData`.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
 use ferritin_align::core::residue_map::three_to_one;
 use ferritin_align::core::secondary_structure::make_sec;
@@ -54,8 +54,7 @@ impl Default for LoadOptions {
 
 /// Nucleotide residue names used to detect RNA/DNA.
 const NUCLEOTIDE_NAMES: &[&str] = &[
-    "A", "T", "G", "C", "U", "DA", "DT", "DG", "DC", "DU",
-    "ADE", "THY", "GUA", "CYT", "URA",
+    "A", "T", "G", "C", "U", "DA", "DT", "DG", "DC", "DU", "ADE", "THY", "GUA", "CYT", "URA",
 ];
 
 fn is_nucleotide(name: &str) -> bool {
@@ -129,9 +128,7 @@ pub fn load_structure(path: &str, opts: &LoadOptions) -> Result<Vec<StructureDat
     match opts.split_opt {
         0 => {
             // Treat entire structure as one chain
-            let data = extract_structure_data(
-                &pdb, None, None, &target_atom, opts, path,
-            );
+            let data = extract_structure_data(&pdb, None, None, &target_atom, opts, path);
             if !data.is_empty() {
                 results.push(data);
             }
@@ -219,12 +216,12 @@ fn extract_structure_data(
 
             for residue in chain.residues() {
                 // Get the first conformer (altloc ' ' or 'A')
-                let conformer = residue.conformers().find(|c| {
-                    match c.alternative_location() {
+                let conformer = residue
+                    .conformers()
+                    .find(|c| match c.alternative_location() {
                         None => true,
                         Some(loc) => loc == "A",
-                    }
-                });
+                    });
 
                 let conformer = match conformer {
                     Some(c) => c,
@@ -257,11 +254,7 @@ fn extract_structure_data(
 
                 if let Some(atom) = atom {
                     let (x, y, z) = atom.pos();
-                    let coord = if opts.mirror {
-                        [x, y, -z]
-                    } else {
-                        [x, y, z]
-                    };
+                    let coord = if opts.mirror { [x, y, -z] } else { [x, y, z] };
                     coords.push(coord);
 
                     // Sequence
@@ -279,9 +272,7 @@ fn extract_structure_data(
                     let resi_id = match opts.byresi {
                         2 | 3 => {
                             let ins = residue.insertion_code().unwrap_or("");
-                            format!(
-                                "{:>4}{}{}", residue.serial_number(), ins, chain.id()
-                            )
+                            format!("{:>4}{}{}", residue.serial_number(), ins, chain.id())
                         }
                         1 => {
                             let ins = residue.insertion_code().unwrap_or("");
@@ -298,9 +289,7 @@ fn extract_structure_data(
                         het_tag,
                         atom.serial_number(),
                         atom.name(),
-                        conformer
-                            .alternative_location()
-                            .unwrap_or(" "),
+                        conformer.alternative_location().unwrap_or(" "),
                         res_name,
                         chain.id().chars().next().unwrap_or(' '),
                         residue.serial_number(),

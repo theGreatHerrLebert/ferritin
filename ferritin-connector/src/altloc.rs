@@ -41,9 +41,7 @@ pub fn primary_conformer(residue: &Residue) -> Option<&Conformer> {
 }
 
 /// Atoms of a residue's primary conformer only.
-pub fn residue_atoms_primary(
-    residue: &Residue,
-) -> impl Iterator<Item = &pdbtbx::Atom> + '_ {
+pub fn residue_atoms_primary(residue: &Residue) -> impl Iterator<Item = &pdbtbx::Atom> + '_ {
     primary_conformer(residue)
         .into_iter()
         .flat_map(|c| c.atoms())
@@ -55,9 +53,7 @@ pub fn residue_atom_count_primary(residue: &Residue) -> usize {
 }
 
 /// Atoms of a chain via primary-conformer-per-residue iteration.
-pub fn chain_atoms_primary(
-    chain: &Chain,
-) -> impl Iterator<Item = &pdbtbx::Atom> + '_ {
+pub fn chain_atoms_primary(chain: &Chain) -> impl Iterator<Item = &pdbtbx::Atom> + '_ {
     chain.residues().flat_map(residue_atoms_primary)
 }
 
@@ -67,9 +63,7 @@ pub fn chain_atom_count_primary(chain: &Chain) -> usize {
 }
 
 /// Atoms of a model via primary-conformer-per-residue iteration.
-pub fn model_atoms_primary(
-    model: &Model,
-) -> impl Iterator<Item = &pdbtbx::Atom> + '_ {
+pub fn model_atoms_primary(model: &Model) -> impl Iterator<Item = &pdbtbx::Atom> + '_ {
     model.chains().flat_map(chain_atoms_primary)
 }
 
@@ -82,9 +76,7 @@ pub fn model_atom_count_primary(model: &Model) -> usize {
 ///
 /// Returns a boxed iterator because the `None`-model and `Some`-model
 /// branches have different concrete types.
-pub fn pdb_atoms_primary(
-    pdb: &PDB,
-) -> Box<dyn Iterator<Item = &pdbtbx::Atom> + '_> {
+pub fn pdb_atoms_primary(pdb: &PDB) -> Box<dyn Iterator<Item = &pdbtbx::Atom> + '_> {
     match pdb.models().next() {
         Some(m) => Box::new(model_atoms_primary(m)),
         None => Box::new(std::iter::empty()),

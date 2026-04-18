@@ -1,9 +1,9 @@
-pub mod types;
-pub mod residue_map;
+pub mod align;
 pub mod kabsch;
 pub mod nwdp;
-pub mod tmscore;
+pub mod residue_map;
 pub mod secondary_structure;
-pub mod align;
+pub mod tmscore;
+pub mod types;
 
 pub use types::*;

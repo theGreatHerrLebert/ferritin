@@ -43,12 +43,42 @@ mod tests {
     fn test_roundtrip_parquet() {
         let mut builder = AtomBatchBuilder::new(2);
         builder.append(
-            "1crn", 0, "A", "THR", 1, None, None, "CA", 1, Some("C"),
-            17.047, 14.099, 3.625, 13.79, 1.0, false, true,
+            "1crn",
+            0,
+            "A",
+            "THR",
+            1,
+            None,
+            None,
+            "CA",
+            1,
+            Some("C"),
+            17.047,
+            14.099,
+            3.625,
+            13.79,
+            1.0,
+            false,
+            true,
         );
         builder.append(
-            "1crn", 0, "A", "THR", 1, None, None, "CB", 2, Some("C"),
-            16.967, 12.784, 4.338, 10.80, 1.0, false, false,
+            "1crn",
+            0,
+            "A",
+            "THR",
+            1,
+            None,
+            None,
+            "CB",
+            2,
+            Some("C"),
+            16.967,
+            12.784,
+            4.338,
+            10.80,
+            1.0,
+            false,
+            false,
         );
         let batch = builder.finish().unwrap();
 

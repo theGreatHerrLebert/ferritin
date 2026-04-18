@@ -237,7 +237,11 @@ pub(crate) fn compute_born_radii_with_chain(
 
             let r_inverse = 1.0 / r;
             let diff = (r - scaled_radius_j).abs();
-            let l_ij_denom = if offset_radius_i > diff { offset_radius_i } else { diff };
+            let l_ij_denom = if offset_radius_i > diff {
+                offset_radius_i
+            } else {
+                diff
+            };
             let l_ij = 1.0 / l_ij_denom;
             let u_ij = 1.0 / r_scaled_radius_j;
 
@@ -420,7 +424,13 @@ pub(crate) fn gb_obc_energy_and_forces(
         n,
         topo.atoms.len()
     );
-    assert_eq!(forces.len(), n, "forces buffer length {} != atoms {}", forces.len(), n);
+    assert_eq!(
+        forces.len(),
+        n,
+        "forces buffer length {} != atoms {}",
+        forces.len(),
+        n
+    );
 
     let (born, obc_chain) = compute_born_radii_with_chain(coords, topo, params, obc);
 
@@ -430,7 +440,9 @@ pub(crate) fn gb_obc_energy_and_forces(
         .atoms
         .iter()
         .map(|a| {
-            let p = params.get_obc_gb(&a.amber_type).expect("OBC params checked in born radii");
+            let p = params
+                .get_obc_gb(&a.amber_type)
+                .expect("OBC params checked in born radii");
             (p.radius, p.scale)
         })
         .collect();
@@ -558,7 +570,11 @@ pub(crate) fn gb_obc_energy_and_forces(
             }
 
             let diff = (r - scaled_radius_j).abs();
-            let l_ij_denom = if offset_radius_i > diff { offset_radius_i } else { diff };
+            let l_ij_denom = if offset_radius_i > diff {
+                offset_radius_i
+            } else {
+                diff
+            };
             let l_ij = 1.0 / l_ij_denom;
             let u_ij = 1.0 / r_scaled_radius_j;
             let l_ij2 = l_ij * l_ij;
@@ -699,7 +715,7 @@ mod tests {
         ]);
         let br = compute_born_radii(&coords, &topo, &params, &obc);
         let offset_r = params.get_obc_gb("CT").unwrap().radius - obc.offset; // 1.81
-        // Symmetric (same species + same distance both directions).
+                                                                             // Symmetric (same species + same distance both directions).
         assert!((br[0] - br[1]).abs() < 1e-12, "asymmetric: {:?}", br);
         // Meaningful descreening -> R_eff strictly larger than offset radius.
         assert!(
@@ -710,7 +726,11 @@ mod tests {
         );
         // Sanity upper bound: R_eff should stay finite and reasonable
         // (<< 100 Å). The OBC tanh cap keeps it bounded.
-        assert!(br[0].is_finite() && br[0] < 100.0, "R_eff out of range: {}", br[0]);
+        assert!(
+            br[0].is_finite() && br[0] < 100.0,
+            "R_eff out of range: {}",
+            br[0]
+        );
     }
 
     #[test]
@@ -809,7 +829,11 @@ mod tests {
         let topo = topo_of(vec![ff_atom_q("CT", "C", coords[0], 1.0)]);
         let mut solvation = 0.0;
         gb_obc_energy(&coords, &topo, &params, &obc, &mut solvation);
-        assert!(solvation.abs() < 1e-12, "expected 0 (self off), got {}", solvation);
+        assert!(
+            solvation.abs() < 1e-12,
+            "expected 0 (self off), got {}",
+            solvation
+        );
     }
 
     /// Central-differences estimate of -∂E/∂r_i (the force on atom i) by
@@ -878,7 +902,13 @@ mod tests {
 
         let fd = fd_forces(&coords, &topo, &params, &obc, 1e-5);
         let err = max_force_err(&f, &fd);
-        assert!(err < 1e-4, "max force error {:.3e} exceeds 1e-4\nanalytic={:?}\nnumeric={:?}", err, f, fd);
+        assert!(
+            err < 1e-4,
+            "max force error {:.3e} exceeds 1e-4\nanalytic={:?}\nnumeric={:?}",
+            err,
+            f,
+            fd
+        );
     }
 
     #[test]
@@ -911,7 +941,12 @@ mod tests {
 
         let mut e_ref = 0.0;
         gb_obc_energy(&coords, &topo, &params, &obc, &mut e_ref);
-        assert!((e - e_ref).abs() < 1e-6, "energy mismatch: {} vs {}", e, e_ref);
+        assert!(
+            (e - e_ref).abs() < 1e-6,
+            "energy mismatch: {} vs {}",
+            e,
+            e_ref
+        );
 
         let fd = fd_forces(&coords, &topo, &params, &obc, 1e-5);
         let err = max_force_err(&f, &fd);
@@ -978,7 +1013,11 @@ mod tests {
         assert!(e.is_finite(), "non-finite energy: {}", e);
         for atom_f in &f {
             for k in 0..3 {
-                assert!(atom_f[k].is_finite(), "non-finite force component: {}", atom_f[k]);
+                assert!(
+                    atom_f[k].is_finite(),
+                    "non-finite force component: {}",
+                    atom_f[k]
+                );
             }
         }
     }
@@ -988,11 +1027,7 @@ mod tests {
         // Net force on an isolated system must sum to zero: Σ F_i = 0.
         let params = amber96_obc();
         let obc = ObcGbParams::obc1();
-        let coords = vec![
-            [0.0, 0.0, 0.0],
-            [2.0, 0.3, 0.0],
-            [1.0, 1.5, -0.5],
-        ];
+        let coords = vec![[0.0, 0.0, 0.0], [2.0, 0.3, 0.0], [1.0, 1.5, -0.5]];
         let topo = topo_of(vec![
             ff_atom_q("CT", "C", coords[0], 0.5),
             ff_atom_q("N", "N", coords[1], -0.4),
@@ -1005,7 +1040,12 @@ mod tests {
             [acc[0] + v[0], acc[1] + v[1], acc[2] + v[2]]
         });
         for k in 0..3 {
-            assert!(sum[k].abs() < 1e-9, "net force component {} = {:e}", k, sum[k]);
+            assert!(
+                sum[k].abs() < 1e-9,
+                "net force component {} = {:e}",
+                k,
+                sum[k]
+            );
         }
     }
 

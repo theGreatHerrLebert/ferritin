@@ -133,10 +133,7 @@ mod tests {
         match ctx {
             Some(g) => {
                 let (major, minor) = g.compute_capability();
-                assert!(
-                    major >= 5,
-                    "device CC {major}.{minor} below cudarc minimum",
-                );
+                assert!(major >= 5, "device CC {major}.{minor} below cudarc minimum",);
                 assert_eq!(g.arch_flag(), format!("sm_{major}{minor}"));
                 assert!(!g.device_name().is_empty());
             }

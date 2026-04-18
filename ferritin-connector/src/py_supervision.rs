@@ -12,9 +12,9 @@ use crate::py_pdb::PyPDB;
 
 const AA_ORDER: &[u8] = b"ACDEFGHIKLMNPQRSTVWYX";
 const ATOM_TYPES: [&str; 37] = [
-    "N", "CA", "C", "CB", "O", "CG", "CG1", "CG2", "OG", "OG1", "SG", "CD", "CD1", "CD2",
-    "ND1", "ND2", "OD1", "OD2", "SD", "CE", "CE1", "CE2", "CE3", "NE", "NE1", "NE2", "OE1",
-    "OE2", "CH2", "NH1", "NH2", "OH", "CZ", "CZ2", "CZ3", "NZ", "OXT",
+    "N", "CA", "C", "CB", "O", "CG", "CG1", "CG2", "OG", "OG1", "SG", "CD", "CD1", "CD2", "ND1",
+    "ND2", "OD1", "OD2", "SD", "CE", "CE1", "CE2", "CE3", "NE", "NE1", "NE2", "OE1", "OE2", "CH2",
+    "NH1", "NH2", "OH", "CZ", "CZ2", "CZ3", "NZ", "OXT",
 ];
 
 #[derive(Clone)]
@@ -93,26 +93,64 @@ fn atom37_index(name: &str) -> Option<usize> {
 
 fn atom14_names(resname: &str) -> [&'static str; 14] {
     match resname {
-        "ALA" => ["N", "CA", "C", "O", "CB", "", "", "", "", "", "", "", "", ""],
-        "ARG" => ["N", "CA", "C", "O", "CB", "CG", "CD", "NE", "CZ", "NH1", "NH2", "", "", ""],
-        "ASN" => ["N", "CA", "C", "O", "CB", "CG", "OD1", "ND2", "", "", "", "", "", ""],
-        "ASP" => ["N", "CA", "C", "O", "CB", "CG", "OD1", "OD2", "", "", "", "", "", ""],
-        "CYS" => ["N", "CA", "C", "O", "CB", "SG", "", "", "", "", "", "", "", ""],
-        "GLN" => ["N", "CA", "C", "O", "CB", "CG", "CD", "OE1", "NE2", "", "", "", "", ""],
-        "GLU" => ["N", "CA", "C", "O", "CB", "CG", "CD", "OE1", "OE2", "", "", "", "", ""],
+        "ALA" => [
+            "N", "CA", "C", "O", "CB", "", "", "", "", "", "", "", "", "",
+        ],
+        "ARG" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD", "NE", "CZ", "NH1", "NH2", "", "", "",
+        ],
+        "ASN" => [
+            "N", "CA", "C", "O", "CB", "CG", "OD1", "ND2", "", "", "", "", "", "",
+        ],
+        "ASP" => [
+            "N", "CA", "C", "O", "CB", "CG", "OD1", "OD2", "", "", "", "", "", "",
+        ],
+        "CYS" => [
+            "N", "CA", "C", "O", "CB", "SG", "", "", "", "", "", "", "", "",
+        ],
+        "GLN" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD", "OE1", "NE2", "", "", "", "", "",
+        ],
+        "GLU" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD", "OE1", "OE2", "", "", "", "", "",
+        ],
         "GLY" => ["N", "CA", "C", "O", "", "", "", "", "", "", "", "", "", ""],
-        "HIS" => ["N", "CA", "C", "O", "CB", "CG", "ND1", "CD2", "CE1", "NE2", "", "", "", ""],
-        "ILE" => ["N", "CA", "C", "O", "CB", "CG1", "CG2", "CD1", "", "", "", "", "", ""],
-        "LEU" => ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "", "", "", "", "", ""],
-        "LYS" => ["N", "CA", "C", "O", "CB", "CG", "CD", "CE", "NZ", "", "", "", "", ""],
-        "MET" => ["N", "CA", "C", "O", "CB", "CG", "SD", "CE", "", "", "", "", "", ""],
-        "PHE" => ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "", "", ""],
-        "PRO" => ["N", "CA", "C", "O", "CB", "CG", "CD", "", "", "", "", "", "", ""],
-        "SER" => ["N", "CA", "C", "O", "CB", "OG", "", "", "", "", "", "", "", ""],
-        "THR" => ["N", "CA", "C", "O", "CB", "OG1", "CG2", "", "", "", "", "", "", ""],
-        "TRP" => ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2"],
-        "TYR" => ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "OH", "", ""],
-        "VAL" => ["N", "CA", "C", "O", "CB", "CG1", "CG2", "", "", "", "", "", "", ""],
+        "HIS" => [
+            "N", "CA", "C", "O", "CB", "CG", "ND1", "CD2", "CE1", "NE2", "", "", "", "",
+        ],
+        "ILE" => [
+            "N", "CA", "C", "O", "CB", "CG1", "CG2", "CD1", "", "", "", "", "", "",
+        ],
+        "LEU" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "", "", "", "", "", "",
+        ],
+        "LYS" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD", "CE", "NZ", "", "", "", "", "",
+        ],
+        "MET" => [
+            "N", "CA", "C", "O", "CB", "CG", "SD", "CE", "", "", "", "", "", "",
+        ],
+        "PHE" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "", "", "",
+        ],
+        "PRO" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD", "", "", "", "", "", "", "",
+        ],
+        "SER" => [
+            "N", "CA", "C", "O", "CB", "OG", "", "", "", "", "", "", "", "",
+        ],
+        "THR" => [
+            "N", "CA", "C", "O", "CB", "OG1", "CG2", "", "", "", "", "", "", "",
+        ],
+        "TRP" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2",
+        ],
+        "TYR" => [
+            "N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "OH", "", "",
+        ],
+        "VAL" => [
+            "N", "CA", "C", "O", "CB", "CG1", "CG2", "", "", "", "", "", "", "",
+        ],
         _ => ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
     }
 }
@@ -120,18 +158,40 @@ fn atom14_names(resname: &str) -> [&'static str; 14] {
 fn chi_angle_atoms(resname: &str) -> &'static [&'static [&'static str]] {
     match resname {
         "ALA" => &[],
-        "ARG" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "CD"], &["CB", "CG", "CD", "NE"], &["CG", "CD", "NE", "CZ"]],
+        "ARG" => &[
+            &["N", "CA", "CB", "CG"],
+            &["CA", "CB", "CG", "CD"],
+            &["CB", "CG", "CD", "NE"],
+            &["CG", "CD", "NE", "CZ"],
+        ],
         "ASN" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "OD1"]],
         "ASP" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "OD1"]],
         "CYS" => &[&["N", "CA", "CB", "SG"]],
-        "GLN" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "CD"], &["CB", "CG", "CD", "OE1"]],
-        "GLU" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "CD"], &["CB", "CG", "CD", "OE1"]],
+        "GLN" => &[
+            &["N", "CA", "CB", "CG"],
+            &["CA", "CB", "CG", "CD"],
+            &["CB", "CG", "CD", "OE1"],
+        ],
+        "GLU" => &[
+            &["N", "CA", "CB", "CG"],
+            &["CA", "CB", "CG", "CD"],
+            &["CB", "CG", "CD", "OE1"],
+        ],
         "GLY" => &[],
         "HIS" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "ND1"]],
         "ILE" => &[&["N", "CA", "CB", "CG1"], &["CA", "CB", "CG1", "CD1"]],
         "LEU" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "CD1"]],
-        "LYS" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "CD"], &["CB", "CG", "CD", "CE"], &["CG", "CD", "CE", "NZ"]],
-        "MET" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "SD"], &["CB", "CG", "SD", "CE"]],
+        "LYS" => &[
+            &["N", "CA", "CB", "CG"],
+            &["CA", "CB", "CG", "CD"],
+            &["CB", "CG", "CD", "CE"],
+            &["CG", "CD", "CE", "NZ"],
+        ],
+        "MET" => &[
+            &["N", "CA", "CB", "CG"],
+            &["CA", "CB", "CG", "SD"],
+            &["CB", "CG", "SD", "CE"],
+        ],
         "PHE" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "CD1"]],
         "PRO" => &[&["N", "CA", "CB", "CG"], &["CA", "CB", "CG", "CD"]],
         "SER" => &[&["N", "CA", "CB", "OG"]],
@@ -169,10 +229,7 @@ fn is_ambiguous_atom(resname: &str, atom_name: &str) -> bool {
     }
 }
 
-fn select_chain<'a>(
-    pdb: &'a pdbtbx::PDB,
-    chain_id: Option<&str>,
-) -> PyResult<&'a pdbtbx::Chain> {
+fn select_chain<'a>(pdb: &'a pdbtbx::PDB, chain_id: Option<&str>) -> PyResult<&'a pdbtbx::Chain> {
     if chain_id.is_none() && pdb.chain_count() != 1 {
         return Err(PyValueError::new_err(
             "structure_supervision_example v0 is chain-level; pass chain_id for multi-chain structures",
@@ -187,7 +244,10 @@ fn select_chain<'a>(
 fn extract_residue_records(chain: &pdbtbx::Chain) -> PyResult<Vec<ResidueRecord>> {
     let mut out = Vec::new();
     for residue in chain.residues() {
-        let is_aa = residue.conformers().next().is_some_and(|c| c.is_amino_acid());
+        let is_aa = residue
+            .conformers()
+            .next()
+            .is_some_and(|c| c.is_amino_acid());
         if !is_aa {
             continue;
         }
@@ -270,7 +330,11 @@ fn homogeneous_frame(
         point_on_xy_plane[2] - origin[2],
     ];
     let proj = dot(ey, ex);
-    ey = [ey[0] - proj * ex[0], ey[1] - proj * ex[1], ey[2] - proj * ex[2]];
+    ey = [
+        ey[0] - proj * ex[0],
+        ey[1] - proj * ex[1],
+        ey[2] - proj * ex[2],
+    ];
     let ey_norm = norm(ey);
     if ey_norm < 1e-8 {
         return identity4();
@@ -322,7 +386,10 @@ fn norm(v: [f64; 3]) -> f64 {
     dot(v, v).sqrt()
 }
 
-fn extract_example_from_pdb(pdb: &pdbtbx::PDB, chain_id: Option<&str>) -> PyResult<ExtractedExample> {
+fn extract_example_from_pdb(
+    pdb: &pdbtbx::PDB,
+    chain_id: Option<&str>,
+) -> PyResult<ExtractedExample> {
     let chain = select_chain(pdb, chain_id)?;
     let residues = extract_residue_records(chain)?;
     let n = residues.len();
@@ -482,7 +549,11 @@ fn extract_example_from_pdb(pdb: &pdbtbx::PDB, chain_id: Option<&str>) -> PyResu
                 psi_mask[i] = 1.0;
             }
         }
-        for (chi_i, atom_names) in chi_angle_atoms(&residues[i].name).iter().enumerate().take(4) {
+        for (chi_i, atom_names) in chi_angle_atoms(&residues[i].name)
+            .iter()
+            .enumerate()
+            .take(4)
+        {
             if let (Some(a), Some(b), Some(c), Some(d)) = (
                 get_atom_coord(&residues[i], atom_names[0]),
                 get_atom_coord(&residues[i], atom_names[1]),
@@ -637,7 +708,10 @@ fn example_to_dict<'py>(py: Python<'py>, ex: ExtractedExample) -> PyResult<Bound
     Ok(dict)
 }
 
-fn batch_to_dict<'py>(py: Python<'py>, batch: Vec<ExtractedExample>) -> PyResult<Bound<'py, PyDict>> {
+fn batch_to_dict<'py>(
+    py: Python<'py>,
+    batch: Vec<ExtractedExample>,
+) -> PyResult<Bound<'py, PyDict>> {
     let b = batch.len();
     let n_max = batch.iter().map(|ex| ex.length).max().unwrap_or(0);
 
@@ -896,7 +970,10 @@ fn batch_extract_structure_supervision<'py>(
     let n = structures.len();
     let chain_ids = match chain_ids {
         Some(ids) if ids.len() != n => {
-            return Err(PyValueError::new_err(format!("expected {n} chain_ids, got {}", ids.len())))
+            return Err(PyValueError::new_err(format!(
+                "expected {n} chain_ids, got {}",
+                ids.len()
+            )))
         }
         Some(ids) => ids,
         None => vec![None; n],

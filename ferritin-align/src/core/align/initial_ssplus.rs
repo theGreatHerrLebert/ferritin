@@ -5,7 +5,7 @@
 
 use crate::core::kabsch::{kabsch, KabschMode};
 use crate::core::nwdp::nwdp_score_matrix;
-use crate::core::types::{Coord3D, DPWorkspace, dist_squared};
+use crate::core::types::{dist_squared, Coord3D, DPWorkspace};
 
 /// Build a score matrix combining structural distance and SS match.
 ///

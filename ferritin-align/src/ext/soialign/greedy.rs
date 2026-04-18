@@ -99,10 +99,7 @@ pub fn soi_egs(
                 if invmap[j] >= 0 || score[i + 1][j + 1] <= max_score {
                     continue;
                 }
-                if mm_opt == 6
-                    && !sec2sq(
-                        i as i32, j as i32, secx_bond, secy_bond, &fwdmap, invmap,
-                    )
+                if mm_opt == 6 && !sec2sq(i as i32, j as i32, secx_bond, secy_bond, &fwdmap, invmap)
                 {
                     continue;
                 }
@@ -139,16 +136,8 @@ pub fn soi_egs(
                     continue;
                 }
                 if mm_opt == 6
-                    && (!sec2sq(
-                        i as i32, j as i32, secx_bond, secy_bond, &fwdmap, invmap,
-                    ) || !sec2sq(
-                        oldi,
-                        oldj,
-                        secx_bond,
-                        secy_bond,
-                        &fwdmap,
-                        invmap,
-                    ))
+                    && (!sec2sq(i as i32, j as i32, secx_bond, secy_bond, &fwdmap, invmap)
+                        || !sec2sq(oldi, oldj, secx_bond, secy_bond, &fwdmap, invmap))
                 {
                     continue;
                 }

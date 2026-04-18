@@ -109,7 +109,14 @@ impl DBReader {
             }
         }
 
-        Ok(Self { prefix, dbtype, index, data, lookup, source })
+        Ok(Self {
+            prefix,
+            dbtype,
+            index,
+            data,
+            lookup,
+            source,
+        })
     }
 
     /// Full data blob as a byte slice. Backed by the mmap when present.
@@ -137,7 +144,11 @@ impl DBReader {
     /// the caller-supplied payload passed to DBWriter).
     pub fn get_payload(&self, entry: &IndexEntry) -> &[u8] {
         let raw = self.get_raw(entry);
-        if raw.last() == Some(&0) { &raw[..raw.len() - 1] } else { raw }
+        if raw.last() == Some(&0) {
+            &raw[..raw.len() - 1]
+        } else {
+            raw
+        }
     }
 
     /// Linear scan over the index for a key; O(n). Fine for small DBs;
@@ -206,7 +217,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let prefix = dir.path().join("db");
         let mut w = DBWriter::create(&prefix, Dbtype::AMINO_ACIDS).unwrap();
-        for (k, seq) in [(1u32, b"MKLVR".as_slice()), (2, b"WWWWWWWW"), (3, b"ABCDEFGH")] {
+        for (k, seq) in [
+            (1u32, b"MKLVR".as_slice()),
+            (2, b"WWWWWWWW"),
+            (3, b"ABCDEFGH"),
+        ] {
             w.write_entry(k, seq).unwrap();
         }
         w.finish().unwrap();

@@ -61,7 +61,9 @@ impl Dbtype {
         if bytes.len() != 4 {
             return Err(DbError::BadDbtypeSize(bytes.len()));
         }
-        Ok(Self(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])))
+        Ok(Self(i32::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+        ])))
     }
 
     pub fn write_to_file(self, path: impl AsRef<Path>) -> Result<()> {

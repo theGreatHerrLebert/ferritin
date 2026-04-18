@@ -6,11 +6,11 @@ use clap::Parser;
 
 use ferritin_align::core::align::cpalign::cpalign;
 use ferritin_align::core::align::tmalign::tmalign;
+use ferritin_align::core::types::*;
 use ferritin_io::alignment::read_alignment;
 use ferritin_io::chain_list::read_chain_list;
-use ferritin_io::loader::{InputFormat, LoadOptions, load_structure};
-use ferritin_io::output::{OutputOptions, output_results, output_rotation_matrix};
-use ferritin_align::core::types::*;
+use ferritin_io::loader::{load_structure, InputFormat, LoadOptions};
+use ferritin_io::output::{output_results, output_rotation_matrix, OutputOptions};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -237,16 +237,22 @@ fn run() -> Result<()> {
 
                     let result = if cli.cp {
                         cpalign(
-                            &s1.coords, &s2.coords,
-                            &s1.sequence, &s2.sequence,
-                            &s1.sec_structure, &s2.sec_structure,
+                            &s1.coords,
+                            &s2.coords,
+                            &s1.sequence,
+                            &s2.sequence,
+                            &s1.sec_structure,
+                            &s2.sec_structure,
                             &opts,
                         )?
                     } else {
                         tmalign(
-                            &s1.coords, &s2.coords,
-                            &s1.sequence, &s2.sequence,
-                            &s1.sec_structure, &s2.sec_structure,
+                            &s1.coords,
+                            &s2.coords,
+                            &s1.sequence,
+                            &s2.sequence,
+                            &s1.sec_structure,
+                            &s2.sec_structure,
                             &opts,
                         )?
                     };
@@ -299,7 +305,9 @@ fn run() -> Result<()> {
 fn build_chain_lists(cli: &Cli) -> Result<(Vec<String>, Vec<String>)> {
     if let Some(ref dir) = cli.dir {
         // All-vs-all mode
-        let pdb1 = cli.pdb1.as_ref()
+        let pdb1 = cli
+            .pdb1
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("chain list file required with -dir"))?;
         let list = read_chain_list(pdb1, dir, &cli.suffix)?;
         Ok((list.clone(), list))
@@ -308,7 +316,9 @@ fn build_chain_lists(cli: &Cli) -> Result<(Vec<String>, Vec<String>)> {
         let mut list2 = Vec::new();
 
         if let Some(ref dir1) = cli.dir1 {
-            let pdb1 = cli.pdb1.as_ref()
+            let pdb1 = cli
+                .pdb1
+                .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("chain list file required with -dir1"))?;
             list1 = read_chain_list(pdb1, dir1, &cli.suffix)?;
         } else if let Some(ref path) = cli.pdb1 {
@@ -316,7 +326,9 @@ fn build_chain_lists(cli: &Cli) -> Result<(Vec<String>, Vec<String>)> {
         }
 
         if let Some(ref dir2) = cli.dir2 {
-            let pdb2 = cli.pdb2.as_ref()
+            let pdb2 = cli
+                .pdb2
+                .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("chain list file required with -dir2"))?;
             list2 = read_chain_list(pdb2, dir2, &cli.suffix)?;
         } else if let Some(ref path) = cli.pdb2 {
@@ -326,10 +338,12 @@ fn build_chain_lists(cli: &Cli) -> Result<(Vec<String>, Vec<String>)> {
         Ok((list1, list2))
     } else {
         // Single pair mode
-        let pdb1 = cli.pdb1.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Two structure files required. Run with --help for usage."))?;
-        let pdb2 = cli.pdb2.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Two structure files required. Run with --help for usage."))?;
+        let pdb1 = cli.pdb1.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Two structure files required. Run with --help for usage.")
+        })?;
+        let pdb2 = cli.pdb2.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Two structure files required. Run with --help for usage.")
+        })?;
         Ok((vec![pdb1.clone()], vec![pdb2.clone()]))
     }
 }

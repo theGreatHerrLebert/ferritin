@@ -53,7 +53,11 @@ pub fn generate_similar_kmers(
 ) -> Vec<(u64, i32)> {
     let k = encoder.kmer_size();
     let a = encoder.alphabet_size() as usize;
-    assert_eq!(query_kmer.len(), k, "query_kmer length must equal kmer_size");
+    assert_eq!(
+        query_kmer.len(),
+        k,
+        "query_kmer length must equal kmer_size"
+    );
     assert_eq!(
         scores.len(),
         a * a,
@@ -298,14 +302,21 @@ mod tests {
         // Query: "MKL" encoded. Self-score >= 3 * match_score, comfortably above
         // any non-trivial threshold. With threshold=15 we expect at least
         // the identity k-mer.
-        let q: Vec<u8> = [b'M', b'K', b'L'].iter().map(|&c| alpha.encode(c)).collect();
+        let q: Vec<u8> = [b'M', b'K', b'L']
+            .iter()
+            .map(|&c| alpha.encode(c))
+            .collect();
         let self_hash = enc.encode(&q);
-        let self_score_i32: i32 = (0..k).map(|i| scores_i32[q[i] as usize * alpha.size() + q[i] as usize]).sum();
+        let self_score_i32: i32 = (0..k)
+            .map(|i| scores_i32[q[i] as usize * alpha.size() + q[i] as usize])
+            .sum();
 
         let results = generate_similar_kmers(&enc, &q, &scores_i32, 15);
         // Result must contain at least the identity k-mer with its self-score.
         assert!(
-            results.iter().any(|&(h, s)| h == self_hash && s == self_score_i32),
+            results
+                .iter()
+                .any(|&(h, s)| h == self_hash && s == self_score_i32),
             "expected identity k-mer in generated set; got {} results, self_score={}",
             results.len(),
             self_score_i32,

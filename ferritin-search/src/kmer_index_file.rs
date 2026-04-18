@@ -60,9 +60,7 @@ pub enum KmiReaderError {
     BadMagic([u8; 4]),
     #[error("unsupported .kmi version {found} (reader handles {supported})")]
     BadVersion { found: u32, supported: u32 },
-    #[error(
-        "layout mismatch in .kmi header: {field} = {found}, expected {expected}"
-    )]
+    #[error("layout mismatch in .kmi header: {field} = {found}, expected {expected}")]
     LayoutMismatch {
         field: &'static str,
         found: u64,
@@ -75,9 +73,7 @@ pub enum KmiReaderError {
     OffsetsTail { found: u64, expected: u64 },
     #[error("file size {found} disagrees with layout (expected {expected})")]
     FileSizeMismatch { found: u64, expected: u64 },
-    #[error(
-        "reducer section malformed: {detail}"
-    )]
+    #[error("reducer section malformed: {detail}")]
     BadReducerSection { detail: String },
 }
 
@@ -129,9 +125,9 @@ impl ReducerSnapshot {
     fn encoded_byte_len(&self) -> u64 {
         match self {
             Self::None => 0,
-            Self::Some { full_to_reduced, .. } => {
-                REDUCER_SECTION_PROLOGUE + full_to_reduced.len() as u64
-            }
+            Self::Some {
+                full_to_reduced, ..
+            } => REDUCER_SECTION_PROLOGUE + full_to_reduced.len() as u64,
         }
     }
 }
@@ -344,7 +340,8 @@ pub fn build_kmi_external(
     }
     // Copy offsets into the mmap. Do this before pass 2 — entries
     // layout references these.
-    let offsets_slice = &mut mmap[offsets_byte_pos as usize..(offsets_byte_pos + 8 * (table_size as u64 + 1)) as usize];
+    let offsets_slice = &mut mmap
+        [offsets_byte_pos as usize..(offsets_byte_pos + 8 * (table_size as u64 + 1)) as usize];
     for (i, off) in offsets.iter().enumerate() {
         offsets_slice[8 * i..8 * i + 8].copy_from_slice(&off.to_le_bytes());
     }
@@ -401,7 +398,9 @@ pub fn build_kmi_external(
                 std::io::ErrorKind::Other,
                 format!(
                     "external build inconsistency: cursor[{k}] = {} but offsets[{}] = {}",
-                    cursors[k], k + 1, offsets[k + 1],
+                    cursors[k],
+                    k + 1,
+                    offsets[k + 1],
                 ),
             )));
         }
@@ -430,7 +429,10 @@ pub struct BuildExternalOptions {
 
 impl Default for BuildExternalOptions {
     fn default() -> Self {
-        Self { k: 6, hash_range_passes: 1 }
+        Self {
+            k: 6,
+            hash_range_passes: 1,
+        }
     }
 }
 
@@ -558,9 +560,7 @@ impl KmerIndexFile {
             let end = start + reducer_section_size as usize;
             if end as u64 > file_size {
                 return Err(KmiReaderError::BadReducerSection {
-                    detail: format!(
-                        "reducer section end={end} exceeds file size {file_size}",
-                    ),
+                    detail: format!("reducer section end={end} exceeds file size {file_size}",),
                 });
             }
             let sec = &mmap[start..end];
@@ -655,10 +655,18 @@ impl KmerIndexFile {
         })
     }
 
-    pub fn alphabet_size(&self) -> u32 { self.alphabet_size }
-    pub fn kmer_size(&self) -> usize { self.kmer_size }
-    pub fn table_size(&self) -> u64 { self.table_size }
-    pub fn n_entries(&self) -> u64 { self.n_entries }
+    pub fn alphabet_size(&self) -> u32 {
+        self.alphabet_size
+    }
+    pub fn kmer_size(&self) -> usize {
+        self.kmer_size
+    }
+    pub fn table_size(&self) -> u64 {
+        self.table_size
+    }
+    pub fn n_entries(&self) -> u64 {
+        self.n_entries
+    }
 
     /// Snapshot of the reducer used at build time.
     ///
@@ -667,7 +675,9 @@ impl KmerIndexFile {
     /// this value and refuse to proceed on mismatch — the k-mer hashes
     /// in the file are only meaningful under the mapping recorded
     /// here.
-    pub fn reducer(&self) -> &ReducerSnapshot { &self.reducer }
+    pub fn reducer(&self) -> &ReducerSnapshot {
+        &self.reducer
+    }
 
     /// Byte slice over the `(table_size + 1) × u64 LE` offsets array.
     ///
@@ -766,8 +776,14 @@ fn u32_at(buf: &[u8], off: usize) -> u32 {
 }
 fn u64_at(buf: &[u8], off: usize) -> u64 {
     u64::from_le_bytes([
-        buf[off], buf[off + 1], buf[off + 2], buf[off + 3],
-        buf[off + 4], buf[off + 5], buf[off + 6], buf[off + 7],
+        buf[off],
+        buf[off + 1],
+        buf[off + 2],
+        buf[off + 3],
+        buf[off + 4],
+        buf[off + 5],
+        buf[off + 6],
+        buf[off + 7],
     ])
 }
 
@@ -845,14 +861,22 @@ mod tests {
 
         // --- In-memory path ---
         let db_for_mem = DBReader::open(&db_prefix).unwrap();
-        let targets_encoded: Vec<(u32, Vec<u8>)> = db_for_mem.index.iter().map(|e| {
-            let payload = db_for_mem.get_payload(e);
-            let full = Sequence::from_ascii(alphabet.clone(), payload).data;
-            (e.key, reducer.reduce_sequence(&full))
-        }).collect();
+        let targets_encoded: Vec<(u32, Vec<u8>)> = db_for_mem
+            .index
+            .iter()
+            .map(|e| {
+                let payload = db_for_mem.get_payload(e);
+                let full = Sequence::from_ascii(alphabet.clone(), payload).data;
+                (e.key, reducer.reduce_sequence(&full))
+            })
+            .collect();
         let encoder = KmerEncoder::new(13, 3);
-        let pairs: Vec<(u32, &[u8])> = targets_encoded.iter().map(|(k, s)| (*k, s.as_slice())).collect();
-        let mem_idx = KmerIndex::build(encoder, pairs, reducer.unknown_reduced_idx.unwrap()).unwrap();
+        let pairs: Vec<(u32, &[u8])> = targets_encoded
+            .iter()
+            .map(|(k, s)| (*k, s.as_slice()))
+            .collect();
+        let mem_idx =
+            KmerIndex::build(encoder, pairs, reducer.unknown_reduced_idx.unwrap()).unwrap();
         let mem_path = dir.path().join("mem.kmi");
         write_kmi(&mem_idx, Some(&reducer), &mem_path).unwrap();
 
@@ -863,17 +887,27 @@ mod tests {
             &db,
             alphabet.clone(),
             Some(&reducer),
-            BuildExternalOptions { k: 3, hash_range_passes: 1 },
+            BuildExternalOptions {
+                k: 3,
+                hash_range_passes: 1,
+            },
             &ext_path,
-        ).unwrap();
+        )
+        .unwrap();
 
         let mem_bytes = std::fs::read(&mem_path).unwrap();
         let ext_bytes = std::fs::read(&ext_path).unwrap();
         assert_eq!(
-            mem_bytes.len(), ext_bytes.len(),
-            "file sizes diverge: mem={} ext={}", mem_bytes.len(), ext_bytes.len(),
+            mem_bytes.len(),
+            ext_bytes.len(),
+            "file sizes diverge: mem={} ext={}",
+            mem_bytes.len(),
+            ext_bytes.len(),
         );
-        assert_eq!(mem_bytes, ext_bytes, "in-memory and external .kmi diverge byte-for-byte");
+        assert_eq!(
+            mem_bytes, ext_bytes,
+            "in-memory and external .kmi diverge byte-for-byte"
+        );
 
         // Also verify both open cleanly and agree on per-hash lookup.
         let mem_file = KmerIndexFile::open(&mem_path).unwrap();
@@ -918,9 +952,13 @@ mod tests {
             &db,
             alphabet.clone(),
             Some(&reducer),
-            BuildExternalOptions { k: 3, hash_range_passes: 1 },
+            BuildExternalOptions {
+                k: 3,
+                hash_range_passes: 1,
+            },
             &one_pass_path,
-        ).unwrap();
+        )
+        .unwrap();
 
         for k_passes in [2, 5, 13, 100] {
             let multi_pass_path = dir.path().join(format!("multi_{k_passes}.kmi"));
@@ -928,9 +966,13 @@ mod tests {
                 &db,
                 alphabet.clone(),
                 Some(&reducer),
-                BuildExternalOptions { k: 3, hash_range_passes: k_passes },
+                BuildExternalOptions {
+                    k: 3,
+                    hash_range_passes: k_passes,
+                },
                 &multi_pass_path,
-            ).unwrap();
+            )
+            .unwrap();
             let one_bytes = std::fs::read(&one_pass_path).unwrap();
             let multi_bytes = std::fs::read(&multi_pass_path).unwrap();
             assert_eq!(
@@ -1001,7 +1043,9 @@ mod tests {
         hdr[..4].copy_from_slice(&KMI_MAGIC);
         hdr[4..8].copy_from_slice(&99u32.to_le_bytes());
         std::fs::write(&path, hdr).unwrap();
-        let err = KmerIndexFile::open(&path).err().expect("expected BadVersion");
+        let err = KmerIndexFile::open(&path)
+            .err()
+            .expect("expected BadVersion");
         assert!(
             matches!(
                 err,
@@ -1021,7 +1065,9 @@ mod tests {
         // Truncate a few bytes off the end.
         let full = std::fs::read(&path).unwrap();
         std::fs::write(&path, &full[..full.len() - 4]).unwrap();
-        let err = KmerIndexFile::open(&path).err().expect("expected truncation error");
+        let err = KmerIndexFile::open(&path)
+            .err()
+            .expect("expected truncation error");
         assert!(
             matches!(err, KmiReaderError::FileSizeMismatch { .. }),
             "expected FileSizeMismatch, got {err}",
@@ -1045,6 +1091,9 @@ mod tests {
                 empty_seen += 1;
             }
         }
-        assert!(empty_seen > 0, "expected some empty k-mer buckets in a tiny corpus");
+        assert!(
+            empty_seen > 0,
+            "expected some empty k-mer buckets in a tiny corpus"
+        );
     }
 }

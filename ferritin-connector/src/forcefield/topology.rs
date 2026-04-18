@@ -241,18 +241,26 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
     // Use first model only (consistent with atom_count(), SASA, DSSP, etc.)
     let first_model = match pdb.models().next() {
         Some(m) => m,
-        None => return Topology {
-            atoms: Vec::new(), bonds: Vec::new(), angles: Vec::new(),
-            torsions: Vec::new(), improper_torsions: Vec::new(),
-            excluded_pairs: HashSet::new(), pairs_14: HashSet::new(),
-            unassigned_atoms: Vec::new(),
-        },
+        None => {
+            return Topology {
+                atoms: Vec::new(),
+                bonds: Vec::new(),
+                angles: Vec::new(),
+                torsions: Vec::new(),
+                improper_torsions: Vec::new(),
+                excluded_pairs: HashSet::new(),
+                pairs_14: HashSet::new(),
+                unassigned_atoms: Vec::new(),
+            }
+        }
     };
     for chain in first_model.chains() {
         let mut chain_residues: Vec<(usize, String)> = Vec::new(); // (res_idx, name)
         for residue in chain.residues() {
             let name = residue.name().unwrap_or("UNK").to_string();
-            let is_aa = residue.conformers().next()
+            let is_aa = residue
+                .conformers()
+                .next()
                 .map_or(false, |c| c.is_amino_acid());
             if is_aa {
                 chain_residues.push((res_idx, name.clone()));
@@ -297,8 +305,12 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
             let dy = pi[1] - pj[1];
             let dz = pi[2] - pj[2];
             if dx * dx + dy * dy + dz * dz < 2.5_f64 * 2.5_f64 {
-                residue_variants.entry(*ri).or_insert_with(|| "CYS-S".to_string());
-                residue_variants.entry(*rj).or_insert_with(|| "CYS-S".to_string());
+                residue_variants
+                    .entry(*ri)
+                    .or_insert_with(|| "CYS-S".to_string());
+                residue_variants
+                    .entry(*rj)
+                    .or_insert_with(|| "CYS-S".to_string());
             }
         }
     }
@@ -318,7 +330,8 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
     for chain in first_model.chains() {
         for residue in chain.residues() {
             let base_name = residue.name().unwrap_or("UNK").to_string();
-            let lookup_name = residue_variants.get(&res_idx)
+            let lookup_name = residue_variants
+                .get(&res_idx)
                 .cloned()
                 .unwrap_or_else(|| base_name.clone());
 
@@ -470,9 +483,7 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
                 // BALL → PDB v3 rotation (for inputs that already use BALL).
                 let rest = &atom.atom_name[1..];
                 let alt = format!("{rest}{}", first as char);
-                res_atom_index
-                    .entry((atom.residue_idx, alt))
-                    .or_insert(i);
+                res_atom_index.entry((atom.residue_idx, alt)).or_insert(i);
             } else if last.is_ascii_digit() {
                 let head = &atom.atom_name[..atom.atom_name.len() - 1];
                 let d = (last as char).to_digit(10).unwrap();
@@ -480,25 +491,22 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
                 if is_methylene.contains(&methylene_key) && d >= 2 {
                     // PDB v3 methylene HB2→1HB, HB3→2HB.
                     let alt = format!("{}{head}", d - 1);
-                    res_atom_index
-                        .entry((atom.residue_idx, alt))
-                        .or_insert(i);
+                    res_atom_index.entry((atom.residue_idx, alt)).or_insert(i);
                 } else {
                     // Methyl (or other): simple rotation HB1→1HB etc.
                     let alt = format!("{last}{head}", last = last as char);
-                    res_atom_index
-                        .entry((atom.residue_idx, alt))
-                        .or_insert(i);
+                    res_atom_index.entry((atom.residue_idx, alt)).or_insert(i);
                 }
             }
         }
     }
 
     // Build a template lookup
-    let templates: HashMap<&str, &fragment_templates::FragmentTemplate> = fragment_templates::TEMPLATES
-        .iter()
-        .map(|t| (t.0, t))
-        .collect();
+    let templates: HashMap<&str, &fragment_templates::FragmentTemplate> =
+        fragment_templates::TEMPLATES
+            .iter()
+            .map(|t| (t.0, t))
+            .collect();
 
     // Group atoms by residue_idx.
     //
@@ -530,7 +538,10 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
                 ) {
                     let pair = (i.min(j), i.max(j));
                     if bonded_set.insert(pair) {
-                        bonds.push(Bond { i: pair.0, j: pair.1 });
+                        bonds.push(Bond {
+                            i: pair.0,
+                            j: pair.1,
+                        });
                         neighbors[pair.0].push(pair.1);
                         neighbors[pair.1].push(pair.0);
                     }
@@ -553,7 +564,10 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
             if dist < 1.8 && dist > 0.5 {
                 let pair = (c_idx.min(n_idx), c_idx.max(n_idx));
                 if bonded_set.insert(pair) {
-                    bonds.push(Bond { i: pair.0, j: pair.1 });
+                    bonds.push(Bond {
+                        i: pair.0,
+                        j: pair.1,
+                    });
                     neighbors[pair.0].push(pair.1);
                     neighbors[pair.1].push(pair.0);
                 }
@@ -574,7 +588,10 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
             if let Some(&p_idx) = res_atom_index.get(&(res_idx, parent_name.to_string())) {
                 let pair = (i.min(p_idx), i.max(p_idx));
                 if bonded_set.insert(pair) {
-                    bonds.push(Bond { i: pair.0, j: pair.1 });
+                    bonds.push(Bond {
+                        i: pair.0,
+                        j: pair.1,
+                    });
                     neighbors[pair.0].push(pair.1);
                     neighbors[pair.1].push(pair.0);
                 }
@@ -583,8 +600,12 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
     }
 
     // Phase C: Disulfide bonds (SG-SG within 2.5 Å)
-    let sg_atoms: Vec<usize> = atoms.iter().enumerate()
-        .filter(|(_, a)| a.atom_name == "SG" && (a.residue_name == "CYS" || a.residue_name == "CYX"))
+    let sg_atoms: Vec<usize> = atoms
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| {
+            a.atom_name == "SG" && (a.residue_name == "CYS" || a.residue_name == "CYX")
+        })
         .map(|(i, _)| i)
         .collect();
     for ai in 0..sg_atoms.len() {
@@ -597,7 +618,10 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
             if dist < 2.5 {
                 let pair = (i.min(j), i.max(j));
                 if bonded_set.insert(pair) {
-                    bonds.push(Bond { i: pair.0, j: pair.1 });
+                    bonds.push(Bond {
+                        i: pair.0,
+                        j: pair.1,
+                    });
                     neighbors[pair.0].push(pair.1);
                     neighbors[pair.1].push(pair.0);
                 }
@@ -621,7 +645,10 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
                 if dist < max_dist && dist > 0.4 {
                     let pair = (i.min(j), i.max(j));
                     if bonded_set.insert(pair) {
-                        bonds.push(Bond { i: pair.0, j: pair.1 });
+                        bonds.push(Bond {
+                            i: pair.0,
+                            j: pair.1,
+                        });
                         neighbors[pair.0].push(pair.1);
                         neighbors[pair.1].push(pair.0);
                     }
@@ -693,8 +720,14 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
         }
         // Generate all permutations of the 3 neighbors as (a1, a2, center=j, a4)
         let (n0, n1, n2) = (nbrs[0], nbrs[1], nbrs[2]);
-        for &(i, k, l) in &[(n0, n1, n2), (n0, n2, n1), (n1, n0, n2),
-                             (n1, n2, n0), (n2, n0, n1), (n2, n1, n0)] {
+        for &(i, k, l) in &[
+            (n0, n1, n2),
+            (n0, n2, n1),
+            (n1, n0, n2),
+            (n1, n2, n0),
+            (n2, n0, n1),
+            (n2, n1, n0),
+        ] {
             let ti = &atoms[i].amber_type;
             let tk = &atoms[j].amber_type; // central atom
             let tj = &atoms[k].amber_type;
@@ -733,7 +766,10 @@ mod tests {
         let topo = build_topology(&pdb, &amber);
 
         // Find SG atoms
-        let sg: Vec<(usize, &str, usize)> = topo.atoms.iter().enumerate()
+        let sg: Vec<(usize, &str, usize)> = topo
+            .atoms
+            .iter()
+            .enumerate()
             .filter(|(_, a)| a.atom_name == "SG")
             .map(|(i, a)| (i, a.residue_name.as_str(), a.residue_idx))
             .collect();
@@ -741,23 +777,31 @@ mod tests {
 
         // Check which SG-SG pairs are bonded
         for i in 0..sg.len() {
-            for j in (i+1)..sg.len() {
+            for j in (i + 1)..sg.len() {
                 let (ai, _, _) = sg[i];
                 let (aj, _, _) = sg[j];
                 let pair = (ai.min(aj), ai.max(aj));
-                let is_bonded = topo.excluded_pairs.contains(&pair) ||
-                    topo.bonds.iter().any(|b| b.i == pair.0 && b.j == pair.1);
+                let is_bonded = topo.excluded_pairs.contains(&pair)
+                    || topo.bonds.iter().any(|b| b.i == pair.0 && b.j == pair.1);
                 let dx = topo.atoms[ai].pos[0] - topo.atoms[aj].pos[0];
                 let dy = topo.atoms[ai].pos[1] - topo.atoms[aj].pos[1];
                 let dz = topo.atoms[ai].pos[2] - topo.atoms[aj].pos[2];
-                let dist = (dx*dx + dy*dy + dz*dz).sqrt();
-                println!("SG[{}]-SG[{}] dist={:.3} bonded={} excluded={}",
-                    ai, aj, dist, is_bonded, topo.excluded_pairs.contains(&pair));
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                println!(
+                    "SG[{}]-SG[{}] dist={:.3} bonded={} excluded={}",
+                    ai,
+                    aj,
+                    dist,
+                    is_bonded,
+                    topo.excluded_pairs.contains(&pair)
+                );
             }
         }
 
         // Crambin should have 3 disulfides
-        let ss_bonds: Vec<_> = topo.bonds.iter()
+        let ss_bonds: Vec<_> = topo
+            .bonds
+            .iter()
             .filter(|b| topo.atoms[b.i].atom_name == "SG" && topo.atoms[b.j].atom_name == "SG")
             .collect();
         println!("SS bonds found: {}", ss_bonds.len());
@@ -784,8 +828,16 @@ mod tests {
         // BALL finds 337 bonds on 327-atom crambin
         // We expect ~333 template + ~45 peptide + ~3 disulfide = ~381 candidates
         // (but deduplication reduces this)
-        assert!(topo.bonds.len() > 300, "Should have > 300 bonds, got {}", topo.bonds.len());
-        assert!(topo.bonds.len() < 400, "Should have < 400 bonds, got {}", topo.bonds.len());
+        assert!(
+            topo.bonds.len() > 300,
+            "Should have > 300 bonds, got {}",
+            topo.bonds.len()
+        );
+        assert!(
+            topo.bonds.len() < 400,
+            "Should have < 400 bonds, got {}",
+            topo.bonds.len()
+        );
 
         // Debug: print all improper torsion centers
         println!("Improper torsions ({}):", topo.improper_torsions.len());
@@ -795,8 +847,10 @@ mod tests {
             let tj = &topo.atoms[imp.j].amber_type;
             let tk = &a.amber_type;
             let tl = &topo.atoms[imp.l].amber_type;
-            println!("  center={}:{} types={}-{}-{}-{}",
-                a.residue_name, a.atom_name, ti, tj, tk, tl);
+            println!(
+                "  center={}:{} types={}-{}-{}-{}",
+                a.residue_name, a.atom_name, ti, tj, tk, tl
+            );
         }
     }
 
@@ -815,15 +869,19 @@ mod tests {
         let mut pairs: Vec<(f64, usize, usize, f64)> = Vec::new(); // (energy, i, j, dist)
 
         for i in 0..n {
-            for j in (i+1)..n {
+            for j in (i + 1)..n {
                 let pair = (i, j);
-                if topo.excluded_pairs.contains(&pair) { continue; }
+                if topo.excluded_pairs.contains(&pair) {
+                    continue;
+                }
 
                 let dx = coords[i][0] - coords[j][0];
                 let dy = coords[i][1] - coords[j][1];
                 let dz = coords[i][2] - coords[j][2];
-                let r2 = dx*dx + dy*dy + dz*dz;
-                if r2 > 225.0 || r2 < 0.01 { continue; } // 15 Å cutoff
+                let r2 = dx * dx + dy * dy + dz * dz;
+                if r2 > 225.0 || r2 < 0.01 {
+                    continue;
+                } // 15 Å cutoff
 
                 let r = r2.sqrt();
                 let ti = &topo.atoms[i].amber_type;
@@ -849,10 +907,18 @@ mod tests {
         println!("Total VdW: {:.1} kcal/mol", total);
         for (e, i, j, r) in pairs.iter().take(10) {
             let is14 = topo.pairs_14.contains(&(*i, *j));
-            println!("  E={:+10.1} i={} {}:{} j={} {}:{} r={:.3} 1-4={}",
-                e, i, topo.atoms[*i].residue_name, topo.atoms[*i].atom_name,
-                j, topo.atoms[*j].residue_name, topo.atoms[*j].atom_name,
-                r, is14);
+            println!(
+                "  E={:+10.1} i={} {}:{} j={} {}:{} r={:.3} 1-4={}",
+                e,
+                i,
+                topo.atoms[*i].residue_name,
+                topo.atoms[*i].atom_name,
+                j,
+                topo.atoms[*j].residue_name,
+                topo.atoms[*j].atom_name,
+                r,
+                is14
+            );
         }
     }
 }

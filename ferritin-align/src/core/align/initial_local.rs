@@ -98,8 +98,7 @@ pub fn get_initial5(
                 // Kabsch on fragment
                 if let Some(result) = kabsch(&r1, &r2, KabschMode::RotationOnly) {
                     // NW-DP with this rotation
-                    let invmap =
-                        nwdp_coords(ws, x, y, &result.transform, d02, 0.0);
+                    let invmap = nwdp_coords(ws, x, y, &result.transform, d02, 0.0);
 
                     // Score quickly
                     let (gl, _) = get_score_fast(x, y, &invmap, d0, d0_search);

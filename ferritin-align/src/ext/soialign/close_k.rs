@@ -46,9 +46,7 @@ pub fn get_close_k(xa: &[Coord3D], close_k_opt: usize) -> Vec<Coord3D> {
         for j in 0..xlen {
             close_idx_vec[j] = (score[i][j], j);
         }
-        close_idx_vec.sort_by(|a, b| {
-            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        close_idx_vec.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         for k in 0..close_k_opt {
             let j = close_idx_vec[k % xlen].1;
             xk[i * close_k_opt + k] = xa[j];
@@ -64,11 +62,7 @@ mod tests {
 
     #[test]
     fn test_get_close_k_self_is_closest() {
-        let coords: Vec<Coord3D> = vec![
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [3.0, 0.0, 0.0],
-        ];
+        let coords: Vec<Coord3D> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [3.0, 0.0, 0.0]];
         let k = 2;
         let xk = get_close_k(&coords, k);
         // For residue 0, closest is self (0,0,0), then (1,0,0)
@@ -96,11 +90,7 @@ mod tests {
 
     #[test]
     fn test_get_close_k_ordering() {
-        let coords: Vec<Coord3D> = vec![
-            [0.0, 0.0, 0.0],
-            [10.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-        ];
+        let coords: Vec<Coord3D> = vec![[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [1.0, 0.0, 0.0]];
         let k = 3;
         let xk = get_close_k(&coords, k);
         // For residue 0: self(0,0,0) dist=0, (1,0,0) dist=1, (10,0,0) dist=10

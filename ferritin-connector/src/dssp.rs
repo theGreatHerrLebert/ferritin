@@ -93,7 +93,10 @@ pub fn extract_dssp_residues(pdb: &pdbtbx::PDB) -> Vec<DsspResidue> {
                 };
                 let needs_virtual_h = h_real.is_none() && !is_proline;
                 chain_residues.push(DsspResidue {
-                    n, ca, c, o,
+                    n,
+                    ca,
+                    c,
+                    o,
                     h,
                     has_h,
                     chain_idx,
@@ -198,10 +201,16 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
     let mut hb_matrix = vec![vec![false; n]; n];
     for i in 0..n {
         for j in 0..n {
-            if i == j { continue; }
-            if residues[i].chain_idx != residues[j].chain_idx { continue; }
+            if i == j {
+                continue;
+            }
+            if residues[i].chain_idx != residues[j].chain_idx {
+                continue;
+            }
             // Skip |i-j| < 2 (no H-bond between adjacent residues)
-            if (i as isize - j as isize).unsigned_abs() < 2 { continue; }
+            if (i as isize - j as isize).unsigned_abs() < 2 {
+                continue;
+            }
             let e = hbond_energy(&residues[i], &residues[j]);
             if e < HB_CUTOFF {
                 hb_matrix[i][j] = true; // CO(i) ← NH(j)
@@ -210,7 +219,11 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
     }
 
     let hbond = |i: usize, j: usize| -> bool {
-        if i < n && j < n { hb_matrix[i][j] } else { false }
+        if i < n && j < n {
+            hb_matrix[i][j]
+        } else {
+            false
+        }
     };
 
     // --- Step 2: Identify n-turns ---
@@ -219,7 +232,9 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
     let mut turn5 = vec![' '; n];
 
     fn mark_turn(turn: &mut [char], i: usize, span: usize, n: usize) {
-        if i + span >= n { return; }
+        if i + span >= n {
+            return;
+        }
         // Start marker
         turn[i] = match turn[i] {
             '<' | 'X' => 'X',
@@ -253,25 +268,31 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
     // --- Step 3: Identify bridges ---
     // Bridge(i,j): two nonoverlapping stretches (i-1,i,i+1) and (j-1,j,j+1)
     #[derive(Clone, Copy, PartialEq)]
-    enum BridgeType { None, Parallel, Antiparallel }
+    enum BridgeType {
+        None,
+        Parallel,
+        Antiparallel,
+    }
 
     let mut bridge_partner: Vec<Vec<(usize, BridgeType)>> = vec![Vec::new(); n];
 
     for i in 1..n.saturating_sub(1) {
         for j in (i + 2)..n.saturating_sub(1) {
-            if residues[i].chain_idx != residues[j].chain_idx { continue; }
+            if residues[i].chain_idx != residues[j].chain_idx {
+                continue;
+            }
 
             // Parallel bridge(i,j):
             //   Pattern 1: Hbond(i-1, j) AND Hbond(j, i+1)
             //   Pattern 2: Hbond(j-1, i) AND Hbond(i, j+1)
-            let parallel = (hbond(i - 1, j) && hbond(j, i + 1))
-                || (hbond(j - 1, i) && hbond(i, j + 1));
+            let parallel =
+                (hbond(i - 1, j) && hbond(j, i + 1)) || (hbond(j - 1, i) && hbond(i, j + 1));
 
             // Antiparallel bridge(i,j):
             //   Pattern 1: Hbond(i, j) AND Hbond(j, i)
             //   Pattern 2: Hbond(i-1, j+1) AND Hbond(j-1, i+1)
-            let antiparallel = (hbond(i, j) && hbond(j, i))
-                || (hbond(i - 1, j + 1) && hbond(j - 1, i + 1));
+            let antiparallel =
+                (hbond(i, j) && hbond(j, i)) || (hbond(i - 1, j + 1) && hbond(j - 1, i + 1));
 
             if parallel {
                 bridge_partner[i].push((j, BridgeType::Parallel));
@@ -291,13 +312,19 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
 
     for i in 1..n.saturating_sub(1) {
         for &(j, btype) in &bridge_partner[i] {
-            if btype == BridgeType::None { continue; }
+            if btype == BridgeType::None {
+                continue;
+            }
             // Check if there's a consecutive bridge at i±1
             for di in [-1i32, 1] {
                 let i2 = (i as i32 + di) as usize;
-                if i2 >= n { continue; }
+                if i2 >= n {
+                    continue;
+                }
                 for &(j2, btype2) in &bridge_partner[i2] {
-                    if btype2 != btype { continue; }
+                    if btype2 != btype {
+                        continue;
+                    }
                     let dj = j2 as i32 - j as i32;
                     // Parallel: consecutive means dj == di (both move +1 or -1)
                     // Antiparallel: consecutive means dj == -di
@@ -380,9 +407,7 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
     // Turns (T): residues in a turn not already assigned higher
     for i in 0..n {
         if summary[i] == 'C' {
-            let in_turn = (turn3[i] != ' ')
-                || (turn4[i] != ' ')
-                || (turn5[i] != ' ');
+            let in_turn = (turn3[i] != ' ') || (turn4[i] != ' ') || (turn5[i] != ' ');
             if in_turn {
                 summary[i] = 'T';
             }
@@ -391,10 +416,14 @@ pub fn assign_dssp(residues: &[DsspResidue]) -> String {
 
     // Bend (S): angle(CA(i-2)→CA(i), CA(i)→CA(i+2)) > 70°
     for i in 2..n.saturating_sub(2) {
-        if summary[i] != 'C' { continue; }
+        if summary[i] != 'C' {
+            continue;
+        }
         if residues[i - 2].chain_idx != residues[i].chain_idx
             || residues[i].chain_idx != residues[i + 2].chain_idx
-        { continue; }
+        {
+            continue;
+        }
 
         let v1 = [
             residues[i].ca[0] - residues[i - 2].ca[0],
@@ -495,7 +524,10 @@ mod tests {
         add_hydrogens::place_peptide_hydrogens(&mut pdb);
 
         let residues = extract_dssp_residues(&pdb);
-        let n_with_real_h = residues.iter().filter(|r| r.has_h && !r.needs_virtual_h).count();
+        let n_with_real_h = residues
+            .iter()
+            .filter(|r| r.has_h && !r.needs_virtual_h)
+            .count();
 
         assert!(
             n_with_real_h > 0,

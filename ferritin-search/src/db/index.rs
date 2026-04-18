@@ -26,7 +26,11 @@ impl IndexEntry {
         let length = it.next().and_then(|s| s.parse::<u64>().ok());
         let extra = it.next();
         match (key, offset, length, extra) {
-            (Some(key), Some(offset), Some(length), None) => Ok(Self { key, offset, length }),
+            (Some(key), Some(offset), Some(length), None) => Ok(Self {
+                key,
+                offset,
+                length,
+            }),
             _ => Err(DbError::BadIndexLine(text.to_owned())),
         }
     }
@@ -75,19 +79,40 @@ mod tests {
     #[test]
     fn parse_first_reference_entry() {
         let e = IndexEntry::parse_line(b"0\t0\t1882\n").unwrap();
-        assert_eq!(e, IndexEntry { key: 0, offset: 0, length: 1882 });
+        assert_eq!(
+            e,
+            IndexEntry {
+                key: 0,
+                offset: 0,
+                length: 1882
+            }
+        );
     }
 
     #[test]
     fn parse_last_reference_entry() {
         let e = IndexEntry::parse_line(b"19999\t9095261\t308\n").unwrap();
-        assert_eq!(e, IndexEntry { key: 19999, offset: 9095261, length: 308 });
+        assert_eq!(
+            e,
+            IndexEntry {
+                key: 19999,
+                offset: 9095261,
+                length: 308
+            }
+        );
     }
 
     #[test]
     fn parse_without_trailing_newline() {
         let e = IndexEntry::parse_line(b"42\t1000\t50").unwrap();
-        assert_eq!(e, IndexEntry { key: 42, offset: 1000, length: 50 });
+        assert_eq!(
+            e,
+            IndexEntry {
+                key: 42,
+                offset: 1000,
+                length: 50
+            }
+        );
     }
 
     #[test]
@@ -99,9 +124,13 @@ mod tests {
     #[test]
     fn write_line_exact_format() {
         let mut buf = Vec::new();
-        IndexEntry { key: 19999, offset: 9095261, length: 308 }
-            .write_line(&mut buf)
-            .unwrap();
+        IndexEntry {
+            key: 19999,
+            offset: 9095261,
+            length: 308,
+        }
+        .write_line(&mut buf)
+        .unwrap();
         assert_eq!(buf, b"19999\t9095261\t308\n");
     }
 
@@ -109,9 +138,21 @@ mod tests {
     fn roundtrip_file() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let entries = vec![
-            IndexEntry { key: 0, offset: 0, length: 1882 },
-            IndexEntry { key: 1, offset: 1882, length: 208 },
-            IndexEntry { key: 2, offset: 2090, length: 449 },
+            IndexEntry {
+                key: 0,
+                offset: 0,
+                length: 1882,
+            },
+            IndexEntry {
+                key: 1,
+                offset: 1882,
+                length: 208,
+            },
+            IndexEntry {
+                key: 2,
+                offset: 2090,
+                length: 449,
+            },
         ];
         write_all(tmp.path(), &entries).unwrap();
         let read = read_all(tmp.path()).unwrap();

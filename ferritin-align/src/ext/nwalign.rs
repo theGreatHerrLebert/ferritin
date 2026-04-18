@@ -166,7 +166,14 @@ pub fn nwalign(
 }
 
 /// Initialize the Gotoh DP matrices.
-fn init_gotoh_mat(ws: &mut GotohWorkspace, xlen: usize, ylen: usize, gapopen: i32, gapext: i32, glocal: i32) {
+fn init_gotoh_mat(
+    ws: &mut GotohWorkspace,
+    xlen: usize,
+    ylen: usize,
+    gapopen: i32,
+    gapext: i32,
+    glocal: i32,
+) {
     // Zero everything
     for i in 0..=xlen {
         for j in 0..=ylen {
@@ -331,7 +338,12 @@ fn calculate_score_gotoh(
 
 /// Find the cell with the highest alignment score for Smith-Waterman.
 /// Reset path entries after that cell.
-fn find_highest_align_score(ws: &mut GotohWorkspace, aln_score: &mut i32, xlen: usize, ylen: usize) {
+fn find_highest_align_score(
+    ws: &mut GotohWorkspace,
+    aln_score: &mut i32,
+    xlen: usize,
+    ylen: usize,
+) {
     let mut max_i = xlen;
     let mut max_j = ylen;
 

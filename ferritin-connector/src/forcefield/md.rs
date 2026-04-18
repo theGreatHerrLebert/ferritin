@@ -90,21 +90,21 @@ pub struct MDResult {
 // ---------------------------------------------------------------------------
 
 /// Initialize velocities from Maxwell-Boltzmann distribution at given temperature.
-fn init_velocities(
-    masses: &[f64],
-    temperature: f64,
-    seed: u64,
-) -> Vec<[f64; 3]> {
+fn init_velocities(masses: &[f64], temperature: f64, seed: u64) -> Vec<[f64; 3]> {
     let n = masses.len();
     let mut velocities = vec![[0.0; 3]; n];
 
     // Simple LCG random number generator (good enough for initial velocities)
     let mut rng_state = seed;
     let mut next_rand = || -> f64 {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         // Box-Muller approximation: use the state bits
         let u1 = ((rng_state >> 32) as f64) / (u32::MAX as f64);
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let u2 = ((rng_state >> 32) as f64) / (u32::MAX as f64);
         // Box-Muller transform for normal distribution
         let u1 = u1.max(1e-10);
@@ -143,10 +143,7 @@ fn init_velocities(
 }
 
 /// Compute kinetic energy and temperature from velocities.
-fn kinetic_energy_and_temperature(
-    velocities: &[[f64; 3]],
-    masses: &[f64],
-) -> (f64, f64) {
+fn kinetic_energy_and_temperature(velocities: &[[f64; 3]], masses: &[f64]) -> (f64, f64) {
     let n = velocities.len();
     let mut ke = 0.0;
     for i in 0..n {
@@ -155,7 +152,11 @@ fn kinetic_energy_and_temperature(
     }
     // Temperature: T = 2 * KE / (3N * kB)
     let dof = 3.0 * n as f64 - 3.0; // subtract 3 for COM constraint
-    let temp = if dof > 0.0 { 2.0 * ke / (dof * KB) } else { 0.0 };
+    let temp = if dof > 0.0 {
+        2.0 * ke / (dof * KB)
+    } else {
+        0.0
+    };
     (ke, temp)
 }
 
@@ -166,19 +167,16 @@ fn kinetic_energy_and_temperature(
 /// A bond constraint (typically X-H bonds).
 #[derive(Clone, Debug)]
 pub struct BondConstraint {
-    pub i: usize,     // heavy atom index
-    pub j: usize,     // hydrogen index
-    pub d_sq: f64,    // target distance squared (Å²)
+    pub i: usize,  // heavy atom index
+    pub j: usize,  // hydrogen index
+    pub d_sq: f64, // target distance squared (Å²)
 }
 
 /// Build list of X-H bond constraints from topology.
 ///
 /// Constrains all bonds where exactly one atom is hydrogen.
 /// Target distances come from the force field equilibrium bond lengths.
-pub fn build_h_constraints(
-    topo: &Topology,
-    params: &impl ForceField,
-) -> Vec<BondConstraint> {
+pub fn build_h_constraints(topo: &Topology, params: &impl ForceField) -> Vec<BondConstraint> {
     let mut constraints = Vec::new();
     for bond in &topo.bonds {
         let a_is_h = topo.atoms[bond.i].is_hydrogen;
@@ -360,7 +358,15 @@ pub fn velocity_verlet(
 ) -> MDResult {
     // No constraints — delegate to constrained version with empty list
     velocity_verlet_constrained(
-        coords, topo, params, n_steps, dt, temperature, thermostat_tau, snapshot_freq, &[],
+        coords,
+        topo,
+        params,
+        n_steps,
+        dt,
+        temperature,
+        thermostat_tau,
+        snapshot_freq,
+        &[],
     )
 }
 
@@ -418,7 +424,11 @@ pub fn velocity_verlet_constrained(
 
     for step in 1..=n_steps {
         // Save old positions for SHAKE reference
-        let old_pos = if use_constraints { pos.clone() } else { Vec::new() };
+        let old_pos = if use_constraints {
+            pos.clone()
+        } else {
+            Vec::new()
+        };
 
         // Velocity Verlet step 1: update positions
         // r(t+dt) = r(t) + v(t)*dt + 0.5*a(t)*dt²
@@ -512,9 +522,9 @@ pub fn velocity_verlet_constrained(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::params;
     use super::super::topology;
+    use super::*;
 
     #[test]
     fn test_atomic_masses() {
@@ -541,7 +551,11 @@ mod tests {
         com[2] /= total_mass;
 
         let com_speed = (com[0].powi(2) + com[1].powi(2) + com[2].powi(2)).sqrt();
-        assert!(com_speed < 1e-10, "COM velocity should be zero, got {}", com_speed);
+        assert!(
+            com_speed < 1e-10,
+            "COM velocity should be zero, got {}",
+            com_speed
+        );
     }
 
     #[test]
@@ -558,12 +572,11 @@ mod tests {
 
         // Very short NVE run: 10 steps, 0.5 fs timestep
         let result = velocity_verlet(
-            &coords, &topo, &amber,
-            10,      // steps
-            0.0005,  // dt = 0.5 fs
-            300.0,   // temperature
-            0.0,     // no thermostat (NVE)
-            5,       // snapshot every 5 steps
+            &coords, &topo, &amber, 10,     // steps
+            0.0005, // dt = 0.5 fs
+            300.0,  // temperature
+            0.0,    // no thermostat (NVE)
+            5,      // snapshot every 5 steps
         );
 
         assert!(result.frames.len() >= 2);
@@ -597,8 +610,7 @@ mod tests {
         let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
 
         let result = velocity_verlet(
-            &coords, &topo, &amber,
-            20,     // steps
+            &coords, &topo, &amber, 20,     // steps
             0.0005, // dt
             300.0,  // target temp
             0.1,    // Berendsen tau = 0.1 ps (strong coupling)
@@ -607,8 +619,11 @@ mod tests {
 
         // Temperature should be finite and positive
         let last_temp = result.frames.last().unwrap().temperature;
-        assert!(last_temp > 0.0 && last_temp.is_finite(),
-            "Temperature should be positive and finite, got {}", last_temp);
+        assert!(
+            last_temp > 0.0 && last_temp.is_finite(),
+            "Temperature should be positive and finite, got {}",
+            last_temp
+        );
     }
 
     #[test]
@@ -633,7 +648,9 @@ mod tests {
 
         // Run 5 steps with SHAKE, very small timestep to avoid blowup
         let result = velocity_verlet_constrained(
-            &coords, &topo, &amber,
+            &coords,
+            &topo,
+            &amber,
             5,      // steps
             0.0002, // dt = 0.2 fs (very small to keep stable)
             300.0,  // temperature
@@ -655,7 +672,11 @@ mod tests {
             assert!(
                 err < tol,
                 "Constrained bond {}-{}: r={:.4} target={:.4} err={:.6}",
-                c.i, c.j, r, target, err,
+                c.i,
+                c.j,
+                r,
+                target,
+                err,
             );
         }
 
@@ -681,11 +702,17 @@ mod tests {
         let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
         let constraints = build_h_constraints(&topo, &amber);
 
-        let r_no_shake = velocity_verlet(
-            &coords, &topo, &amber, 1, 0.0002, 300.0, 0.0, 1,
-        );
+        let r_no_shake = velocity_verlet(&coords, &topo, &amber, 1, 0.0002, 300.0, 0.0, 1);
         let r_shake = velocity_verlet_constrained(
-            &coords, &topo, &amber, 1, 0.0002, 300.0, 0.0, 1, &constraints,
+            &coords,
+            &topo,
+            &amber,
+            1,
+            0.0002,
+            300.0,
+            0.0,
+            1,
+            &constraints,
         );
 
         // Initial frames should have the same potential energy
@@ -694,7 +721,8 @@ mod tests {
         assert!(
             (pe_no - pe_sh).abs() < 0.01,
             "Initial PE should match: no_shake={} shake={}",
-            pe_no, pe_sh,
+            pe_no,
+            pe_sh,
         );
     }
 }

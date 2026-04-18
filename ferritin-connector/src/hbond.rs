@@ -27,10 +27,7 @@ pub struct BackboneHBond {
 ///
 /// Returns a list of (acceptor_idx, donor_idx, energy, dist_ON) for all
 /// pairs where energy < cutoff (default -0.5 kcal/mol).
-pub fn backbone_hbonds(
-    pdb: &pdbtbx::PDB,
-    energy_cutoff: f64,
-) -> Vec<BackboneHBond> {
+pub fn backbone_hbonds(pdb: &pdbtbx::PDB, energy_cutoff: f64) -> Vec<BackboneHBond> {
     let residues = dssp::extract_dssp_residues(pdb);
     backbone_hbonds_from_residues(&residues, energy_cutoff)
 }
@@ -44,13 +41,23 @@ pub fn backbone_hbonds_from_residues(
 
     for i in 0..n {
         for j in 0..n {
-            if i == j { continue; }
-            if residues[i].chain_idx != residues[j].chain_idx { continue; }
-            if (i as isize - j as isize).unsigned_abs() < 2 { continue; }
-            if !residues[j].has_h { continue; }
+            if i == j {
+                continue;
+            }
+            if residues[i].chain_idx != residues[j].chain_idx {
+                continue;
+            }
+            if (i as isize - j as isize).unsigned_abs() < 2 {
+                continue;
+            }
+            if !residues[j].has_h {
+                continue;
+            }
 
             let r_on = dist3(&residues[i].o, &residues[j].n);
-            if r_on > 5.2 { continue; }
+            if r_on > 5.2 {
+                continue;
+            }
 
             let r_ch = dist3(&residues[i].c, &residues[j].h);
             let r_oh = dist3(&residues[i].o, &residues[j].h);
@@ -104,10 +111,7 @@ pub struct GeometricHBond {
 ///
 /// Donors: N atoms (backbone and sidechain)
 /// Acceptors: O atoms (backbone and sidechain), S in Cys/Met
-pub fn geometric_hbonds(
-    pdb: &pdbtbx::PDB,
-    dist_cutoff: f64,
-) -> Vec<GeometricHBond> {
+pub fn geometric_hbonds(pdb: &pdbtbx::PDB, dist_cutoff: f64) -> Vec<GeometricHBond> {
     // Collect donor and acceptor atoms with their positions
     struct AtomInfo {
         pos: [f64; 3],
@@ -134,15 +138,31 @@ pub fn geometric_hbonds(
 
                 match elem {
                     Some("N") => {
-                        donors.push(AtomInfo { pos, atom_idx, res_idx });
+                        donors.push(AtomInfo {
+                            pos,
+                            atom_idx,
+                            res_idx,
+                        });
                     }
                     Some("O") => {
                         // O is both donor and acceptor
-                        donors.push(AtomInfo { pos, atom_idx, res_idx });
-                        acceptors.push(AtomInfo { pos, atom_idx, res_idx });
+                        donors.push(AtomInfo {
+                            pos,
+                            atom_idx,
+                            res_idx,
+                        });
+                        acceptors.push(AtomInfo {
+                            pos,
+                            atom_idx,
+                            res_idx,
+                        });
                     }
                     Some("S") => {
-                        acceptors.push(AtomInfo { pos, atom_idx, res_idx });
+                        acceptors.push(AtomInfo {
+                            pos,
+                            atom_idx,
+                            res_idx,
+                        });
                     }
                     _ => {}
                 }
@@ -157,9 +177,13 @@ pub fn geometric_hbonds(
 
     for donor in &donors {
         for acceptor in &acceptors {
-            if donor.atom_idx == acceptor.atom_idx { continue; }
+            if donor.atom_idx == acceptor.atom_idx {
+                continue;
+            }
             // Skip same residue
-            if donor.res_idx == acceptor.res_idx { continue; }
+            if donor.res_idx == acceptor.res_idx {
+                continue;
+            }
 
             let dx = donor.pos[0] - acceptor.pos[0];
             let dy = donor.pos[1] - acceptor.pos[1];

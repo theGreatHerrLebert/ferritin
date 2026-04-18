@@ -16,11 +16,7 @@ use parquet::file::properties::WriterProperties;
 /// Write one or more RecordBatches to a Parquet file.
 ///
 /// Uses Zstd compression by default for good compression ratio and speed.
-pub fn write_parquet(
-    path: &Path,
-    schema: &Schema,
-    batches: &[RecordBatch],
-) -> anyhow::Result<()> {
+pub fn write_parquet(path: &Path, schema: &Schema, batches: &[RecordBatch]) -> anyhow::Result<()> {
     let file = File::create(path)?;
     let props = WriterProperties::builder()
         .set_compression(Compression::ZSTD(Default::default()))
@@ -43,8 +39,23 @@ mod tests {
     fn test_write_parquet() {
         let mut builder = AtomBatchBuilder::new(1);
         builder.append(
-            "1crn", 0, "A", "THR", 1, None, None, "CA", 1, Some("C"),
-            17.047, 14.099, 3.625, 13.79, 1.0, false, true,
+            "1crn",
+            0,
+            "A",
+            "THR",
+            1,
+            None,
+            None,
+            "CA",
+            1,
+            Some("C"),
+            17.047,
+            14.099,
+            3.625,
+            13.79,
+            1.0,
+            false,
+            true,
         );
         let batch = builder.finish().unwrap();
 

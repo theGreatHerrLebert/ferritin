@@ -4,8 +4,8 @@
 //! Post-superposition re-alignment via DP on pre-rotated coordinates,
 //! computing up to 5 TM-score normalizations in a single pass.
 
-use crate::core::types::{Coord3D, DPWorkspace, MolType, TMParams, dist_squared};
 use crate::core::nwdp::nwdp_coords_no_rotation;
+use crate::core::types::{dist_squared, Coord3D, DPWorkspace, MolType, TMParams};
 
 /// Options controlling SE refinement behavior.
 #[derive(Debug, Clone)]

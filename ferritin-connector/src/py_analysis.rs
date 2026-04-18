@@ -8,9 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use rayon::prelude::*;
 
-use crate::altloc::{
-    pdb_atom_count_primary, pdb_atoms_primary, residue_atoms_primary,
-};
+use crate::altloc::{pdb_atom_count_primary, pdb_atoms_primary, residue_atoms_primary};
 use crate::parallel::resolve_threads;
 use crate::py_pdb::PyPDB;
 
@@ -42,9 +40,7 @@ fn extract_ca(pdb: &pdbtbx::PDB) -> Vec<[f64; 3]> {
 /// Returns (triples, breaks) where breaks[i] marks residue indices at which the
 /// backbone is discontinuous (chain boundaries and CA-CA gaps > 4.5 Å, e.g. from
 /// insertion-code interleaving or missing residues).
-fn extract_backbone(
-    pdb: &pdbtbx::PDB,
-) -> (Vec<([f64; 3], [f64; 3], [f64; 3])>, Vec<usize>) {
+fn extract_backbone(pdb: &pdbtbx::PDB) -> (Vec<([f64; 3], [f64; 3], [f64; 3])>, Vec<usize>) {
     let mut result: Vec<([f64; 3], [f64; 3], [f64; 3])> = Vec::new();
     let mut breaks = Vec::new();
 
@@ -561,14 +557,12 @@ fn permissive_load(path: &str) -> Result<pdbtbx::PDB, String> {
     opts.set_level(pdbtbx::StrictnessLevel::Loose)
         .set_parsing_level(&parsing);
 
-    opts.read(path)
-        .map(|(pdb, _)| pdb)
-        .map_err(|errs| {
-            errs.iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("; ")
-        })
+    opts.read(path).map(|(pdb, _)| pdb).map_err(|errs| {
+        errs.iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("; ")
+    })
 }
 
 /// Load files + extract CA coordinates in one parallel call.
@@ -809,11 +803,9 @@ pub fn load_and_analyze<'py>(
                             .collect();
                         let nf = all_coords.len() as f64;
                         let (sx, sy, sz) =
-                            all_coords
-                                .iter()
-                                .fold((0.0, 0.0, 0.0), |(sx, sy, sz), c| {
-                                    (sx + c[0], sy + c[1], sz + c[2])
-                                });
+                            all_coords.iter().fold((0.0, 0.0, 0.0), |(sx, sy, sz), c| {
+                                (sx + c[0], sy + c[1], sz + c[2])
+                            });
                         let cx = sx / nf;
                         let cy = sy / nf;
                         let cz = sz / nf;
@@ -865,8 +857,7 @@ pub fn load_and_analyze<'py>(
             dict.set_item("n_ca", b.nres).unwrap();
             dict.set_item("rg", b.rg).unwrap();
 
-            let ca_flat: Vec<f64> =
-                b.ca.into_iter().flat_map(|c| c.into_iter()).collect();
+            let ca_flat: Vec<f64> = b.ca.into_iter().flat_map(|c| c.into_iter()).collect();
             let ca_arr = PyArray1::from_vec(py, ca_flat)
                 .reshape([b.nres, 3])
                 .expect("reshape");

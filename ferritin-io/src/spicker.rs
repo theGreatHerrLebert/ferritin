@@ -3,7 +3,7 @@
 //! SPICKER format: first line is residue count L,
 //! then L lines of "x y z" coordinates.
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use std::fs;
 
 use ferritin_align::core::secondary_structure::make_sec;
@@ -14,7 +14,9 @@ pub fn load_spicker(path: &str) -> Result<Vec<StructureData>> {
     let mut lines = content.lines();
 
     let first = lines.next().unwrap_or("").trim();
-    let len: usize = first.parse().map_err(|_| anyhow::anyhow!("Invalid SPICKER length: {first}"))?;
+    let len: usize = first
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid SPICKER length: {first}"))?;
     if len == 0 {
         bail!("Empty SPICKER file");
     }

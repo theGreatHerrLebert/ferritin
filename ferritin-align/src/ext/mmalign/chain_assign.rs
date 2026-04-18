@@ -4,7 +4,7 @@
 //! `count_assign_pair`, `homo_refined_greedy_search`,
 //! `hetero_refined_greedy_search`, `check_heterooligomer`.
 
-use crate::core::types::{Coord3D, Transform, dist_squared};
+use crate::core::types::{dist_squared, Coord3D, Transform};
 
 use super::complex_score::cal_mm_score;
 
@@ -312,8 +312,7 @@ pub fn hetero_refined_greedy_search(
 
     // Calculate initial MMscore
     let mut mm_score_old = cal_mm_score(
-        tm_mat, &assign1, chain1_num, chain2_num,
-        xcentroids, ycentroids, d0mm, total_len,
+        tm_mat, &assign1, chain1_num, chain2_num, xcentroids, ycentroids, d0mm, total_len,
     );
 
     // Iterative swap refinement
@@ -342,8 +341,14 @@ pub fn hetero_refined_greedy_search(
                 }
 
                 let mm_score = cal_mm_score(
-                    tm_mat, &assign1_tmp, chain1_num, chain2_num,
-                    xcentroids, ycentroids, d0mm, total_len,
+                    tm_mat,
+                    &assign1_tmp,
+                    chain1_num,
+                    chain2_num,
+                    xcentroids,
+                    ycentroids,
+                    d0mm,
+                    total_len,
                 );
 
                 if mm_score > mm_score_old {
@@ -388,10 +393,7 @@ mod tests {
     #[test]
     fn test_enhanced_greedy_search_simple() {
         // 2x2 matrix: chain 0->1, chain 1->0 should give the best assignment
-        let tm_mat = vec![
-            vec![0.3, 0.9],
-            vec![0.8, 0.2],
-        ];
+        let tm_mat = vec![vec![0.3, 0.9], vec![0.8, 0.2]];
         let (assign1, assign2, score) = enhanced_greedy_search(&tm_mat, 2, 2);
         assert_eq!(assign1[0], 1); // chain 0 maps to chain 1
         assert_eq!(assign1[1], 0); // chain 1 maps to chain 0
@@ -403,11 +405,7 @@ mod tests {
     #[test]
     fn test_enhanced_greedy_search_uneven() {
         // 3x2 matrix: one chain unassigned
-        let tm_mat = vec![
-            vec![0.1, 0.9],
-            vec![0.8, 0.2],
-            vec![0.0, 0.0],
-        ];
+        let tm_mat = vec![vec![0.1, 0.9], vec![0.8, 0.2], vec![0.0, 0.0]];
         let (assign1, _assign2, score) = enhanced_greedy_search(&tm_mat, 3, 2);
         assert_eq!(count_assign_pair(&assign1), 2);
         assert!(score > 0.0);
@@ -416,18 +414,12 @@ mod tests {
     #[test]
     fn test_check_heterooligomer() {
         // Homooligomer: all scores similar
-        let tm_mat = vec![
-            vec![0.8, 0.75],
-            vec![0.78, 0.82],
-        ];
+        let tm_mat = vec![vec![0.8, 0.75], vec![0.78, 0.82]];
         let het = check_heterooligomer(&tm_mat, 2, 2);
         assert!(het < 0.2, "het_deg={}", het);
 
         // Heterooligomer: very different scores
-        let tm_mat2 = vec![
-            vec![0.9, 0.1],
-            vec![0.1, 0.8],
-        ];
+        let tm_mat2 = vec![vec![0.9, 0.1], vec![0.1, 0.8]];
         let het2 = check_heterooligomer(&tm_mat2, 2, 2);
         assert!(het2 > 0.5, "het_deg={}", het2);
     }

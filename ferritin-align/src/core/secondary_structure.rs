@@ -4,7 +4,7 @@
 //! Assigns H (helix), E (strand), T (turn), or C (coil) based on
 //! CA-CA distance patterns.
 
-use crate::core::types::{Coord3D, dist_squared};
+use crate::core::types::{dist_squared, Coord3D};
 
 /// Classify secondary structure from six pairwise CA distances.
 ///

@@ -3,7 +3,7 @@
 //! Ported from C++ TMalign `get_initial_fgt` and `find_max_frag` (lines 2678-2973).
 
 use crate::core::tmscore::get_score_fast;
-use crate::core::types::{Coord3D, dist_squared};
+use crate::core::types::{dist_squared, Coord3D};
 
 /// Find the longest continuous fragment where consecutive CA-CA distances
 /// are below `dcu0`. If the fragment is too short, relax the threshold.
@@ -196,8 +196,7 @@ pub fn get_initial_fgt(
         // Part 1: x fragment
         let ifr_x: Vec<usize> = (xstart..=xend).collect();
         let ifr_x = trim_fragment(&ifr_x, l0);
-        let (score1, y2x1) =
-            thread_fragment_x(x, y, &ifr_x, d0, d0_search, fast_opt, fra_min1);
+        let (score1, y2x1) = thread_fragment_x(x, y, &ifr_x, d0, d0_search, fast_opt, fra_min1);
 
         // Part 2: y fragment
         let ifr_y: Vec<usize> = (ystart..=yend).collect();

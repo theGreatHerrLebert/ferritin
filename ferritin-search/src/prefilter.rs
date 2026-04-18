@@ -26,9 +26,9 @@
 
 use std::collections::HashMap;
 
-use crate::kmer::KmerLookup;
 #[cfg(test)]
 use crate::kmer::KmerIndex;
+use crate::kmer::KmerLookup;
 use crate::kmer_generator::{generate_similar_kmers, ScoreMatrix};
 
 /// One prefilter result: the target sequence, its best-scoring diagonal,
@@ -64,7 +64,11 @@ pub struct PrefilterOptions {
 
 impl Default for PrefilterOptions {
     fn default() -> Self {
-        Self { score_threshold: 0, max_hits: None, exclude_self: None }
+        Self {
+            score_threshold: 0,
+            max_hits: None,
+            exclude_self: None,
+        }
     }
 }
 
@@ -115,10 +119,7 @@ pub fn diagonal_prefilter<L: KmerLookup>(
     // Apply exclude_self + score_threshold filters, then sort.
     let mut hits: Vec<PrefilterHit> = best
         .into_values()
-        .filter(|h| {
-            h.diagonal_score >= opts.score_threshold
-                && opts.exclude_self != Some(h.seq_id)
-        })
+        .filter(|h| h.diagonal_score >= opts.score_threshold && opts.exclude_self != Some(h.seq_id))
         .collect();
 
     // Upstream's compareHitsByScoreAndId: score desc, seq_id asc.
@@ -212,10 +213,7 @@ pub fn diagonal_prefilter_sensitive<L: KmerLookup>(
 
     let mut hits: Vec<PrefilterHit> = best
         .into_values()
-        .filter(|h| {
-            h.diagonal_score >= opts.score_threshold
-                && opts.exclude_self != Some(h.seq_id)
-        })
+        .filter(|h| h.diagonal_score >= opts.score_threshold && opts.exclude_self != Some(h.seq_id))
         .collect();
 
     hits.sort_by(|a, b| {
@@ -249,7 +247,11 @@ mod tests {
         let c = vec![0u8, 0, 0, 0];
         KmerIndex::build(
             enc,
-            [(10u32, a.as_slice()), (20u32, b.as_slice()), (30u32, c.as_slice())],
+            [
+                (10u32, a.as_slice()),
+                (20u32, b.as_slice()),
+                (30u32, c.as_slice()),
+            ],
             99,
         )
         .unwrap()
@@ -268,11 +270,19 @@ mod tests {
         assert_eq!(hits.len(), 2);
         assert_eq!(
             hits[0],
-            PrefilterHit { seq_id: 10, diagonal_score: 3, best_diagonal: 0 }
+            PrefilterHit {
+                seq_id: 10,
+                diagonal_score: 3,
+                best_diagonal: 0
+            }
         );
         assert_eq!(
             hits[1],
-            PrefilterHit { seq_id: 20, diagonal_score: 2, best_diagonal: -1 }
+            PrefilterHit {
+                seq_id: 20,
+                diagonal_score: 2,
+                best_diagonal: -1
+            }
         );
     }
 
@@ -303,7 +313,10 @@ mod tests {
     fn score_threshold_filters_low_scoring_hits() {
         let idx = build_small_index();
         let query = vec![0u8, 1, 2, 3];
-        let opts = PrefilterOptions { score_threshold: 3, ..Default::default() };
+        let opts = PrefilterOptions {
+            score_threshold: 3,
+            ..Default::default()
+        };
         let hits = diagonal_prefilter(&idx, &query, 99, &opts);
         // Only target 10 has diagonal_score >= 3; target 20 (score=2) drops.
         assert_eq!(hits.len(), 1);
@@ -314,7 +327,10 @@ mod tests {
     fn max_hits_keeps_highest_scoring() {
         let idx = build_small_index();
         let query = vec![0u8, 1, 2, 3];
-        let opts = PrefilterOptions { max_hits: Some(1), ..Default::default() };
+        let opts = PrefilterOptions {
+            max_hits: Some(1),
+            ..Default::default()
+        };
         let hits = diagonal_prefilter(&idx, &query, 99, &opts);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].seq_id, 10); // higher score wins
@@ -324,7 +340,10 @@ mod tests {
     fn exclude_self_drops_query_against_itself() {
         let idx = build_small_index();
         let query = vec![0u8, 1, 2, 3];
-        let opts = PrefilterOptions { exclude_self: Some(10), ..Default::default() };
+        let opts = PrefilterOptions {
+            exclude_self: Some(10),
+            ..Default::default()
+        };
         let hits = diagonal_prefilter(&idx, &query, 99, &opts);
         // seq 10 excluded; seq 20 should remain.
         assert_eq!(hits.len(), 1);
@@ -338,13 +357,19 @@ mod tests {
         let s = vec![0u8, 1, 2, 3];
         let idx = KmerIndex::build(
             enc,
-            [(77u32, s.as_slice()), (33u32, s.as_slice()), (55u32, s.as_slice())],
+            [
+                (77u32, s.as_slice()),
+                (33u32, s.as_slice()),
+                (55u32, s.as_slice()),
+            ],
             99,
         )
         .unwrap();
         let hits = diagonal_prefilter(&idx, &s, 99, &PrefilterOptions::default());
         assert_eq!(hits.len(), 3);
-        assert!(hits.iter().all(|h| h.diagonal_score == 3 && h.best_diagonal == 0));
+        assert!(hits
+            .iter()
+            .all(|h| h.diagonal_score == 3 && h.best_diagonal == 0));
         // Same score → seq_id ascending: 33, 55, 77.
         assert_eq!(hits[0].seq_id, 33);
         assert_eq!(hits[1].seq_id, 55);
@@ -410,8 +435,12 @@ mod tests {
             m
         };
         let scores = widen_to_i32(&scores_i8);
-        let sim = SimilarityConfig { scores: &scores, threshold: 1 };
-        let sensitive = diagonal_prefilter_sensitive(&idx, &q, 99, &sim, &PrefilterOptions::default());
+        let sim = SimilarityConfig {
+            scores: &scores,
+            threshold: 1,
+        };
+        let sensitive =
+            diagonal_prefilter_sensitive(&idx, &q, 99, &sim, &PrefilterOptions::default());
         let seq_ids: Vec<u32> = sensitive.iter().map(|h| h.seq_id).collect();
         assert!(seq_ids.contains(&10), "expected t1 in sensitive results");
         assert!(seq_ids.contains(&20), "expected t2 in sensitive results");
@@ -437,10 +466,14 @@ mod tests {
             m
         };
         let scores = widen_to_i32(&scores_i8);
-        let sim = SimilarityConfig { scores: &scores, threshold: 4 };
+        let sim = SimilarityConfig {
+            scores: &scores,
+            threshold: 4,
+        };
 
         let exact = diagonal_prefilter(&idx, &query, 99, &PrefilterOptions::default());
-        let sensitive = diagonal_prefilter_sensitive(&idx, &query, 99, &sim, &PrefilterOptions::default());
+        let sensitive =
+            diagonal_prefilter_sensitive(&idx, &query, 99, &sim, &PrefilterOptions::default());
         assert_eq!(exact, sensitive);
     }
 

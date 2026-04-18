@@ -24,15 +24,21 @@ impl LookupEntry {
         let file_number = it.next().and_then(|s| s.parse::<u32>().ok());
         let extra = it.next();
         match (key, accession, file_number, extra) {
-            (Some(key), Some(accession), Some(file_number), None) => {
-                Ok(Self { key, accession, file_number })
-            }
+            (Some(key), Some(accession), Some(file_number), None) => Ok(Self {
+                key,
+                accession,
+                file_number,
+            }),
             _ => Err(DbError::BadLookupLine(text.to_owned())),
         }
     }
 
     pub fn write_line(&self, w: &mut impl Write) -> std::io::Result<()> {
-        write!(w, "{}\t{}\t{}\n", self.key, self.accession, self.file_number)
+        write!(
+            w,
+            "{}\t{}\t{}\n",
+            self.key, self.accession, self.file_number
+        )
     }
 }
 
@@ -76,16 +82,24 @@ mod tests {
         let e = LookupEntry::parse_line(b"0\tW0FSK4\t0\n").unwrap();
         assert_eq!(
             e,
-            LookupEntry { key: 0, accession: "W0FSK4".to_owned(), file_number: 0 }
+            LookupEntry {
+                key: 0,
+                accession: "W0FSK4".to_owned(),
+                file_number: 0
+            }
         );
     }
 
     #[test]
     fn write_line_exact_format() {
         let mut buf = Vec::new();
-        LookupEntry { key: 0, accession: "W0FSK4".to_owned(), file_number: 0 }
-            .write_line(&mut buf)
-            .unwrap();
+        LookupEntry {
+            key: 0,
+            accession: "W0FSK4".to_owned(),
+            file_number: 0,
+        }
+        .write_line(&mut buf)
+        .unwrap();
         assert_eq!(buf, b"0\tW0FSK4\t0\n");
     }
 }

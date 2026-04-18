@@ -87,24 +87,42 @@ fn find_mmseqs() -> Option<PathBuf> {
 /// `FERRITIN_SEARCH_QUERY_FASTA`, legacy `FERRITIN_SEARCH_EXAMPLE_FASTA`,
 /// vendored fixture.
 fn find_query_fasta() -> Option<PathBuf> {
-    for var in ["FERRITIN_SEARCH_QUERY_FASTA", "FERRITIN_SEARCH_EXAMPLE_FASTA"] {
+    for var in [
+        "FERRITIN_SEARCH_QUERY_FASTA",
+        "FERRITIN_SEARCH_EXAMPLE_FASTA",
+    ] {
         if let Ok(explicit) = std::env::var(var) {
             let p = PathBuf::from(explicit);
-            return if p.exists() { p.canonicalize().ok() } else { None };
+            return if p.exists() {
+                p.canonicalize().ok()
+            } else {
+                None
+            };
         }
     }
     let p = PathBuf::from(format!("{CRATE_ROOT}/tests/data/oracle_fixture.fasta"));
-    if p.exists() { p.canonicalize().ok() } else { None }
+    if p.exists() {
+        p.canonicalize().ok()
+    } else {
+        None
+    }
 }
 
 /// Resolve the target FASTA path. Precedence: explicit
 /// `FERRITIN_SEARCH_TARGET_FASTA`, legacy `FERRITIN_SEARCH_EXAMPLE_FASTA`,
 /// fall back to the query FASTA (self-search).
 fn find_target_fasta(query: &PathBuf) -> Option<PathBuf> {
-    for var in ["FERRITIN_SEARCH_TARGET_FASTA", "FERRITIN_SEARCH_EXAMPLE_FASTA"] {
+    for var in [
+        "FERRITIN_SEARCH_TARGET_FASTA",
+        "FERRITIN_SEARCH_EXAMPLE_FASTA",
+    ] {
         if let Ok(explicit) = std::env::var(var) {
             let p = PathBuf::from(explicit);
-            return if p.exists() { p.canonicalize().ok() } else { None };
+            return if p.exists() {
+                p.canonicalize().ok()
+            } else {
+                None
+            };
         }
     }
     Some(query.clone())
@@ -114,7 +132,10 @@ fn find_target_fasta(query: &PathBuf) -> Option<PathBuf> {
 /// `<prefix>.lookup` file.
 fn lookup_accession_to_id(reader: &DBReader) -> HashMap<String, u32> {
     let lookup = reader.lookup.as_ref().expect("createdb writes .lookup");
-    lookup.iter().map(|e| (e.accession.clone(), e.key)).collect()
+    lookup
+        .iter()
+        .map(|e| (e.accession.clone(), e.key))
+        .collect()
 }
 
 /// Parse upstream's m8 output into `query_acc → ranked Vec<target_acc>`.
@@ -236,9 +257,8 @@ fn ferritin_search_recall_matches_upstream() {
         "FERRITIN_SEARCH_REQUIRE_ORACLE is set but no mmseqs binary found \
          (set FERRITIN_SEARCH_MMSEQS_BIN to its path)",
     );
-    let query_fasta = find_query_fasta().expect(
-        "FERRITIN_SEARCH_REQUIRE_ORACLE is set but query FASTA not found",
-    );
+    let query_fasta = find_query_fasta()
+        .expect("FERRITIN_SEARCH_REQUIRE_ORACLE is set but query FASTA not found");
     let target_fasta = find_target_fasta(&query_fasta).expect("target FASTA not found");
 
     let workdir = tempdir().unwrap();
@@ -274,7 +294,10 @@ fn ferritin_search_recall_matches_upstream() {
     // 100 candidates per query is plenty: upstream's top-10 (the
     // recall@10 denominator) is comfortably inside that.
     let matrix = SubstitutionMatrix::blosum62();
-    let opts = SearchOptions { max_prefilter_hits: Some(100), ..SearchOptions::default() };
+    let opts = SearchOptions {
+        max_prefilter_hits: Some(100),
+        ..SearchOptions::default()
+    };
     let engine = SearchEngine::build(target_entries, &matrix, alpha.clone(), opts).unwrap();
 
     let mut total_queries = 0usize;
@@ -352,9 +375,11 @@ fn ferritin_search_recall_matches_upstream() {
     // stricter than upstream is on the same input.
     if queries_with_self_in_targets > 0 {
         assert_eq!(
-            self_top10_in_ours, queries_with_self_in_targets,
+            self_top10_in_ours,
+            queries_with_self_in_targets,
             "self failed to appear in top-10 for {} of {} queries present in target",
-            queries_with_self_in_targets - self_top10_in_ours, queries_with_self_in_targets,
+            queries_with_self_in_targets - self_top10_in_ours,
+            queries_with_self_in_targets,
         );
     }
 

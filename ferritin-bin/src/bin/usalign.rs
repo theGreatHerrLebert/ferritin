@@ -1,19 +1,19 @@
 use std::io::Write;
 use std::time::Instant;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 
 use ferritin_align::core::align::cpalign::cpalign;
 use ferritin_align::core::align::tmalign::tmalign;
 use ferritin_align::core::types::*;
-use ferritin_align::ext::flexalign::{FlexOptions, flexalign_main};
-use ferritin_align::ext::soialign::{SoiOptions, soialign_main};
+use ferritin_align::ext::flexalign::{flexalign_main, FlexOptions};
+use ferritin_align::ext::soialign::{soialign_main, SoiOptions};
 use ferritin_io::alignment::read_alignment;
 use ferritin_io::chain_list::read_chain_list;
-use ferritin_io::loader::{InputFormat, LoadOptions, load_structure};
-use ferritin_io::output::{OutputOptions, output_results, output_rotation_matrix};
+use ferritin_io::loader::{load_structure, InputFormat, LoadOptions};
+use ferritin_io::output::{output_results, output_rotation_matrix, OutputOptions};
 
 const VERSION: &str = "20260329";
 
@@ -270,13 +270,23 @@ fn align_pair(
 
     if cp {
         cpalign(
-            &s1.coords, &s2.coords, &s1.sequence, &s2.sequence,
-            &s1.sec_structure, &s2.sec_structure, &opts,
+            &s1.coords,
+            &s2.coords,
+            &s1.sequence,
+            &s2.sequence,
+            &s1.sec_structure,
+            &s2.sec_structure,
+            &opts,
         )
     } else {
         tmalign(
-            &s1.coords, &s2.coords, &s1.sequence, &s2.sequence,
-            &s1.sec_structure, &s2.sec_structure, &opts,
+            &s1.coords,
+            &s2.coords,
+            &s1.sequence,
+            &s2.sequence,
+            &s1.sec_structure,
+            &s2.sec_structure,
+            &opts,
         )
     }
 }
@@ -294,10 +304,10 @@ fn run_single_pair(cli: &Cli) -> Result<()> {
         ..load_opts.clone()
     };
 
-    let structures1 = load_structure(pdb1, &load_opts)
-        .with_context(|| format!("Failed to load {}", pdb1))?;
-    let structures2 = load_structure(pdb2, &load_opts2)
-        .with_context(|| format!("Failed to load {}", pdb2))?;
+    let structures1 =
+        load_structure(pdb1, &load_opts).with_context(|| format!("Failed to load {}", pdb1))?;
+    let structures2 =
+        load_structure(pdb2, &load_opts2).with_context(|| format!("Failed to load {}", pdb2))?;
 
     if structures1.is_empty() || structures2.is_empty() {
         bail!("No chains found in input structures");
@@ -331,11 +341,25 @@ fn run_single_pair(cli: &Cli) -> Result<()> {
     };
 
     let result = if cli.cp {
-        cpalign(&s1.coords, &s2.coords, &s1.sequence, &s2.sequence,
-            &s1.sec_structure, &s2.sec_structure, &opts)?
+        cpalign(
+            &s1.coords,
+            &s2.coords,
+            &s1.sequence,
+            &s2.sequence,
+            &s1.sec_structure,
+            &s2.sec_structure,
+            &opts,
+        )?
     } else {
-        tmalign(&s1.coords, &s2.coords, &s1.sequence, &s2.sequence,
-            &s1.sec_structure, &s2.sec_structure, &opts)?
+        tmalign(
+            &s1.coords,
+            &s2.coords,
+            &s1.sequence,
+            &s2.sequence,
+            &s1.sec_structure,
+            &s2.sec_structure,
+            &opts,
+        )?
     };
 
     let out_opts = OutputOptions {
@@ -399,7 +423,10 @@ fn build_pair_list(cli: &Cli) -> Result<Vec<(String, String)>> {
         Ok(pairs)
     } else if let Some(ref dir1) = cli.dir1 {
         // dir1 mode: pdb1 is the chain list, pdb2 is the query
-        let pdb2 = cli.pdb2.as_ref().context("Missing second structure for -dir1")?;
+        let pdb2 = cli
+            .pdb2
+            .as_ref()
+            .context("Missing second structure for -dir1")?;
         let chains = read_chain_list(pdb1, dir1, &cli.suffix)?;
         eprintln!("Query {} against {} structures", pdb2, chains.len());
         Ok(chains.into_iter().map(|c| (c, pdb2.clone())).collect())
@@ -429,10 +456,14 @@ fn run_batch_tmalign(cli: &Cli) -> Result<()> {
         .par_iter()
         .filter_map(|(path1, path2)| {
             let s1_vec = load_structure(path1, &load_opts).ok()?;
-            let s2_vec = load_structure(path2, &LoadOptions {
-                infmt: parse_input_format(&cli.infmt2),
-                ..load_opts.clone()
-            }).ok()?;
+            let s2_vec = load_structure(
+                path2,
+                &LoadOptions {
+                    infmt: parse_input_format(&cli.infmt2),
+                    ..load_opts.clone()
+                },
+            )
+            .ok()?;
 
             if s1_vec.is_empty() || s2_vec.is_empty() {
                 return None;
@@ -441,8 +472,15 @@ fn run_batch_tmalign(cli: &Cli) -> Result<()> {
             let s2 = &s2_vec[0];
 
             let result = align_pair(s1, s2, cli.fast, cli.cp, cli.tmcut, a_opt).ok()?;
-            Some(format_tabular(path1, &s1.chain_id, path2, &s2.chain_id,
-                &result, s1.coords.len(), s2.coords.len()))
+            Some(format_tabular(
+                path1,
+                &s1.chain_id,
+                path2,
+                &s2.chain_id,
+                &result,
+                s1.coords.len(),
+                s2.coords.len(),
+            ))
         })
         .collect();
 
@@ -466,10 +504,13 @@ fn run_soialign_mode(cli: &Cli) -> Result<()> {
     let load_opts = make_load_opts(cli);
 
     let structures1 = load_structure(pdb1, &load_opts)?;
-    let structures2 = load_structure(pdb2, &LoadOptions {
-        infmt: parse_input_format(&cli.infmt2),
-        ..load_opts.clone()
-    })?;
+    let structures2 = load_structure(
+        pdb2,
+        &LoadOptions {
+            infmt: parse_input_format(&cli.infmt2),
+            ..load_opts.clone()
+        },
+    )?;
 
     if structures1.is_empty() || structures2.is_empty() {
         bail!("No chains found");
@@ -489,7 +530,11 @@ fn run_soialign_mode(cli: &Cli) -> Result<()> {
 
     let soi_opts = SoiOptions {
         mol_type: s1.mol_type,
-        close_k_opt: if cli.close_k < 0 { 5 } else { cli.close_k as usize },
+        close_k_opt: if cli.close_k < 0 {
+            5
+        } else {
+            cli.close_k as usize
+        },
         fast_opt: cli.fast,
         outfmt_opt: cli.outfmt,
         ..Default::default()
@@ -507,24 +552,59 @@ fn run_soialign_mode(cli: &Cli) -> Result<()> {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     if cli.outfmt >= 2 {
-        writeln!(out, "{}\t{}\t{:.4}\t{:.4}\t{:.2}\t{:.3}\t{:.3}\t{}\t{}\t{}",
-            pdb1, pdb2, result.tm1, result.tm2, result.rmsd,
-            if !s1.coords.is_empty() { result.liden / s1.coords.len() as f64 } else { 0.0 },
-            if !s2.coords.is_empty() { result.liden / s2.coords.len() as f64 } else { 0.0 },
-            s1.coords.len(), s2.coords.len(), result.n_ali8)?;
+        writeln!(
+            out,
+            "{}\t{}\t{:.4}\t{:.4}\t{:.2}\t{:.3}\t{:.3}\t{}\t{}\t{}",
+            pdb1,
+            pdb2,
+            result.tm1,
+            result.tm2,
+            result.rmsd,
+            if !s1.coords.is_empty() {
+                result.liden / s1.coords.len() as f64
+            } else {
+                0.0
+            },
+            if !s2.coords.is_empty() {
+                result.liden / s2.coords.len() as f64
+            } else {
+                0.0
+            },
+            s1.coords.len(),
+            s2.coords.len(),
+            result.n_ali8
+        )?;
     } else {
         writeln!(out, "Name of Structure_1: {}:{}", pdb1, s1.chain_id)?;
         writeln!(out, "Name of Structure_2: {}:{}", pdb2, s2.chain_id)?;
         writeln!(out, "Length of Structure_1: {} residues", s1.coords.len())?;
         writeln!(out, "Length of Structure_2: {} residues", s2.coords.len())?;
         writeln!(out)?;
-        writeln!(out, "Aligned length= {}, RMSD= {:6.2}, Seq_ID=n_identical/n_aligned= {:.3}",
-            result.n_ali8, result.rmsd,
-            if result.n_ali8 > 0 { result.liden / result.n_ali8 as f64 } else { 0.0 })?;
-        writeln!(out, "TM-score= {:.5} (normalized by length of Structure_1: L={}, d0={:.2})",
-            result.tm1, s1.coords.len(), result.d0a)?;
-        writeln!(out, "TM-score= {:.5} (normalized by length of Structure_2: L={}, d0={:.2})",
-            result.tm2, s2.coords.len(), result.d0b)?;
+        writeln!(
+            out,
+            "Aligned length= {}, RMSD= {:6.2}, Seq_ID=n_identical/n_aligned= {:.3}",
+            result.n_ali8,
+            result.rmsd,
+            if result.n_ali8 > 0 {
+                result.liden / result.n_ali8 as f64
+            } else {
+                0.0
+            }
+        )?;
+        writeln!(
+            out,
+            "TM-score= {:.5} (normalized by length of Structure_1: L={}, d0={:.2})",
+            result.tm1,
+            s1.coords.len(),
+            result.d0a
+        )?;
+        writeln!(
+            out,
+            "TM-score= {:.5} (normalized by length of Structure_2: L={}, d0={:.2})",
+            result.tm2,
+            s2.coords.len(),
+            result.d0b
+        )?;
         if !result.seq_x_aligned.is_empty() {
             writeln!(out)?;
             writeln!(out, "{}", result.seq_x_aligned)?;
@@ -545,10 +625,13 @@ fn run_flexalign_mode(cli: &Cli) -> Result<()> {
     let load_opts = make_load_opts(cli);
 
     let structures1 = load_structure(pdb1, &load_opts)?;
-    let structures2 = load_structure(pdb2, &LoadOptions {
-        infmt: parse_input_format(&cli.infmt2),
-        ..load_opts.clone()
-    })?;
+    let structures2 = load_structure(
+        pdb2,
+        &LoadOptions {
+            infmt: parse_input_format(&cli.infmt2),
+            ..load_opts.clone()
+        },
+    )?;
 
     if structures1.is_empty() || structures2.is_empty() {
         bail!("No chains found");
@@ -568,7 +651,14 @@ fn run_flexalign_mode(cli: &Cli) -> Result<()> {
     };
 
     let result = flexalign_main(
-        &s1.coords, &s2.coords, &seqx, &seqy, &secx, &secy, &flex_opts, &[],
+        &s1.coords,
+        &s2.coords,
+        &seqx,
+        &seqy,
+        &secx,
+        &secy,
+        &flex_opts,
+        &[],
     )?;
 
     if cli.outfmt <= 0 {
@@ -585,12 +675,21 @@ fn run_flexalign_mode(cli: &Cli) -> Result<()> {
     writeln!(out, "Length of Structure_2: {} residues", s2.coords.len())?;
     writeln!(out)?;
     writeln!(out, "Number of hinges: {}", result.hinge_count)?;
-    writeln!(out, "Aligned length= {}, RMSD= {:6.2}",
-        result.se_result.n_ali8, result.se_result.rmsd)?;
-    writeln!(out, "TM-score= {:.5} (normalized by length of Structure_1)",
-        result.se_result.tm1)?;
-    writeln!(out, "TM-score= {:.5} (normalized by length of Structure_2)",
-        result.se_result.tm2)?;
+    writeln!(
+        out,
+        "Aligned length= {}, RMSD= {:6.2}",
+        result.se_result.n_ali8, result.se_result.rmsd
+    )?;
+    writeln!(
+        out,
+        "TM-score= {:.5} (normalized by length of Structure_1)",
+        result.se_result.tm1
+    )?;
+    writeln!(
+        out,
+        "TM-score= {:.5} (normalized by length of Structure_2)",
+        result.se_result.tm2
+    )?;
 
     if !result.se_result.seq_x_aligned.is_empty() {
         writeln!(out)?;

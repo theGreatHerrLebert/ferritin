@@ -39,8 +39,8 @@ pub const INVALID_STATE: u8 = 2; // maps to a "coil" state
 
 /// The structural alphabet letters, ordered by state index 0..19.
 pub const STATE_CHARS: [char; NUM_STATES] = [
-    'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L',
-    'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y',
+    'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W',
+    'Y',
 ];
 
 // ============================================================================
@@ -202,25 +202,25 @@ fn virtual_center(ca: &Coord3D, cb: &Coord3D, n: &Coord3D) -> Coord3D {
 /// where u_prev_i = norm(CA_i - CA_{i-1}), u_next_i = norm(CA_{i+1} - CA_i),
 /// u_ij = norm(CA_j - CA_i).
 pub fn compute_features(ca: &[Coord3D], i: usize, j: usize) -> [f64; NUM_FEATURES] {
-    let u1 = norm(&sub(&ca[i], &ca[i - 1]));       // prev direction at i
-    let u2 = norm(&sub(&ca[i + 1], &ca[i]));        // next direction at i
-    let u3 = norm(&sub(&ca[j], &ca[j - 1]));        // prev direction at j
-    let u4 = norm(&sub(&ca[j + 1], &ca[j]));        // next direction at j
-    let u5 = norm(&sub(&ca[j], &ca[i]));             // direction i→j
+    let u1 = norm(&sub(&ca[i], &ca[i - 1])); // prev direction at i
+    let u2 = norm(&sub(&ca[i + 1], &ca[i])); // next direction at i
+    let u3 = norm(&sub(&ca[j], &ca[j - 1])); // prev direction at j
+    let u4 = norm(&sub(&ca[j + 1], &ca[j])); // next direction at j
+    let u5 = norm(&sub(&ca[j], &ca[i])); // direction i→j
 
     let sep = j as f64 - i as f64;
 
     [
-        dot(&u1, &u2),                                      // f0: local bend i
-        dot(&u3, &u4),                                      // f1: local bend j
-        dot(&u1, &u5),                                      // f2: i backbone vs i→j
-        dot(&u3, &u5),                                      // f3: j backbone vs i→j
-        dot(&u1, &u4),                                      // f4: cross i-prev, j-next
-        dot(&u2, &u3),                                      // f5: cross i-next, j-prev
-        dot(&u1, &u3),                                      // f6: backbone correlation
-        distance(&ca[i], &ca[j]),                            // f7: CA-CA distance
-        sep.signum() * sep.abs().min(4.0),                   // f8: clipped seq sep
-        sep.signum() * (sep.abs() + 1.0).ln(),               // f9: log seq sep
+        dot(&u1, &u2),                         // f0: local bend i
+        dot(&u3, &u4),                         // f1: local bend j
+        dot(&u1, &u5),                         // f2: i backbone vs i→j
+        dot(&u3, &u5),                         // f3: j backbone vs i→j
+        dot(&u1, &u4),                         // f4: cross i-prev, j-next
+        dot(&u2, &u3),                         // f5: cross i-next, j-prev
+        dot(&u1, &u3),                         // f6: backbone correlation
+        distance(&ca[i], &ca[j]),              // f7: CA-CA distance
+        sep.signum() * sep.abs().min(4.0),     // f8: clipped seq sep
+        sep.signum() * (sep.abs() + 1.0).ln(), // f9: log seq sep
     ]
 }
 
@@ -355,16 +355,17 @@ pub fn encode_structure(atoms: &BackboneAtoms) -> AlphabetResult {
     let mut valid = vec![false; len];
 
     if len < 3 {
-        return AlphabetResult { states, partners, features, valid };
+        return AlphabetResult {
+            states,
+            partners,
+            features,
+            valid,
+        };
     }
 
     // Step 1: Create coordinate validity mask (need CA, N, C for each residue)
     let coord_valid: Vec<bool> = (0..len)
-        .map(|i| {
-            !atoms.ca[i][0].is_nan()
-                && !atoms.n[i][0].is_nan()
-                && !atoms.c[i][0].is_nan()
-        })
+        .map(|i| !atoms.ca[i][0].is_nan() && !atoms.n[i][0].is_nan() && !atoms.c[i][0].is_nan())
         .collect();
     valid.copy_from_slice(&coord_valid);
 
@@ -420,12 +421,7 @@ pub fn encode_structure(atoms: &BackboneAtoms) -> AlphabetResult {
         }
         let j = j as usize;
         // Need CA coordinates at j-1, j, j+1 (and i-1, i, i+1 already guaranteed)
-        if j == 0
-            || j >= len - 1
-            || !coord_valid[j - 1]
-            || !coord_valid[j]
-            || !coord_valid[j + 1]
-        {
+        if j == 0 || j >= len - 1 || !coord_valid[j - 1] || !coord_valid[j] || !coord_valid[j + 1] {
             valid[i] = false;
             continue;
         }
@@ -443,7 +439,12 @@ pub fn encode_structure(atoms: &BackboneAtoms) -> AlphabetResult {
     }
     // If encoder is unavailable, states remain INVALID_STATE.
 
-    AlphabetResult { states, partners, features, valid }
+    AlphabetResult {
+        states,
+        partners,
+        features,
+        valid,
+    }
 }
 
 /// Compute features only (without encoding to states).
@@ -565,11 +566,7 @@ mod tests {
             // f7 is distance: should be positive
             assert!(f[7] > 0.0, "distance feature should be positive");
             // f8 is clipped to [-4, 4]
-            assert!(
-                f[8] >= -4.01 && f[8] <= 4.01,
-                "f8 out of range: {}",
-                f[8]
-            );
+            assert!(f[8] >= -4.01 && f[8] <= 4.01, "f8 out of range: {}", f[8]);
         }
     }
 
@@ -594,7 +591,10 @@ mod tests {
 
     #[test]
     fn test_encoder_weights_are_loaded() {
-        assert!(encoder_is_trained(), "structural alphabet weights should be non-zero");
+        assert!(
+            encoder_is_trained(),
+            "structural alphabet weights should be non-zero"
+        );
     }
 
     #[test]
@@ -614,7 +614,10 @@ mod tests {
             .filter_map(|(&state, &is_valid)| is_valid.then_some(state))
             .collect();
 
-        assert!(!valid_states.is_empty(), "expected valid residues in helix fixture");
+        assert!(
+            !valid_states.is_empty(),
+            "expected valid residues in helix fixture"
+        );
         assert!(
             valid_states.iter().any(|&state| state != INVALID_STATE),
             "trained encoder should emit at least one non-placeholder state"

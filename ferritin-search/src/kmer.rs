@@ -34,7 +34,11 @@ pub enum KmerIndexError {
         "k-mer position {pos} in sequence {seq_id} exceeds u16::MAX ({limit}); \
          sequence must be chunked before indexing"
     )]
-    PositionOverflow { seq_id: u32, pos: usize, limit: usize },
+    PositionOverflow {
+        seq_id: u32,
+        pos: usize,
+        limit: usize,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, KmerIndexError>;
@@ -74,7 +78,12 @@ impl KmerEncoder {
             .checked_mul(alphabet_size as u64)
             .expect("alphabet_size^kmer_size overflow");
 
-        Self { alphabet_size, kmer_size, powers, table_size }
+        Self {
+            alphabet_size,
+            kmer_size,
+            powers,
+            table_size,
+        }
     }
 
     pub fn alphabet_size(&self) -> u32 {
@@ -196,11 +205,7 @@ impl KmerIndex {
         Self::build_two_pass(encoder, &seqs, skip_idx)
     }
 
-    fn build_two_pass(
-        encoder: KmerEncoder,
-        seqs: &[(u32, &[u8])],
-        skip_idx: u8,
-    ) -> Result<Self> {
+    fn build_two_pass(encoder: KmerEncoder, seqs: &[(u32, &[u8])], skip_idx: u8) -> Result<Self> {
         // Upfront overflow guard: any sequence whose last valid k-mer start
         // position exceeds u16::MAX is refused before we touch memory.
         let pos_limit = u16::MAX as usize;
@@ -252,7 +257,11 @@ impl KmerIndex {
             }
         }
 
-        Ok(Self { encoder, offsets, entries })
+        Ok(Self {
+            encoder,
+            offsets,
+            entries,
+        })
     }
 
     /// Lookup hits for a k-mer (slice of alphabet indices of length `kmer_size`).
@@ -291,10 +300,7 @@ impl KmerIndex {
 
     /// Number of distinct k-mer hashes with at least one hit.
     pub fn distinct_kmers(&self) -> usize {
-        self.offsets
-            .windows(2)
-            .filter(|w| w[1] > w[0])
-            .count()
+        self.offsets.windows(2).filter(|w| w[1] > w[0]).count()
     }
 }
 
@@ -405,8 +411,8 @@ mod tests {
     #[test]
     fn index_multiple_sequences_keep_distinct_seq_ids() {
         let enc = KmerEncoder::new(4, 2);
-        let a = vec![0u8, 1, 2];       // AC at 0, CG at 1
-        let b = vec![0u8, 1];          // AC at 0
+        let a = vec![0u8, 1, 2]; // AC at 0, CG at 1
+        let b = vec![0u8, 1]; // AC at 0
         let idx = KmerIndex::build(
             enc.clone(),
             [(10u32, a.as_slice()), (20u32, b.as_slice())],
@@ -424,9 +430,9 @@ mod tests {
     fn index_total_hits_matches_formula_with_x_skipping() {
         // n-k+1 minus #X-containing windows, per sequence.
         let enc = KmerEncoder::new(4, 2);
-        let s1: Vec<u8> = vec![0, 1, 2, 3];       // 3 windows, no X
+        let s1: Vec<u8> = vec![0, 1, 2, 3]; // 3 windows, no X
         let s2: Vec<u8> = vec![0, 99, 2, 99, 1]; // 4 windows, all contain X → 0 kept
-        let s3: Vec<u8> = vec![0, 1, 99, 2, 3];  // 4 windows, positions 0 and 3 survive → 2
+        let s3: Vec<u8> = vec![0, 1, 99, 2, 3]; // 4 windows, positions 0 and 3 survive → 2
         let idx = KmerIndex::build(
             enc,
             [

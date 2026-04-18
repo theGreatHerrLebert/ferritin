@@ -147,15 +147,19 @@ mod tests {
         // Should clamp to 1.
         let avail = available_memory_bytes();
         let n = auto_threads(Some(120), avail);
-        assert!(n <= 2, "expected ≤2 threads when each task needs all RAM, got {}", n);
+        assert!(
+            n <= 2,
+            "expected ≤2 threads when each task needs all RAM, got {}",
+            n
+        );
     }
 
     #[test]
     fn test_auto_threads_respects_cpus() {
         // Even with infinite memory, can't exceed CPUs.
         let cpus = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+            .map(|n| n.get())
+            .unwrap_or(1);
         let n = auto_threads(Some(10000), 1);
         assert!(n <= cpus, "expected ≤{} threads, got {}", cpus, n);
     }

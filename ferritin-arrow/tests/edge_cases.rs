@@ -15,24 +15,19 @@ fn pdb_with_insertion_codes() -> pdbtbx::PDB {
     // Residue 1 (no insertion code)
     let mut res1 = pdbtbx::Residue::new(1, None, None).unwrap();
     let mut conf1 = pdbtbx::Conformer::new("ALA", None, None).unwrap();
-    conf1.add_atom(
-        pdbtbx::Atom::new(false, 1, "", "CA", 1.0, 2.0, 3.0, 1.0, 10.0, "C", 0).unwrap(),
-    );
-    conf1.add_atom(
-        pdbtbx::Atom::new(false, 2, "", "N", 1.5, 2.5, 3.5, 1.0, 12.0, "N", 0).unwrap(),
-    );
+    conf1
+        .add_atom(pdbtbx::Atom::new(false, 1, "", "CA", 1.0, 2.0, 3.0, 1.0, 10.0, "C", 0).unwrap());
+    conf1.add_atom(pdbtbx::Atom::new(false, 2, "", "N", 1.5, 2.5, 3.5, 1.0, 12.0, "N", 0).unwrap());
     res1.add_conformer(conf1);
     chain.add_residue(res1);
 
     // Residue 1A (insertion code "A")
     let mut res1a = pdbtbx::Residue::new(1, Some("A"), None).unwrap();
     let mut conf1a = pdbtbx::Conformer::new("GLY", None, None).unwrap();
-    conf1a.add_atom(
-        pdbtbx::Atom::new(false, 3, "", "CA", 4.0, 5.0, 6.0, 1.0, 11.0, "C", 0).unwrap(),
-    );
-    conf1a.add_atom(
-        pdbtbx::Atom::new(false, 4, "", "N", 4.5, 5.5, 6.5, 1.0, 13.0, "N", 0).unwrap(),
-    );
+    conf1a
+        .add_atom(pdbtbx::Atom::new(false, 3, "", "CA", 4.0, 5.0, 6.0, 1.0, 11.0, "C", 0).unwrap());
+    conf1a
+        .add_atom(pdbtbx::Atom::new(false, 4, "", "N", 4.5, 5.5, 6.5, 1.0, 13.0, "N", 0).unwrap());
     res1a.add_conformer(conf1a);
     chain.add_residue(res1a);
 
@@ -91,14 +86,8 @@ fn test_insertion_codes_preserved() {
     assert_eq!(residues[1].insertion_code(), Some("A"));
 
     // Check residue names
-    assert_eq!(
-        residues[0].conformers().next().unwrap().name(),
-        "ALA"
-    );
-    assert_eq!(
-        residues[1].conformers().next().unwrap().name(),
-        "GLY"
-    );
+    assert_eq!(residues[0].conformers().next().unwrap().name(), "ALA");
+    assert_eq!(residues[1].conformers().next().unwrap().name(), "GLY");
 }
 
 /// Build a PDB with alternate conformers (A and B for same residue).
@@ -111,16 +100,14 @@ fn pdb_with_alt_conformers() -> pdbtbx::PDB {
 
     // Conformer A
     let mut conf_a = pdbtbx::Conformer::new("ALA", Some("A"), None).unwrap();
-    conf_a.add_atom(
-        pdbtbx::Atom::new(false, 1, "", "CA", 1.0, 2.0, 3.0, 0.6, 10.0, "C", 0).unwrap(),
-    );
+    conf_a
+        .add_atom(pdbtbx::Atom::new(false, 1, "", "CA", 1.0, 2.0, 3.0, 0.6, 10.0, "C", 0).unwrap());
     res.add_conformer(conf_a);
 
     // Conformer B
     let mut conf_b = pdbtbx::Conformer::new("ALA", Some("B"), None).unwrap();
-    conf_b.add_atom(
-        pdbtbx::Atom::new(false, 2, "", "CA", 1.1, 2.1, 3.1, 0.4, 11.0, "C", 0).unwrap(),
-    );
+    conf_b
+        .add_atom(pdbtbx::Atom::new(false, 2, "", "CA", 1.1, 2.1, 3.1, 0.4, 11.0, "C", 0).unwrap());
     res.add_conformer(conf_b);
 
     chain.add_residue(res);
@@ -134,7 +121,11 @@ fn test_alt_conformers_preserved() {
     let pdb = pdb_with_alt_conformers();
 
     let batch = pdb_to_atom_batch(&pdb, "test").unwrap();
-    assert_eq!(batch.num_rows(), 2, "should have 2 atoms (one per conformer)");
+    assert_eq!(
+        batch.num_rows(),
+        2,
+        "should have 2 atoms (one per conformer)"
+    );
 
     let rebuilt = atom_batch_to_pdbs(&batch).unwrap();
     let (_, rebuilt_pdb) = &rebuilt[0];
@@ -151,11 +142,7 @@ fn test_alt_conformers_preserved() {
     assert_eq!(res.len(), 1, "should be 1 residue");
 
     let conformers: Vec<_> = res[0].conformers().collect();
-    assert_eq!(
-        conformers.len(),
-        2,
-        "should have 2 conformers (A and B)"
-    );
+    assert_eq!(conformers.len(), 2, "should have 2 conformers (A and B)");
 }
 
 /// Build a multi-model structure (like NMR ensemble).
@@ -204,7 +191,11 @@ fn test_multi_model_serials_preserved() {
 
     // Check model serials are 0,1,2,3,4 (not all 0)
     let serials: Vec<usize> = rebuilt_pdb.models().map(|m| m.serial_number()).collect();
-    assert_eq!(serials, vec![0, 1, 2, 3, 4], "model serials must be preserved");
+    assert_eq!(
+        serials,
+        vec![0, 1, 2, 3, 4],
+        "model serials must be preserved"
+    );
 
     // Check coordinates differ per model (each model has x = model_serial)
     for (i, model) in rebuilt_pdb.models().enumerate() {
@@ -258,9 +249,7 @@ fn test_hetero_atoms_preserved() {
     let mut chain = pdbtbx::Chain::new("A").unwrap();
     let mut res = pdbtbx::Residue::new(1, None, None).unwrap();
     let mut conf = pdbtbx::Conformer::new("HOH", None, None).unwrap();
-    conf.add_atom(
-        pdbtbx::Atom::new(true, 1, "", "O", 1.0, 2.0, 3.0, 1.0, 20.0, "O", 0).unwrap(),
-    );
+    conf.add_atom(pdbtbx::Atom::new(true, 1, "", "O", 1.0, 2.0, 3.0, 1.0, 20.0, "O", 0).unwrap());
     res.add_conformer(conf);
     chain.add_residue(res);
     model.add_chain(chain);

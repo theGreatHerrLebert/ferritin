@@ -48,11 +48,7 @@ fn approx_tm(
 }
 
 /// Parse a user-provided FASTA alignment into an invmap.
-fn alignment_to_invmap(
-    sequences: &[String],
-    xlen: usize,
-    ylen: usize,
-) -> Vec<i32> {
+fn alignment_to_invmap(sequences: &[String], xlen: usize, ylen: usize) -> Vec<i32> {
     let mut invmap = vec![-1_i32; ylen];
     let mut i1: isize = -1;
     let mut i2: isize = -1;
@@ -122,14 +118,28 @@ pub fn tmalign(
         if let Some(ref sequences) = opts.user_alignment {
             let invmap = alignment_to_invmap(sequences, xlen, ylen);
 
-            let (tm_score, l_ali, rmsd, _t) =
-                crate::core::tmscore::standard_tmscore(xa, ya, &invmap, params.score_d8, opts.mol_type);
+            let (tm_score, l_ali, rmsd, _t) = crate::core::tmscore::standard_tmscore(
+                xa,
+                ya,
+                &invmap,
+                params.score_d8,
+                opts.mol_type,
+            );
             _tm_ali = tm_score;
             _l_ali = l_ali;
             _rmsd_ali = rmsd;
 
             let (tm, t) = detailed_search_standard(
-                xa, ya, &invmap, 40, 8, local_d0_search, true, params.lnorm, params.score_d8, params.d0,
+                xa,
+                ya,
+                &invmap,
+                40,
+                8,
+                local_d0_search,
+                true,
+                params.lnorm,
+                params.score_d8,
+                params.d0,
             );
             if tm > tm_max {
                 tm_max = tm;
@@ -146,7 +156,13 @@ pub fn tmalign(
         // ------------------------------------------------------------------
         let (_, init_map) = get_initial(xa, ya, params.d0, params.d0_search, opts.fast_opt);
         let (tm, t) = detailed_search(
-            xa, ya, &init_map, simplify_step, score_sum_method, local_d0_search, &params,
+            xa,
+            ya,
+            &init_map,
+            simplify_step,
+            score_sum_method,
+            local_d0_search,
+            &params,
         );
         if tm > tm_max {
             tm_max = tm;
@@ -155,7 +171,14 @@ pub fn tmalign(
         }
 
         let (tm, dp_map, t) = dp_iter(
-            xa, ya, &mut ws, &t, 0..2, iteration_max, local_d0_search, &params,
+            xa,
+            ya,
+            &mut ws,
+            &t,
+            0..2,
+            iteration_max,
+            local_d0_search,
+            &params,
         );
         if tm > tm_max {
             tm_max = tm;
@@ -176,7 +199,13 @@ pub fn tmalign(
         // ------------------------------------------------------------------
         let init_map = get_initial_ss(&mut ws, secx, secy);
         let (tm, t) = detailed_search(
-            xa, ya, &init_map, simplify_step, score_sum_method, local_d0_search, &params,
+            xa,
+            ya,
+            &init_map,
+            simplify_step,
+            score_sum_method,
+            local_d0_search,
+            &params,
         );
         if tm > tm_max {
             tm_max = tm;
@@ -185,7 +214,14 @@ pub fn tmalign(
         }
         if tm > tm_max * 0.2 {
             let (tm, dp_map, t2) = dp_iter(
-                xa, ya, &mut ws, &t, 0..2, iteration_max, local_d0_search, &params,
+                xa,
+                ya,
+                &mut ws,
+                &t,
+                0..2,
+                iteration_max,
+                local_d0_search,
+                &params,
             );
             if tm > tm_max {
                 tm_max = tm;
@@ -204,11 +240,24 @@ pub fn tmalign(
         // ------------------------------------------------------------------
         // 3. Local superposition (initial5)
         // ------------------------------------------------------------------
-        let (found, init_map) =
-            get_initial5(xa, ya, &mut ws, params.d0, params.d0_search, opts.fast_opt, params.d0_min);
+        let (found, init_map) = get_initial5(
+            xa,
+            ya,
+            &mut ws,
+            params.d0,
+            params.d0_search,
+            opts.fast_opt,
+            params.d0_min,
+        );
         if found {
             let (tm, t) = detailed_search(
-                xa, ya, &init_map, simplify_step, score_sum_method, local_d0_search, &params,
+                xa,
+                ya,
+                &init_map,
+                simplify_step,
+                score_sum_method,
+                local_d0_search,
+                &params,
             );
             if tm > tm_max {
                 tm_max = tm;
@@ -216,9 +265,8 @@ pub fn tmalign(
                 best_transform = t.clone();
             }
             if tm > tm_max * ddcc {
-                let (tm, dp_map, t2) = dp_iter(
-                    xa, ya, &mut ws, &t, 0..2, 2, local_d0_search, &params,
-                );
+                let (tm, dp_map, t2) =
+                    dp_iter(xa, ya, &mut ws, &t, 0..2, 2, local_d0_search, &params);
                 if tm > tm_max {
                     tm_max = tm;
                     invmap0 = dp_map;
@@ -238,10 +286,23 @@ pub fn tmalign(
         // 4. SS + previous alignment (initial_ssplus)
         // ------------------------------------------------------------------
         let init_map = get_initial_ssplus(
-            xa, ya, secx, secy, &invmap0, &mut ws, params.d0_min, params.d0,
+            xa,
+            ya,
+            secx,
+            secy,
+            &invmap0,
+            &mut ws,
+            params.d0_min,
+            params.d0,
         );
         let (tm, t) = detailed_search(
-            xa, ya, &init_map, simplify_step, score_sum_method, local_d0_search, &params,
+            xa,
+            ya,
+            &init_map,
+            simplify_step,
+            score_sum_method,
+            local_d0_search,
+            &params,
         );
         if tm > tm_max {
             tm_max = tm;
@@ -250,7 +311,14 @@ pub fn tmalign(
         }
         if tm > tm_max * ddcc {
             let (tm, dp_map, t2) = dp_iter(
-                xa, ya, &mut ws, &t, 0..2, iteration_max, local_d0_search, &params,
+                xa,
+                ya,
+                &mut ws,
+                &t,
+                0..2,
+                iteration_max,
+                local_d0_search,
+                &params,
             );
             if tm > tm_max {
                 tm_max = tm;
@@ -270,10 +338,21 @@ pub fn tmalign(
         // 5. Fragment gapless threading (initial_fgt)
         // ------------------------------------------------------------------
         let (_, init_map) = get_initial_fgt(
-            xa, ya, params.d0, params.d0_search, params.dcu0, opts.fast_opt,
+            xa,
+            ya,
+            params.d0,
+            params.d0_search,
+            params.dcu0,
+            opts.fast_opt,
         );
         let (tm, t) = detailed_search(
-            xa, ya, &init_map, simplify_step, score_sum_method, local_d0_search, &params,
+            xa,
+            ya,
+            &init_map,
+            simplify_step,
+            score_sum_method,
+            local_d0_search,
+            &params,
         );
         if tm > tm_max {
             tm_max = tm;
@@ -281,9 +360,7 @@ pub fn tmalign(
             best_transform = t.clone();
         }
         if tm > tm_max * ddcc {
-            let (tm, dp_map, t2) = dp_iter(
-                xa, ya, &mut ws, &t, 1..2, 2, local_d0_search, &params,
-            );
+            let (tm, dp_map, t2) = dp_iter(xa, ya, &mut ws, &t, 1..2, 2, local_d0_search, &params);
             if tm > tm_max {
                 tm_max = tm;
                 invmap0 = dp_map;
@@ -305,14 +382,28 @@ pub fn tmalign(
             if let Some(ref sequences) = opts.user_alignment {
                 let invmap = alignment_to_invmap(sequences, xlen, ylen);
 
-                let (tm_score, l_ali, rmsd, _t) =
-                    crate::core::tmscore::standard_tmscore(xa, ya, &invmap, params.score_d8, opts.mol_type);
+                let (tm_score, l_ali, rmsd, _t) = crate::core::tmscore::standard_tmscore(
+                    xa,
+                    ya,
+                    &invmap,
+                    params.score_d8,
+                    opts.mol_type,
+                );
                 _tm_ali = tm_score;
                 _l_ali = l_ali;
                 _rmsd_ali = rmsd;
 
                 let (tm, t) = detailed_search_standard(
-                    xa, ya, &invmap, 40, 8, local_d0_search, true, params.lnorm, params.score_d8, params.d0,
+                    xa,
+                    ya,
+                    &invmap,
+                    40,
+                    8,
+                    local_d0_search,
+                    true,
+                    params.lnorm,
+                    params.score_d8,
+                    params.d0,
                 );
                 if tm > tm_max {
                     tm_max = tm;
@@ -321,11 +412,20 @@ pub fn tmalign(
                 }
 
                 let (tm, dp_map, t2) = dp_iter(
-                    xa, ya, &mut ws, &t, 0..2, iteration_max, local_d0_search, &params,
+                    xa,
+                    ya,
+                    &mut ws,
+                    &t,
+                    0..2,
+                    iteration_max,
+                    local_d0_search,
+                    &params,
                 );
                 if tm > tm_max {
                     #[allow(unused_assignments)]
-                    { tm_max = tm; }
+                    {
+                        tm_max = tm;
+                    }
                     invmap0 = dp_map;
                     best_transform = t2;
                 }
@@ -353,8 +453,16 @@ pub fn tmalign(
     // ------------------------------------------------------------------
     let final_simplify = if opts.fast_opt { 40 } else { 1 };
     let (_, final_t) = detailed_search_standard(
-        xa, ya, &invmap0, final_simplify, 8, local_d0_search, false,
-        params.lnorm, params.score_d8, params.d0,
+        xa,
+        ya,
+        &invmap0,
+        final_simplify,
+        8,
+        local_d0_search,
+        false,
+        params.lnorm,
+        params.score_d8,
+        params.d0,
     );
 
     // Select pairs with distance < score_d8 for final scoring
@@ -379,11 +487,16 @@ pub fn tmalign(
     let n_ali8 = xtm.len();
 
     // Compute RMSD on final aligned pairs
-    let rmsd0 = if let Some(result) = kabsch(&xt[..].iter().enumerate()
-        .filter(|(idx, _)| m1.contains(idx))
-        .map(|(_, c)| *c)
-        .collect::<Vec<_>>(), &ytm, KabschMode::RmsOnly)
-    {
+    let rmsd0 = if let Some(result) = kabsch(
+        &xt[..]
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| m1.contains(idx))
+            .map(|(_, c)| *c)
+            .collect::<Vec<_>>(),
+        &ytm,
+        KabschMode::RmsOnly,
+    ) {
         (result.rms / n_ali8 as f64).sqrt()
     } else {
         // Fallback: compute directly from rotated coordinates
@@ -405,16 +518,24 @@ pub fn tmalign(
     let params_a = TMParams::for_final(ylen as f64, opts.mol_type);
     let d0a = params_a.d0;
     let (tm1, t0) = tmscore8_search(
-        &xtm, &ytm, simplify_final, score_sum_method_final,
-        params_a.d0_search, &params_a,
+        &xtm,
+        &ytm,
+        simplify_final,
+        score_sum_method_final,
+        params_a.d0_search,
+        &params_a,
     );
 
     // TM2: normalized by xlen
     let params_b = TMParams::for_final(xlen as f64, opts.mol_type);
     let d0b = params_b.d0;
     let (tm2, _) = tmscore8_search(
-        &xtm, &ytm, simplify_final, score_sum_method_final,
-        params_b.d0_search, &params_b,
+        &xtm,
+        &ytm,
+        simplify_final,
+        score_sum_method_final,
+        params_b.d0_search,
+        &params_b,
     );
 
     // TM3: normalized by average length (if a_opt > 0)
@@ -425,8 +546,12 @@ pub fn tmalign(
         let params_avg = TMParams::for_final(avg_len, opts.mol_type);
         d0_out = params_avg.d0;
         let (score, _) = tmscore8_search(
-            &xtm, &ytm, simplify_final, score_sum_method_final,
-            params_avg.d0_search, &params_avg,
+            &xtm,
+            &ytm,
+            simplify_final,
+            score_sum_method_final,
+            params_avg.d0_search,
+            &params_avg,
         );
         tm3 = score;
     }
@@ -437,8 +562,12 @@ pub fn tmalign(
         let params_u = TMParams::for_final(opts.lnorm_ass, opts.mol_type);
         d0_out = params_u.d0;
         let (score, _) = tmscore8_search(
-            &xtm, &ytm, simplify_final, score_sum_method_final,
-            params_u.d0_search, &params_u,
+            &xtm,
+            &ytm,
+            simplify_final,
+            score_sum_method_final,
+            params_u.d0_search,
+            &params_u,
         );
         tm4 = score;
     }
@@ -449,8 +578,12 @@ pub fn tmalign(
         let params_s = TMParams::for_scale(ylen, opts.d0_scale);
         d0_out = opts.d0_scale;
         let (score, _) = tmscore8_search(
-            &xtm, &ytm, simplify_final, score_sum_method_final,
-            params_s.d0_search, &params_s,
+            &xtm,
+            &ytm,
+            simplify_final,
+            score_sum_method_final,
+            params_s.d0_search,
+            &params_s,
         );
         tm5 = score;
     }
@@ -519,7 +652,11 @@ pub fn tmalign(
         tm_score_scaled: tm5,
         rmsd: rmsd0,
         n_aligned: n_ali8,
-        seq_identity: if n_ali8 > 0 { liden / n_ali8 as f64 } else { 0.0 },
+        seq_identity: if n_ali8 > 0 {
+            liden / n_ali8 as f64
+        } else {
+            0.0
+        },
         transform: t0,
         aligned_seq_x: seq_x_aln,
         aligned_seq_y: seq_y_aln,

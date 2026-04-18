@@ -1,6 +1,6 @@
 //! FASTA alignment file reader for -i/-I options.
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use std::fs;
 
 /// Read a pairwise FASTA alignment file.
@@ -33,7 +33,10 @@ pub fn read_alignment(path: &str) -> Result<Vec<String>> {
     }
 
     if sequences.len() != 2 {
-        bail!("Alignment file must contain exactly 2 sequences, found {}", sequences.len());
+        bail!(
+            "Alignment file must contain exactly 2 sequences, found {}",
+            sequences.len()
+        );
     }
     if sequences[0].len() != sequences[1].len() {
         bail!(

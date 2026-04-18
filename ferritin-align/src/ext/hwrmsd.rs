@@ -167,11 +167,23 @@ pub fn hwrmsd_main(
         seq_xa_tmp = opts.sequence[0].clone();
         seq_ya_tmp = opts.sequence[1].clone();
     } else if opts.seq_opt == 2 {
-        let result = nwalign::nwalign(secx, secy, mol_type_int, glocal_mode, ReturnMode::AlignmentOnly);
+        let result = nwalign::nwalign(
+            secx,
+            secy,
+            mol_type_int,
+            glocal_mode,
+            ReturnMode::AlignmentOnly,
+        );
         seq_xa_tmp = result.seq_x_aligned;
         seq_ya_tmp = result.seq_y_aligned;
     } else {
-        let result = nwalign::nwalign(seqx, seqy, mol_type_int, glocal_mode, ReturnMode::AlignmentOnly);
+        let result = nwalign::nwalign(
+            seqx,
+            seqy,
+            mol_type_int,
+            glocal_mode,
+            ReturnMode::AlignmentOnly,
+        );
         seq_xa_tmp = result.seq_x_aligned;
         seq_ya_tmp = result.seq_y_aligned;
     }
@@ -209,7 +221,13 @@ pub fn hwrmsd_main(
     for iter in 0..total_iter {
         // Switch to SS alignment on second iteration (if seq_opt == 3)
         if iter == 1 && opts.i_opt == 0 && opts.seq_opt == 3 {
-            let result = nwalign::nwalign(secx, secy, mol_type_int, glocal_mode, ReturnMode::AlignmentOnly);
+            let result = nwalign::nwalign(
+                secx,
+                secy,
+                mol_type_int,
+                glocal_mode,
+                ReturnMode::AlignmentOnly,
+            );
             seq_xa_tmp = result.seq_x_aligned;
             seq_ya_tmp = result.seq_y_aligned;
         }
@@ -225,7 +243,15 @@ pub fn hwrmsd_main(
 
         // SE refinement on superposed coordinates
         let se_result = se::se_main(
-            &xt, ya, seqx, seqy, xlen, ylen, &se_opts, Some(&invmap_tmp), 0,
+            &xt,
+            ya,
+            seqx,
+            seqy,
+            xlen,
+            ylen,
+            &se_opts,
+            Some(&invmap_tmp),
+            0,
         );
 
         if se_result.n_ali8 == 0 {
@@ -269,7 +295,15 @@ pub fn hwrmsd_main(
             };
 
             let se_result2 = se::se_main(
-                &xt2, ya, seqx, seqy, xlen, ylen, &se_opts, Some(&invmap_tmp), 0,
+                &xt2,
+                ya,
+                seqx,
+                seqy,
+                xlen,
+                ylen,
+                &se_opts,
+                Some(&invmap_tmp),
+                0,
             );
 
             if se_result2.tm1 > best_tm1 && se_result2.tm2 > best_tm2 {
@@ -321,21 +355,51 @@ pub fn hwrmsd_main(
             outfmt_opt: 0,
             ..se_opts
         };
-        let (_, xt, _) = kabsch_superpose(xa, ya, &best_invmap)
-            .unwrap_or_else(|| {
-                (Transform { t: [0.0; 3], u: [[0.0; 3]; 3] }, xa.to_vec(), 0.0)
-            });
-        se::se_main(&xt, ya, seqx, seqy, xlen, ylen, &final_opts, Some(&best_invmap), 0)
+        let (_, xt, _) = kabsch_superpose(xa, ya, &best_invmap).unwrap_or_else(|| {
+            (
+                Transform {
+                    t: [0.0; 3],
+                    u: [[0.0; 3]; 3],
+                },
+                xa.to_vec(),
+                0.0,
+            )
+        });
+        se::se_main(
+            &xt,
+            ya,
+            seqx,
+            seqy,
+            xlen,
+            ylen,
+            &final_opts,
+            Some(&best_invmap),
+            0,
+        )
     } else {
         // No alignment found
         SeResult {
-            tm1: 0.0, tm2: 0.0, tm3: 0.0, tm4: 0.0, tm5: 0.0,
-            d0a: 0.0, d0b: 0.0, d0u: 0.0, d0a_avg: 0.0, d0_out: 5.0,
-            rmsd: 0.0, n_ali: 0, n_ali8: 0, liden: 0.0,
-            tm_ali: 0.0, rmsd_ali: 0.0,
+            tm1: 0.0,
+            tm2: 0.0,
+            tm3: 0.0,
+            tm4: 0.0,
+            tm5: 0.0,
+            d0a: 0.0,
+            d0b: 0.0,
+            d0u: 0.0,
+            d0a_avg: 0.0,
+            d0_out: 5.0,
+            rmsd: 0.0,
+            n_ali: 0,
+            n_ali8: 0,
+            liden: 0.0,
+            tm_ali: 0.0,
+            rmsd_ali: 0.0,
             invmap: vec![-1; ylen],
-            seq_x_aligned: String::new(), seq_y_aligned: String::new(),
-            seq_m: String::new(), do_vec: Vec::new(),
+            seq_x_aligned: String::new(),
+            seq_y_aligned: String::new(),
+            seq_m: String::new(),
+            do_vec: Vec::new(),
         }
     };
 
@@ -392,7 +456,7 @@ mod tests {
         let invmap = parse_alignment_into_invmap("AC-DEF", "A-GDEF", 5, 4);
         assert_eq!(invmap.len(), 4);
         assert_eq!(invmap[0], 0); // A-A
-        // G is gapped in x, so invmap[1] = -1
+                                  // G is gapped in x, so invmap[1] = -1
         assert_eq!(invmap[1], -1);
         assert_eq!(invmap[2], 2); // D-D
         assert_eq!(invmap[3], 3); // E-E

@@ -3,7 +3,7 @@
 //! Ported from C++ TMalign (lines 1719-2340, 3787-3855).
 
 use crate::core::kabsch::{kabsch, KabschMode};
-use crate::core::types::{Coord3D, MolType, TMParams, Transform, dist_squared};
+use crate::core::types::{dist_squared, Coord3D, MolType, TMParams, Transform};
 
 /// Result of score_fun8: a filtered set of aligned pair indices and a TM-score.
 pub struct ScoreResult {
@@ -292,14 +292,7 @@ pub fn tmscore8_search_standard(
 
                     if let Some(result) = kabsch(&r1, &r2, KabschMode::RotationOnly) {
                         result.transform.apply_batch(xtm, &mut xt);
-                        let sr = score_fun8_standard(
-                            &xt,
-                            ytm,
-                            d,
-                            score_sum_method,
-                            score_d8,
-                            d0,
-                        );
+                        let sr = score_fun8_standard(&xt, ytm, d, score_sum_method, score_d8, d0);
                         if sr.score > score_max {
                             score_max = sr.score;
                             best_transform = result.transform.clone();
@@ -545,8 +538,7 @@ pub fn standard_tmscore(
     };
 
     // Standard search
-    let (tmscore, transform) =
-        tmscore8_search_standard(&xtm, &ytm, 1, 0, d0, score_d8, d0);
+    let (tmscore, transform) = tmscore8_search_standard(&xtm, &ytm, 1, 0, d0, score_d8, d0);
     let tmscore = tmscore * n_al as f64 / lnorm;
 
     (tmscore, n_al, rmsd, transform)

@@ -137,8 +137,7 @@ pub fn kabsch(x: &[Coord3D], y: &[Coord3D], mode: KabschMode) -> Option<KabschRe
     }
 
     let spur = (rr[0] + rr[2] + rr[5]) / 3.0;
-    let cof = (((((rr[2] * rr[5] - rr[4] * rr[4]) + rr[0] * rr[5])
-        - rr[3] * rr[3])
+    let cof = (((((rr[2] * rr[5] - rr[4] * rr[4]) + rr[0] * rr[5]) - rr[3] * rr[3])
         + rr[0] * rr[2])
         - rr[1] * rr[1])
         / 3.0;
@@ -263,8 +262,7 @@ pub fn kabsch(x: &[Coord3D], y: &[Coord3D], mode: KabschMode) -> Option<KabschRe
             for l in 0..2 {
                 let mut d = 0.0_f64;
                 for i in 0..3 {
-                    b[i][l] =
-                        r[i][0] * a[0][l] + r[i][1] * a[1][l] + r[i][2] * a[2][l];
+                    b[i][l] = r[i][0] * a[0][l] + r[i][1] * a[1][l] + r[i][2] * a[2][l];
                     d += b[i][l] * b[i][l];
                 }
                 if d > epsilon {
@@ -316,16 +314,14 @@ pub fn kabsch(x: &[Coord3D], y: &[Coord3D], mode: KabschMode) -> Option<KabschRe
                 // Compute u
                 for i in 0..3 {
                     for j in 0..3 {
-                        u[i][j] =
-                            b[i][0] * a[j][0] + b[i][1] * a[j][1] + b[i][2] * a[j][2];
+                        u[i][j] = b[i][0] * a[j][0] + b[i][1] * a[j][1] + b[i][2] * a[j][2];
                     }
                 }
             }
 
             // Compute t
             for i in 0..3 {
-                t[i] =
-                    ((yc[i] - u[i][0] * xc[0]) - u[i][1] * xc[1]) - u[i][2] * xc[2];
+                t[i] = ((yc[i] - u[i][0] * xc[0]) - u[i][1] * xc[1]) - u[i][2] * xc[2];
             }
         }
     } else {

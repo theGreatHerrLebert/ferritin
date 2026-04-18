@@ -34,16 +34,14 @@ fn permissive_options() -> pdbtbx::ReadOptions {
 ///     PyPDB: The parsed structure.
 #[pyfunction]
 pub fn load(path: &str) -> PyResult<PyPDB> {
-    let (pdb, _errors) = permissive_options()
-        .read(path)
-        .map_err(|errs| {
-            let msg = errs
-                .iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("; ");
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to read {path}: {msg}"))
-        })?;
+    let (pdb, _errors) = permissive_options().read(path).map_err(|errs| {
+        let msg = errs
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
+        pyo3::exceptions::PyIOError::new_err(format!("Failed to read {path}: {msg}"))
+    })?;
     Ok(PyPDB::from_inner(pdb))
 }
 
@@ -53,16 +51,14 @@ pub fn load_pdb(path: &str) -> PyResult<PyPDB> {
     let mut opts = permissive_options();
     opts.set_format(pdbtbx::Format::Pdb);
 
-    let (pdb, _errors) = opts
-        .read(path)
-        .map_err(|errs| {
-            let msg = errs
-                .iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("; ");
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to read {path}: {msg}"))
-        })?;
+    let (pdb, _errors) = opts.read(path).map_err(|errs| {
+        let msg = errs
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
+        pyo3::exceptions::PyIOError::new_err(format!("Failed to read {path}: {msg}"))
+    })?;
     Ok(PyPDB::from_inner(pdb))
 }
 
@@ -72,16 +68,14 @@ pub fn load_mmcif(path: &str) -> PyResult<PyPDB> {
     let mut opts = permissive_options();
     opts.set_format(pdbtbx::Format::Mmcif);
 
-    let (pdb, _errors) = opts
-        .read(path)
-        .map_err(|errs| {
-            let msg = errs
-                .iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("; ");
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to read {path}: {msg}"))
-        })?;
+    let (pdb, _errors) = opts.read(path).map_err(|errs| {
+        let msg = errs
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
+        pyo3::exceptions::PyIOError::new_err(format!("Failed to read {path}: {msg}"))
+    })?;
     Ok(PyPDB::from_inner(pdb))
 }
 
@@ -182,25 +176,19 @@ pub fn batch_load(
 
     let results: Vec<Result<pdbtbx::PDB, String>> = py.allow_threads(|| {
         let pool = build_pool(n);
-        pool.install(|| {
-            path_strs
-                .par_iter()
-                .map(|p| load_one(p))
-                .collect()
-        })
+        pool.install(|| path_strs.par_iter().map(|p| load_one(p)).collect())
     });
 
     results
         .into_iter()
         .enumerate()
         .map(|(i, r)| {
-            r.map(PyPDB::from_inner)
-                .map_err(|e| {
-                    pyo3::exceptions::PyIOError::new_err(format!(
-                        "Failed to read {}: {e}",
-                        path_strs[i]
-                    ))
-                })
+            r.map(PyPDB::from_inner).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!(
+                    "Failed to read {}: {e}",
+                    path_strs[i]
+                ))
+            })
         })
         .collect()
 }
@@ -230,12 +218,7 @@ pub fn batch_load_tolerant(
 
     let results: Vec<Result<pdbtbx::PDB, String>> = py.allow_threads(|| {
         let pool = build_pool(n);
-        pool.install(|| {
-            path_strs
-                .par_iter()
-                .map(|p| load_one(p))
-                .collect()
-        })
+        pool.install(|| path_strs.par_iter().map(|p| load_one(p)).collect())
     });
 
     Ok(results

@@ -96,9 +96,7 @@ pub fn cpalign(
         }
 
         // Full TM-align on CP-rotated structure
-        let mut result = tmalign(
-            &xa_final, ya, &seqx_final, seqy, &secx_final, secy, opts,
-        )?;
+        let mut result = tmalign(&xa_final, ya, &seqx_final, seqy, &secx_final, secy, opts)?;
 
         // Insert CP marker '*' in alignment
         let aln_x_chars: Vec<char> = result.aligned_seq_x.chars().collect();

@@ -38,7 +38,10 @@ impl Alphabet {
             // uppercase and lowercase point at the same index
             aa_to_index[(c as char).to_ascii_lowercase() as usize] = i as u8;
         }
-        Self { letters: letters.to_vec(), aa_to_index }
+        Self {
+            letters: letters.to_vec(),
+            aa_to_index,
+        }
     }
 
     /// Standard protein alphabet with ambiguous-AA folding matching upstream.

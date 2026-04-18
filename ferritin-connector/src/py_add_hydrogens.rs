@@ -62,7 +62,9 @@ fn apply_coords_to_pdb<F: crate::forcefield::params::ForceField + ?Sized>(
                     .or_else(|| residue.conformers().next())
                     .map(|c| c.alternative_location().map(str::to_string))
             };
-            let Some(target_alt) = primary_alt else { continue };
+            let Some(target_alt) = primary_alt else {
+                continue;
+            };
 
             for conformer in residue.conformers_mut() {
                 let matches = match (conformer.alternative_location(), target_alt.as_deref()) {
@@ -90,7 +92,8 @@ fn apply_coords_to_pdb<F: crate::forcefield::params::ForceField + ?Sized>(
                     assert!(
                         idx < coords.len(),
                         "apply_coords_to_pdb: coord array too short ({} coords, atom index {})",
-                        coords.len(), idx,
+                        coords.len(),
+                        idx,
                     );
                     atom.set_pos((coords[idx][0], coords[idx][1], coords[idx][2]))
                         .expect("apply_coords_to_pdb: invalid coordinates (NaN/Inf)");
@@ -101,9 +104,11 @@ fn apply_coords_to_pdb<F: crate::forcefield::params::ForceField + ?Sized>(
         }
     }
     assert_eq!(
-        idx, coords.len(),
+        idx,
+        coords.len(),
         "apply_coords_to_pdb: coord array length ({}) != atom count ({})",
-        coords.len(), idx,
+        coords.len(),
+        idx,
     );
 }
 
@@ -199,9 +204,8 @@ pub fn place_sidechain_hydrogens(
     pdb: &mut PyPDB,
     polar_only: bool,
 ) -> (usize, usize) {
-    let result = py.allow_threads(|| {
-        add_hydrogens::place_sidechain_hydrogens(&mut pdb.inner, polar_only)
-    });
+    let result =
+        py.allow_threads(|| add_hydrogens::place_sidechain_hydrogens(&mut pdb.inner, polar_only));
     (result.added, result.skipped)
 }
 
@@ -214,14 +218,9 @@ pub fn place_sidechain_hydrogens(
 /// the sidechain (backbone amide is always placed). Use for CHARMM19.
 #[pyfunction]
 #[pyo3(signature = (pdb, polar_only=false))]
-pub fn place_all_hydrogens(
-    py: Python<'_>,
-    pdb: &mut PyPDB,
-    polar_only: bool,
-) -> (usize, usize) {
-    let result = py.allow_threads(|| {
-        add_hydrogens::place_all_hydrogens(&mut pdb.inner, polar_only)
-    });
+pub fn place_all_hydrogens(py: Python<'_>, pdb: &mut PyPDB, polar_only: bool) -> (usize, usize) {
+    let result =
+        py.allow_threads(|| add_hydrogens::place_all_hydrogens(&mut pdb.inner, polar_only));
     (result.added, result.skipped)
 }
 
@@ -237,8 +236,13 @@ pub fn place_all_hydrogens(
 /// Returns (n_added, n_skipped).
 #[pyfunction]
 #[pyo3(signature = (pdb, include_water=false))]
-pub fn place_general_hydrogens(py: Python<'_>, pdb: &mut PyPDB, include_water: bool) -> (usize, usize) {
-    let result = py.allow_threads(|| add_hydrogens::place_general_hydrogens(&mut pdb.inner, include_water));
+pub fn place_general_hydrogens(
+    py: Python<'_>,
+    pdb: &mut PyPDB,
+    include_water: bool,
+) -> (usize, usize) {
+    let result =
+        py.allow_threads(|| add_hydrogens::place_general_hydrogens(&mut pdb.inner, include_water));
     (result.added, result.skipped)
 }
 
@@ -395,9 +399,19 @@ pub fn batch_prepare(
             // Default for AMBER96: freeze heavy atoms (H-only min).
             let constrain_heavy = constrain_heavy.unwrap_or(true);
             batch_prepare_inner(
-                py, structures, reconstruct, hydrogens, include_water, minimize,
-                minimize_method, minimize_steps, gradient_tolerance, n_threads,
-                strip_hydrogens, &params, constrain_heavy,
+                py,
+                structures,
+                reconstruct,
+                hydrogens,
+                include_water,
+                minimize,
+                minimize_method,
+                minimize_steps,
+                gradient_tolerance,
+                n_threads,
+                strip_hydrogens,
+                &params,
+                constrain_heavy,
             )?
         }
         "charmm" | "charmm19" | "charmm19_eef1" => {
@@ -406,9 +420,19 @@ pub fn batch_prepare(
             // relax against the united-atom inflated carbon radii.
             let constrain_heavy = constrain_heavy.unwrap_or(false);
             batch_prepare_inner(
-                py, structures, reconstruct, hydrogens, include_water, minimize,
-                minimize_method, minimize_steps, gradient_tolerance, n_threads,
-                strip_hydrogens, &params, constrain_heavy,
+                py,
+                structures,
+                reconstruct,
+                hydrogens,
+                include_water,
+                minimize,
+                minimize_method,
+                minimize_steps,
+                gradient_tolerance,
+                n_threads,
+                strip_hydrogens,
+                &params,
+                constrain_heavy,
             )?
         }
         _ => {
@@ -424,7 +448,8 @@ pub fn batch_prepare(
         .into_iter()
         .map(|r| {
             let dict = pyo3::types::PyDict::new(py);
-            dict.set_item("atoms_reconstructed", r.reconstructed).unwrap();
+            dict.set_item("atoms_reconstructed", r.reconstructed)
+                .unwrap();
             dict.set_item("hydrogens_added", r.h_added).unwrap();
             dict.set_item("hydrogens_skipped", r.h_skipped).unwrap();
             dict.set_item("initial_energy", r.init_e).unwrap();
@@ -432,16 +457,21 @@ pub fn batch_prepare(
             dict.set_item("minimizer_steps", r.steps).unwrap();
             dict.set_item("converged", r.converged).unwrap();
             dict.set_item("n_unassigned_atoms", r.n_unassigned).unwrap();
-            dict.set_item("skipped_no_protein", r.skipped_no_protein).unwrap();
+            dict.set_item("skipped_no_protein", r.skipped_no_protein)
+                .unwrap();
             // Component breakdown at the post-minimization geometry (all
             // zero if minimize=False or skipped_no_protein).
             let components = pyo3::types::PyDict::new(py);
             components.set_item("bond_stretch", r.bond_stretch).unwrap();
             components.set_item("angle_bend", r.angle_bend).unwrap();
             components.set_item("torsion", r.torsion).unwrap();
-            components.set_item("improper_torsion", r.improper_torsion).unwrap();
+            components
+                .set_item("improper_torsion", r.improper_torsion)
+                .unwrap();
             components.set_item("vdw", r.vdw).unwrap();
-            components.set_item("electrostatic", r.electrostatic).unwrap();
+            components
+                .set_item("electrostatic", r.electrostatic)
+                .unwrap();
             components.set_item("solvation", r.solvation).unwrap();
             dict.set_item("components", components).unwrap();
             dict.into_any().unbind()
@@ -596,7 +626,8 @@ where
 
                         // Minimize H positions and apply coords back to PDB
                         let has_any_h = crate::altloc::pdb_atoms_primary(pdb).any(|a| {
-                            a.element().map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")
+                            a.element()
+                                .map_or(false, |e| e.symbol() == "H" || e.symbol() == "D")
                         });
                         if !skipped_no_protein && minimize && (h_added > 0 || has_any_h) {
                             let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
@@ -611,11 +642,29 @@ where
                             };
                             let result = match method.as_str() {
                                 "cg" => crate::forcefield::minimize::conjugate_gradient(
-                                    &coords, &topo, ff, minimize_steps, gradient_tolerance, &constrained),
+                                    &coords,
+                                    &topo,
+                                    ff,
+                                    minimize_steps,
+                                    gradient_tolerance,
+                                    &constrained,
+                                ),
                                 "lbfgs" => crate::forcefield::minimize::lbfgs(
-                                    &coords, &topo, ff, minimize_steps, gradient_tolerance, &constrained),
+                                    &coords,
+                                    &topo,
+                                    ff,
+                                    minimize_steps,
+                                    gradient_tolerance,
+                                    &constrained,
+                                ),
                                 _ => crate::forcefield::minimize::steepest_descent(
-                                    &coords, &topo, ff, minimize_steps, gradient_tolerance, &constrained),
+                                    &coords,
+                                    &topo,
+                                    ff,
+                                    minimize_steps,
+                                    gradient_tolerance,
+                                    &constrained,
+                                ),
                             };
                             apply_coords_to_pdb(pdb, &result.coords, ff);
                             out.init_e = result.initial_energy;

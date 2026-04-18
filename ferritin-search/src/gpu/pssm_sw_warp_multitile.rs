@@ -27,8 +27,8 @@ use crate::pssm::Pssm;
 const KERNEL_SRC: &str = include_str!("pssm_sw_warp_multitile.cu");
 const KERNEL_NAME: &str = "pssm_sw_warp_multitile_batch";
 
-pub const TILE_SIZE: usize = GROUPSIZE * NUM_ITEMS;   // 256 rows per tile
-pub const MAX_MULTITILE_TILES: usize = 8;             // up to 2048-residue queries
+pub const TILE_SIZE: usize = GROUPSIZE * NUM_ITEMS; // 256 rows per tile
+pub const MAX_MULTITILE_TILES: usize = 8; // up to 2048-residue queries
 pub const MAX_QUERY_LEN: usize = TILE_SIZE * MAX_MULTITILE_TILES;
 
 const WARPS_PER_BLOCK: u32 = 4;
@@ -147,8 +147,7 @@ pub fn pssm_sw_warp_multitile_batch_gpu(
 
     let kernel = PssmSwWarpMultitileKernel::try_global()
         .ok_or_else(|| anyhow!("GPU pssm_sw_warp_multitile kernel unavailable"))?;
-    let ctx = GpuContext::try_global()
-        .ok_or_else(|| anyhow!("GPU context unavailable"))?;
+    let ctx = GpuContext::try_global().ok_or_else(|| anyhow!("GPU context unavailable"))?;
     let stream = ctx.cuda_context().new_stream()?;
 
     // Flatten targets + per-pair offset/length.
@@ -290,21 +289,18 @@ mod tests {
         let targets_owned: Vec<Vec<u8>> = (0..64)
             .map(|_| {
                 let len = 50 + (next() as usize % 250);
-                (0..len).map(|_| (next() % alphabet_size as u32) as u8).collect()
+                (0..len)
+                    .map(|_| (next() % alphabet_size as u32) as u8)
+                    .collect()
             })
             .collect();
-        let targets: Vec<&[u8]> =
-            targets_owned.iter().map(|v| v.as_slice()).collect();
+        let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
 
-        let gpu_results = pssm_sw_warp_multitile_batch_gpu(
-            &pssm, &targets, gap_open, gap_extend,
-        )
-        .expect("multitile dispatch failed");
+        let gpu_results = pssm_sw_warp_multitile_batch_gpu(&pssm, &targets, gap_open, gap_extend)
+            .expect("multitile dispatch failed");
 
         for (i, target) in targets.iter().enumerate() {
-            let cpu = smith_waterman(
-                &query, target, &scores, alphabet_size, gap_open, gap_extend,
-            );
+            let cpu = smith_waterman(&query, target, &scores, alphabet_size, gap_open, gap_extend);
             let cpu_score = cpu.as_ref().map(|a| a.score).unwrap_or(0);
             assert_eq!(
                 gpu_results[i].score, cpu_score,
@@ -342,21 +338,18 @@ mod tests {
         let targets_owned: Vec<Vec<u8>> = (0..32)
             .map(|_| {
                 let len = 100 + (next() as usize % 800);
-                (0..len).map(|_| (next() % alphabet_size as u32) as u8).collect()
+                (0..len)
+                    .map(|_| (next() % alphabet_size as u32) as u8)
+                    .collect()
             })
             .collect();
-        let targets: Vec<&[u8]> =
-            targets_owned.iter().map(|v| v.as_slice()).collect();
+        let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
 
-        let gpu_results = pssm_sw_warp_multitile_batch_gpu(
-            &pssm, &targets, gap_open, gap_extend,
-        )
-        .expect("multitile dispatch failed");
+        let gpu_results = pssm_sw_warp_multitile_batch_gpu(&pssm, &targets, gap_open, gap_extend)
+            .expect("multitile dispatch failed");
 
         for (i, target) in targets.iter().enumerate() {
-            let cpu = smith_waterman(
-                &query, target, &scores, alphabet_size, gap_open, gap_extend,
-            );
+            let cpu = smith_waterman(&query, target, &scores, alphabet_size, gap_open, gap_extend);
             let cpu_score = cpu.as_ref().map(|a| a.score).unwrap_or(0);
             assert_eq!(
                 gpu_results[i].score, cpu_score,
@@ -396,14 +389,11 @@ mod tests {
         let targets_owned = vec![t_full, t_partial, t_longer, t_unrelated];
         let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
 
-        let gpu_results =
-            pssm_sw_warp_multitile_batch_gpu(&pssm, &targets, gap_open, gap_extend)
-                .expect("multitile dispatch failed");
+        let gpu_results = pssm_sw_warp_multitile_batch_gpu(&pssm, &targets, gap_open, gap_extend)
+            .expect("multitile dispatch failed");
 
         for (i, target) in targets.iter().enumerate() {
-            let cpu = smith_waterman(
-                &query, target, &scores, alphabet_size, gap_open, gap_extend,
-            );
+            let cpu = smith_waterman(&query, target, &scores, alphabet_size, gap_open, gap_extend);
             let cpu_score = cpu.as_ref().map(|a| a.score).unwrap_or(0);
             assert_eq!(
                 gpu_results[i].score, cpu_score,
@@ -441,21 +431,18 @@ mod tests {
         let targets_owned: Vec<Vec<u8>> = (0..16)
             .map(|_| {
                 let len = 50 + (next() as usize % 400);
-                (0..len).map(|_| (next() % alphabet_size as u32) as u8).collect()
+                (0..len)
+                    .map(|_| (next() % alphabet_size as u32) as u8)
+                    .collect()
             })
             .collect();
-        let targets: Vec<&[u8]> =
-            targets_owned.iter().map(|v| v.as_slice()).collect();
+        let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
 
-        let gpu_results = pssm_sw_warp_multitile_batch_gpu(
-            &pssm, &targets, gap_open, gap_extend,
-        )
-        .expect("multitile dispatch failed");
+        let gpu_results = pssm_sw_warp_multitile_batch_gpu(&pssm, &targets, gap_open, gap_extend)
+            .expect("multitile dispatch failed");
 
         for (i, target) in targets.iter().enumerate() {
-            let cpu = smith_waterman(
-                &query, target, &scores, alphabet_size, gap_open, gap_extend,
-            );
+            let cpu = smith_waterman(&query, target, &scores, alphabet_size, gap_open, gap_extend);
             let cpu_score = cpu.as_ref().map(|a| a.score).unwrap_or(0);
             assert_eq!(
                 gpu_results[i].score, cpu_score,
@@ -473,12 +460,9 @@ mod tests {
     fn empty_target_list_returns_empty_vec_without_dispatch() {
         let alphabet_size = 4;
         let scores = identity_matrix(alphabet_size, 3, -2);
-        let query: Vec<u8> = (0..300)
-            .map(|i| (i % alphabet_size) as u8)
-            .collect();
+        let query: Vec<u8> = (0..300).map(|i| (i % alphabet_size) as u8).collect();
         let pssm = Pssm::build(&query, &scores, alphabet_size);
-        let result =
-            pssm_sw_warp_multitile_batch_gpu(&pssm, &[], -5, -1).expect("ok");
+        let result = pssm_sw_warp_multitile_batch_gpu(&pssm, &[], -5, -1).expect("ok");
         assert!(result.is_empty());
     }
 

@@ -18,10 +18,13 @@ impl PyStructureData {
     #[getter]
     fn coords<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let n = self.inner.coords.len();
-        let flat: Vec<f64> = self.inner.coords.iter().flat_map(|c| c.iter().copied()).collect();
-        numpy::PyArray1::from_vec(py, flat)
-            .reshape([n, 3])
-            .unwrap()
+        let flat: Vec<f64> = self
+            .inner
+            .coords
+            .iter()
+            .flat_map(|c| c.iter().copied())
+            .collect();
+        numpy::PyArray1::from_vec(py, flat).reshape([n, 3]).unwrap()
     }
 
     /// One-letter sequence string.

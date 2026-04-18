@@ -27,16 +27,17 @@ fn parse_radii(radii: &str) -> PyResult<sasa::RadiiSet> {
     match radii.to_lowercase().as_str() {
         "protor" | "naccess" | "freesasa" => Ok(sasa::RadiiSet::ProtOr),
         "bondi" => Ok(sasa::RadiiSet::Bondi),
-        _ => Err(pyo3::exceptions::PyValueError::new_err(
-            format!("Unknown radii set '{}'. Use 'bondi' or 'protor'.", radii)
-        )),
+        _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Unknown radii set '{}'. Use 'bondi' or 'protor'.",
+            radii
+        ))),
     }
 }
 
 fn validate_n_points(n_points: usize) -> PyResult<()> {
     if n_points == 0 {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "n_points must be > 0"
+            "n_points must be > 0",
         ));
     }
     Ok(())
@@ -59,12 +60,8 @@ fn extract_radii(pdb: &pdbtbx::PDB, radii_set: sasa::RadiiSet) -> (Vec<[f64; 3]>
                 coords.push([x, y, z]);
                 let elem = atom.element().map(|e| e.symbol()).unwrap_or("");
                 let r = match radii_set {
-                    sasa::RadiiSet::Bondi => {
-                        sasa::vdw_radius(elem).unwrap_or(sasa::DEFAULT_RADIUS)
-                    }
-                    sasa::RadiiSet::ProtOr => {
-                        sasa::protor_radius(atom.name(), res_name, elem)
-                    }
+                    sasa::RadiiSet::Bondi => sasa::vdw_radius(elem).unwrap_or(sasa::DEFAULT_RADIUS),
+                    sasa::RadiiSet::ProtOr => sasa::protor_radius(atom.name(), res_name, elem),
                 };
                 radii.push(r);
             }
@@ -116,8 +113,7 @@ pub fn residue_sasa<'py>(
 ) -> PyResult<Bound<'py, PyArray1<f64>>> {
     validate_n_points(n_points)?;
     let rs = parse_radii(radii)?;
-    let atom_areas =
-        py.allow_threads(|| sasa::sasa_from_pdb(&pdb.inner, probe, n_points, rs));
+    let atom_areas = py.allow_threads(|| sasa::sasa_from_pdb(&pdb.inner, probe, n_points, rs));
     let res_areas = sasa::residue_sasa(&pdb.inner, &atom_areas);
     Ok(res_areas.into_pyarray(py))
 }
@@ -140,8 +136,7 @@ pub fn relative_sasa<'py>(
 ) -> PyResult<Bound<'py, PyArray1<f64>>> {
     validate_n_points(n_points)?;
     let rs = parse_radii(radii)?;
-    let atom_areas =
-        py.allow_threads(|| sasa::sasa_from_pdb(&pdb.inner, probe, n_points, rs));
+    let atom_areas = py.allow_threads(|| sasa::sasa_from_pdb(&pdb.inner, probe, n_points, rs));
     let res_areas = sasa::residue_sasa(&pdb.inner, &atom_areas);
 
     let mut rsa = Vec::with_capacity(res_areas.len());
@@ -277,14 +272,12 @@ fn permissive_load(path: &str) -> Result<pdbtbx::PDB, String> {
     opts.set_level(pdbtbx::StrictnessLevel::Loose)
         .set_parsing_level(&parsing);
 
-    opts.read(path)
-        .map(|(pdb, _)| pdb)
-        .map_err(|errs| {
-            errs.iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("; ")
-        })
+    opts.read(path).map(|(pdb, _)| pdb).map_err(|errs| {
+        errs.iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("; ")
+    })
 }
 
 /// Load files and compute total SASA in one parallel call.

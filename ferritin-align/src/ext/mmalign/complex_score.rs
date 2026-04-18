@@ -3,7 +3,7 @@
 //! Ported from C++ USAlign `MMalign.h`: `calculate_centroids`, `calMMscore`.
 
 use crate::core::kabsch::{kabsch, KabschMode};
-use crate::core::types::{Coord3D, dist_squared};
+use crate::core::types::{dist_squared, Coord3D};
 
 /// Calculate the centroid (center of mass) of each chain.
 ///

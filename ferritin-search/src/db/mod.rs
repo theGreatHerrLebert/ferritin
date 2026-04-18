@@ -31,7 +31,11 @@ pub enum DbError {
     #[error("malformed source line: {0}")]
     BadSourceLine(String),
     #[error("index offset {offset} + length {length} exceeds data blob size {data_size}")]
-    OutOfBounds { offset: u64, length: u64, data_size: u64 },
+    OutOfBounds {
+        offset: u64,
+        length: u64,
+        data_size: u64,
+    },
     #[error("compressed DB (dbtype bit 31 set) is not supported yet; use an uncompressed DB")]
     CompressedNotSupported,
 }

@@ -42,13 +42,22 @@ pub enum MatrixError {
     #[error("row label '{row}' does not match expected letter '{expected}'")]
     RowLabelMismatch { row: char, expected: char },
     #[error("row '{row}' has {got} scores, expected {expected}")]
-    WrongRowWidth { row: char, got: usize, expected: usize },
+    WrongRowWidth {
+        row: char,
+        got: usize,
+        expected: usize,
+    },
     #[error("non-numeric score '{token}' in row '{row}'")]
     BadScore { row: char, token: String },
     #[error("background frequency count {got} does not match alphabet size {expected}")]
     BackgroundMismatch { got: usize, expected: usize },
-    #[error("matrix header has {header_size} letters but the provided alphabet has {alphabet_size}")]
-    AlphabetSizeMismatch { header_size: usize, alphabet_size: usize },
+    #[error(
+        "matrix header has {header_size} letters but the provided alphabet has {alphabet_size}"
+    )]
+    AlphabetSizeMismatch {
+        header_size: usize,
+        alphabet_size: usize,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, MatrixError>;
@@ -101,7 +110,10 @@ impl SubstitutionMatrix {
 
             // Alphabet header: first non-comment row with only single-letter tokens.
             if alphabet_header.is_none() {
-                if tokens.iter().all(|t| t.len() == 1 && t.as_bytes()[0].is_ascii_alphabetic()) {
+                if tokens
+                    .iter()
+                    .all(|t| t.len() == 1 && t.as_bytes()[0].is_ascii_alphabetic())
+                {
                     alphabet_header = Some(
                         tokens
                             .iter()
@@ -148,7 +160,9 @@ impl SubstitutionMatrix {
 
         let header = alphabet_header.ok_or(MatrixError::MissingAlphabetHeader)?;
         if rows.len() != header.len() {
-            return Err(MatrixError::TruncatedMatrix { expected: header.len() });
+            return Err(MatrixError::TruncatedMatrix {
+                expected: header.len(),
+            });
         }
 
         // Verify row label order matches header column order (upstream files all do).
@@ -196,7 +210,13 @@ impl SubstitutionMatrix {
             }
         }
 
-        Ok(Self { name: name.into(), alphabet, scores, background, lambda })
+        Ok(Self {
+            name: name.into(),
+            alphabet,
+            scores,
+            background,
+            lambda,
+        })
     }
 
     /// Parse an `.out` file from disk.
@@ -315,11 +335,26 @@ mod tests {
         //   X,X=-1.0000
         let m = SubstitutionMatrix::blosum62();
         let expected = [
-            (b'A', 3.9291), (b'C', 8.5821), (b'D', 5.7742), (b'E', 4.9028),
-            (b'F', 6.0461), (b'G', 5.5633), (b'H', 7.5111), (b'I', 3.9985),
-            (b'K', 4.5046), (b'L', 3.8494), (b'M', 5.3926), (b'N', 5.6532),
-            (b'P', 7.3646), (b'Q', 5.2851), (b'R', 5.4735), (b'S', 3.8844),
-            (b'T', 4.5453), (b'V', 3.7689), (b'W', 10.5040), (b'Y', 6.5950),
+            (b'A', 3.9291),
+            (b'C', 8.5821),
+            (b'D', 5.7742),
+            (b'E', 4.9028),
+            (b'F', 6.0461),
+            (b'G', 5.5633),
+            (b'H', 7.5111),
+            (b'I', 3.9985),
+            (b'K', 4.5046),
+            (b'L', 3.8494),
+            (b'M', 5.3926),
+            (b'N', 5.6532),
+            (b'P', 7.3646),
+            (b'Q', 5.2851),
+            (b'R', 5.4735),
+            (b'S', 3.8844),
+            (b'T', 4.5453),
+            (b'V', 3.7689),
+            (b'W', 10.5040),
+            (b'Y', 6.5950),
             (b'X', -1.0000),
         ];
         for (c, want) in expected {
@@ -426,7 +461,10 @@ mod tests {
         let err = SubstitutionMatrix::parse("blosum62", Alphabet::nucleotide(), BLOSUM62_OUT)
             .expect_err("should fail with structured error");
         match err {
-            MatrixError::AlphabetSizeMismatch { header_size, alphabet_size } => {
+            MatrixError::AlphabetSizeMismatch {
+                header_size,
+                alphabet_size,
+            } => {
                 assert_eq!(header_size, 21);
                 assert_eq!(alphabet_size, 5);
             }

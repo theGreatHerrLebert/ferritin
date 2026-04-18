@@ -50,11 +50,26 @@ fn output_full<W: Write>(
 ) -> std::io::Result<()> {
     if show_version {
         writeln!(w)?;
-        writeln!(w, " **************************************************************************")?;
-        writeln!(w, " *                        TM-align (Rust)                                 *")?;
-        writeln!(w, " * An algorithm for protein structure alignment and comparison             *")?;
-        writeln!(w, " * Based on: Y Zhang, J Skolnick. Nucl Acids Res 33, 2302-9 (2005)       *")?;
-        writeln!(w, " **************************************************************************")?;
+        writeln!(
+            w,
+            " **************************************************************************"
+        )?;
+        writeln!(
+            w,
+            " *                        TM-align (Rust)                                 *"
+        )?;
+        writeln!(
+            w,
+            " * An algorithm for protein structure alignment and comparison             *"
+        )?;
+        writeln!(
+            w,
+            " * Based on: Y Zhang, J Skolnick. Nucl Acids Res 33, 2302-9 (2005)       *"
+        )?;
+        writeln!(
+            w,
+            " **************************************************************************"
+        )?;
     }
     writeln!(w)?;
     writeln!(
@@ -148,16 +163,16 @@ fn output_full<W: Write>(
     Ok(())
 }
 
-fn output_fasta<W: Write>(
-    w: &mut W,
-    r: &AlignResult,
-    o: &OutputOptions,
-) -> std::io::Result<()> {
+fn output_fasta<W: Write>(w: &mut W, r: &AlignResult, o: &OutputOptions) -> std::io::Result<()> {
     writeln!(
         w,
         ">{}{}\tL={}\td0={:.2}\tseqID={:.3}\tTM-score={:.5}",
         o.xname,
-        if o.chain_id1.is_empty() { String::new() } else { format!(":{}", o.chain_id1) },
+        if o.chain_id1.is_empty() {
+            String::new()
+        } else {
+            format!(":{}", o.chain_id1)
+        },
         o.xlen,
         r.d0b,
         if o.xlen > 0 {
@@ -172,7 +187,11 @@ fn output_fasta<W: Write>(
         w,
         ">{}{}\tL={}\td0={:.2}\tseqID={:.3}\tTM-score={:.5}",
         o.yname,
-        if o.chain_id2.is_empty() { String::new() } else { format!(":{}", o.chain_id2) },
+        if o.chain_id2.is_empty() {
+            String::new()
+        } else {
+            format!(":{}", o.chain_id2)
+        },
         o.ylen,
         r.d0a,
         if o.ylen > 0 {
@@ -193,18 +212,22 @@ fn output_fasta<W: Write>(
     Ok(())
 }
 
-fn output_tabular<W: Write>(
-    w: &mut W,
-    r: &AlignResult,
-    o: &OutputOptions,
-) -> std::io::Result<()> {
+fn output_tabular<W: Write>(w: &mut W, r: &AlignResult, o: &OutputOptions) -> std::io::Result<()> {
     writeln!(
         w,
         "{}{}\t{}{}\t{:.4}\t{:.4}\t{:.2}\t{:.3}\t{:.3}\t{:.3}\t{}\t{}\t{}",
         o.xname,
-        if o.chain_id1.is_empty() { String::new() } else { format!(":{}", o.chain_id1) },
+        if o.chain_id1.is_empty() {
+            String::new()
+        } else {
+            format!(":{}", o.chain_id1)
+        },
         o.yname,
-        if o.chain_id2.is_empty() { String::new() } else { format!(":{}", o.chain_id2) },
+        if o.chain_id2.is_empty() {
+            String::new()
+        } else {
+            format!(":{}", o.chain_id2)
+        },
         r.tm_score_chain2,
         r.tm_score_chain1,
         r.rmsd,
@@ -226,11 +249,11 @@ fn output_tabular<W: Write>(
 }
 
 /// Write rotation matrix to a file.
-pub fn output_rotation_matrix<W: Write>(
-    w: &mut W,
-    result: &AlignResult,
-) -> std::io::Result<()> {
-    writeln!(w, "------ The rotation matrix to rotate Chain_1 to Chain_2 ------")?;
+pub fn output_rotation_matrix<W: Write>(w: &mut W, result: &AlignResult) -> std::io::Result<()> {
+    writeln!(
+        w,
+        "------ The rotation matrix to rotate Chain_1 to Chain_2 ------"
+    )?;
     writeln!(
         w,
         "m               t[m]            u[m][0]         u[m][1]         u[m][2]"
@@ -250,9 +273,18 @@ pub fn output_rotation_matrix<W: Write>(
     writeln!(w, "Code for rotating Structure A from (x,y,z) to (X,Y,Z):")?;
     writeln!(w, "for(i=0; i<L; i++)")?;
     writeln!(w, "{{")?;
-    writeln!(w, "  X[i] = t[0] + u[0][0]*x[i] + u[0][1]*y[i] + u[0][2]*z[i];")?;
-    writeln!(w, "  Y[i] = t[1] + u[1][0]*x[i] + u[1][1]*y[i] + u[1][2]*z[i];")?;
-    writeln!(w, "  Z[i] = t[2] + u[2][0]*x[i] + u[2][1]*y[i] + u[2][2]*z[i];")?;
+    writeln!(
+        w,
+        "  X[i] = t[0] + u[0][0]*x[i] + u[0][1]*y[i] + u[0][2]*z[i];"
+    )?;
+    writeln!(
+        w,
+        "  Y[i] = t[1] + u[1][0]*x[i] + u[1][1]*y[i] + u[1][2]*z[i];"
+    )?;
+    writeln!(
+        w,
+        "  Z[i] = t[2] + u[2][0]*x[i] + u[2][1]*y[i] + u[2][2]*z[i];"
+    )?;
     writeln!(w, "}}")?;
 
     Ok(())

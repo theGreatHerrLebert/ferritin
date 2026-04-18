@@ -57,9 +57,7 @@ pub enum PssmSwWarpDispatchError {
          fall back to pssm_sw or the (future) multitile variant"
     )]
     QueryTooLong { query_len: usize, max: usize },
-    #[error(
-        "PSSM size {pssm_bytes} bytes exceeds shared-memory budget {limit_bytes}"
-    )]
+    #[error("PSSM size {pssm_bytes} bytes exceeds shared-memory budget {limit_bytes}")]
     PssmTooLargeForSharedMem {
         pssm_bytes: usize,
         limit_bytes: usize,
@@ -148,8 +146,7 @@ pub fn pssm_sw_warp_batch_gpu(
 
     let kernel = PssmSwWarpKernel::try_global()
         .ok_or_else(|| anyhow!("GPU pssm_sw_warp kernel unavailable"))?;
-    let ctx = GpuContext::try_global()
-        .ok_or_else(|| anyhow!("GPU context unavailable"))?;
+    let ctx = GpuContext::try_global().ok_or_else(|| anyhow!("GPU context unavailable"))?;
     let stream = ctx.cuda_context().new_stream()?;
 
     // Flatten targets into one byte buffer with per-pair offset + length.
@@ -262,7 +259,12 @@ mod tests {
         let t_short: Vec<u8> = vec![1, 2];
         let t_long: Vec<u8> = vec![0, 1, 2, 3, 0, 1, 2, 3, 0, 1];
         let targets_owned: Vec<Vec<u8>> = vec![
-            t_full, t_query_insert, t_target_insert, t_unrelated, t_short, t_long,
+            t_full,
+            t_query_insert,
+            t_target_insert,
+            t_unrelated,
+            t_short,
+            t_long,
         ];
         let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
 
@@ -333,7 +335,9 @@ mod tests {
         let targets_owned: Vec<Vec<u8>> = (0..200)
             .map(|_| {
                 let len = 10 + (next() as usize % 50);
-                (0..len).map(|_| (next() % alphabet_size as u32) as u8).collect()
+                (0..len)
+                    .map(|_| (next() % alphabet_size as u32) as u8)
+                    .collect()
             })
             .collect();
         let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
@@ -342,14 +346,7 @@ mod tests {
             .expect("warp dispatch failed");
 
         for (i, target) in targets.iter().enumerate() {
-            let cpu = smith_waterman(
-                &query,
-                target,
-                &scores,
-                alphabet_size,
-                gap_open,
-                gap_extend,
-            );
+            let cpu = smith_waterman(&query, target, &scores, alphabet_size, gap_open, gap_extend);
             let cpu_score = cpu.as_ref().map(|a| a.score).unwrap_or(0);
             assert_eq!(
                 warp_results[i].score, cpu_score,
@@ -394,7 +391,9 @@ mod tests {
         let targets_owned: Vec<Vec<u8>> = (0..32)
             .map(|_| {
                 let len = 50 + (next() as usize % 250);
-                (0..len).map(|_| (next() % alphabet_size as u32) as u8).collect()
+                (0..len)
+                    .map(|_| (next() % alphabet_size as u32) as u8)
+                    .collect()
             })
             .collect();
         let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
@@ -403,14 +402,7 @@ mod tests {
             .expect("warp dispatch failed");
 
         for (i, target) in targets.iter().enumerate() {
-            let cpu = smith_waterman(
-                &query,
-                target,
-                &scores,
-                alphabet_size,
-                gap_open,
-                gap_extend,
-            );
+            let cpu = smith_waterman(&query, target, &scores, alphabet_size, gap_open, gap_extend);
             let cpu_score = cpu.as_ref().map(|a| a.score).unwrap_or(0);
             assert_eq!(
                 warp_results[i].score, cpu_score,

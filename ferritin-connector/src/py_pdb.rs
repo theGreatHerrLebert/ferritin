@@ -14,9 +14,8 @@ use numpy::{IntoPyArray, PyArrayMethods};
 use pyo3::prelude::*;
 
 use crate::altloc::{
-    chain_atom_count_primary, model_atom_count_primary, pdb_atom_count_primary,
-    pdb_atoms_primary, pdb_total_atom_count_primary, residue_atom_count_primary,
-    residue_atoms_primary,
+    chain_atom_count_primary, model_atom_count_primary, pdb_atom_count_primary, pdb_atoms_primary,
+    pdb_total_atom_count_primary, residue_atom_count_primary, residue_atoms_primary,
 };
 
 // ---------------------------------------------------------------------------
@@ -135,9 +134,7 @@ impl PyAtom {
             "Atom(name='{}', serial={}, element={}, pos=({:.3}, {:.3}, {:.3}))",
             self.inner.name(),
             self.inner.serial_number(),
-            self.inner
-                .element()
-                .map_or("?", |e| e.symbol()),
+            self.inner.element().map_or("?", |e| e.symbol()),
             self.inner.x(),
             self.inner.y(),
             self.inner.z(),
@@ -223,16 +220,9 @@ impl PyResidue {
     /// primary conformer per residue so the Python view is consistent.
     #[getter]
     fn atoms(&self) -> Vec<PyAtom> {
-        let res_name = self
-            .inner
-            .name()
-            .unwrap_or("")
-            .to_string();
+        let res_name = self.inner.name().unwrap_or("").to_string();
         let serial = self.inner.serial_number();
-        let ins = self
-            .inner
-            .insertion_code()
-            .map(|s| s.to_string());
+        let ins = self.inner.insertion_code().map(|s| s.to_string());
 
         residue_atoms_primary(&self.inner)
             .map(|a| PyAtom {
@@ -597,10 +587,7 @@ impl PyPDB {
 
     /// Residue serial number for each atom.
     #[getter]
-    fn residue_serial_numbers<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> Bound<'py, numpy::PyArray1<i64>> {
+    fn residue_serial_numbers<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1<i64>> {
         let vals: Vec<i64> = self
             .inner
             .chains()
@@ -622,11 +609,7 @@ impl PyPDB {
     }
 
     fn __repr__(&self) -> String {
-        let id = self
-            .inner
-            .identifier
-            .as_deref()
-            .unwrap_or("unknown");
+        let id = self.inner.identifier.as_deref().unwrap_or("unknown");
         format!(
             "PDB(id='{}', models={}, chains={}, residues={}, atoms={})",
             id,

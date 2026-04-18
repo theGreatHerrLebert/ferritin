@@ -44,7 +44,9 @@ fn v_norm_sq(a: [f64; 3]) -> f64 {
 
 fn v_normalize(a: [f64; 3]) -> [f64; 3] {
     let n = v_norm_sq(a).sqrt();
-    if n < 1e-10 { return [0.0; 3]; }
+    if n < 1e-10 {
+        return [0.0; 3];
+    }
     v_scale(a, 1.0 / n)
 }
 
@@ -84,9 +86,21 @@ fn rotation_180(axis: [f64; 3]) -> Mat3 {
     let a = v_normalize(axis);
     // R = 2 * a*a^T - I
     [
-        [2.0 * a[0] * a[0] - 1.0, 2.0 * a[0] * a[1], 2.0 * a[0] * a[2]],
-        [2.0 * a[1] * a[0], 2.0 * a[1] * a[1] - 1.0, 2.0 * a[1] * a[2]],
-        [2.0 * a[2] * a[0], 2.0 * a[2] * a[1], 2.0 * a[2] * a[2] - 1.0],
+        [
+            2.0 * a[0] * a[0] - 1.0,
+            2.0 * a[0] * a[1],
+            2.0 * a[0] * a[2],
+        ],
+        [
+            2.0 * a[1] * a[0],
+            2.0 * a[1] * a[1] - 1.0,
+            2.0 * a[1] * a[2],
+        ],
+        [
+            2.0 * a[2] * a[0],
+            2.0 * a[2] * a[1],
+            2.0 * a[2] * a[2] - 1.0,
+        ],
     ]
 }
 
@@ -97,9 +111,21 @@ fn rotation_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
     let s = angle.sin();
     let t = 1.0 - c;
     [
-        [t * k[0] * k[0] + c,       t * k[0] * k[1] - s * k[2], t * k[0] * k[2] + s * k[1]],
-        [t * k[1] * k[0] + s * k[2], t * k[1] * k[1] + c,       t * k[1] * k[2] - s * k[0]],
-        [t * k[2] * k[0] - s * k[1], t * k[2] * k[1] + s * k[0], t * k[2] * k[2] + c],
+        [
+            t * k[0] * k[0] + c,
+            t * k[0] * k[1] - s * k[2],
+            t * k[0] * k[2] + s * k[1],
+        ],
+        [
+            t * k[1] * k[0] + s * k[2],
+            t * k[1] * k[1] + c,
+            t * k[1] * k[2] - s * k[0],
+        ],
+        [
+            t * k[2] * k[0] - s * k[1],
+            t * k[2] * k[1] + s * k[0],
+            t * k[2] * k[2] + c,
+        ],
     ]
 }
 
@@ -110,8 +136,12 @@ fn rotation_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
 ///
 /// Port of BALL's matchPoints / BiochemicalAlgorithms.jl match_points.
 fn match_points(
-    w1: [f64; 3], w2: [f64; 3], w3: [f64; 3],
-    v1: [f64; 3], v2: [f64; 3], v3: [f64; 3],
+    w1: [f64; 3],
+    w2: [f64; 3],
+    w3: [f64; 3],
+    v1: [f64; 3],
+    v2: [f64; 3],
+    v3: [f64; 3],
 ) -> ([f64; 3], Mat3) {
     let eps = 1e-5;
     let eps2 = 1e-8;
@@ -226,16 +256,24 @@ fn get_two_reference_atoms<'a>(
         };
 
         for &(a1, a2) in bonds {
-            let neighbor = if a1 == current { a2 }
-                else if a2 == current { a1 }
-                else { continue };
+            let neighbor = if a1 == current {
+                a2
+            } else if a2 == current {
+                a1
+            } else {
+                continue;
+            };
 
-            if visited.contains(neighbor) { continue; }
+            if visited.contains(neighbor) {
+                continue;
+            }
             visited.insert(neighbor);
 
             if placed.contains(neighbor) {
                 found.push(neighbor);
-                if found.len() >= 3 { break; }
+                if found.len() >= 3 {
+                    break;
+                }
             }
             queue.push_back(neighbor);
         }
@@ -305,16 +343,24 @@ pub fn reconstruct_residue(
     }
 
     while let Some(current) = stack.pop() {
-        if visited.contains(current) { continue; }
+        if visited.contains(current) {
+            continue;
+        }
         visited.insert(current);
 
         // Find neighbors via bonds
         for &(a1, a2) in template_bonds {
-            let neighbor = if a1 == current { a2 }
-                else if a2 == current { a1 }
-                else { continue };
+            let neighbor = if a1 == current {
+                a2
+            } else if a2 == current {
+                a1
+            } else {
+                continue;
+            };
 
-            if visited.contains(neighbor) { continue; }
+            if visited.contains(neighbor) {
+                continue;
+            }
             stack.push(neighbor);
 
             if !placed.contains(neighbor) {
@@ -325,8 +371,12 @@ pub fn reconstruct_residue(
                     let r1 = ref1.unwrap();
                     let r2 = ref2.unwrap();
                     match_points(
-                        tpl_pos[current], tpl_pos[r1], tpl_pos[r2],
-                        actual_pos[current], actual_pos[r1], actual_pos[r2],
+                        tpl_pos[current],
+                        tpl_pos[r1],
+                        tpl_pos[r2],
+                        actual_pos[current],
+                        actual_pos[r1],
+                        actual_pos[r2],
                     )
                 } else {
                     // Only have center atom — simple translation
@@ -421,11 +471,17 @@ pub fn reconstruct_fragments(pdb: &mut pdbtbx::PDB) -> ReconstructResult {
 
         let is_h = elem == "H" || elem == "D";
         if let Some(atom) = pdbtbx::Atom::new(
-            false, serial, &name, &name,
-            pos[0], pos[1], pos[2],
+            false,
+            serial,
+            &name,
+            &name,
+            pos[0],
+            pos[1],
+            pos[2],
             1.0,
             if is_h { 0.0 } else { 20.0 }, // default B-factor for reconstructed atoms
-            &elem, 0,
+            &elem,
+            0,
         ) {
             conformer.add_atom(atom);
         }
@@ -486,13 +542,21 @@ mod tests {
         assert!(added_names.contains(&"CB"), "Should reconstruct CB");
         assert!(added_names.contains(&"HA"), "Should reconstruct HA");
         assert!(added_names.contains(&"H"), "Should reconstruct H");
-        assert!(added.len() > 4, "Should add several atoms, got {}", added.len());
+        assert!(
+            added.len() > 4,
+            "Should add several atoms, got {}",
+            added.len()
+        );
 
         // Check CB is at reasonable distance from CA
         let ca_pos = existing["CA"];
         let cb = added.iter().find(|(n, _, _)| n == "CB").unwrap();
         let dist = v_norm_sq(v_sub(cb.2, ca_pos)).sqrt();
-        assert!(dist > 1.0 && dist < 2.0, "CB-CA distance should be ~1.5, got {}", dist);
+        assert!(
+            dist > 1.0 && dist < 2.0,
+            "CB-CA distance should be ~1.5, got {}",
+            dist
+        );
     }
 
     #[test]
@@ -526,6 +590,10 @@ mod tests {
         assert_eq!(after, before + result.added);
         // Should add roughly the same number as place_all_hydrogens
         // (templates include all H atoms)
-        assert!(result.added > 200, "Should add >200 atoms from templates, got {}", result.added);
+        assert!(
+            result.added > 200,
+            "Should add >200 atoms from templates, got {}",
+            result.added
+        );
     }
 }

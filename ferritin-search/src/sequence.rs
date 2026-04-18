@@ -42,7 +42,10 @@ impl Sequence {
     /// a canonical letter on the way in (e.g. `B → D`, `u → X`) come out as
     /// the canonical letter, not the original input.
     pub fn to_ascii(&self) -> Vec<u8> {
-        self.data.iter().map(|&idx| self.alphabet.decode(idx)).collect()
+        self.data
+            .iter()
+            .map(|&idx| self.alphabet.decode(idx))
+            .collect()
     }
 
     /// Length in residues.

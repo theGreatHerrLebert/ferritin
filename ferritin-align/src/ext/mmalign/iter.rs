@@ -80,7 +80,7 @@ pub fn copy_chain_assign_data(
 /// Takes: current TM matrix, alignment matrices, assignment lists, sequence,
 /// and returns the total score after search + SE refinement.
 pub type SearchFn = dyn Fn(
-    &mut Vec<Vec<f64>>,   // tm_mat (mutable for update)
+    &mut Vec<Vec<f64>>,    // tm_mat (mutable for update)
     &mut Vec<Vec<String>>, // seqx_a_mat
     &mut Vec<Vec<String>>, // seqy_a_mat
     &mut Vec<i32>,         // assign1
@@ -185,12 +185,8 @@ mod tests {
 
     #[test]
     fn test_copy_chain_assign_data() {
-        let seqx_a = vec![
-            vec!["ACG".to_string(), "DEF".to_string()],
-        ];
-        let seqy_a = vec![
-            vec!["acg".to_string(), "def".to_string()],
-        ];
+        let seqx_a = vec![vec!["ACG".to_string(), "DEF".to_string()]];
+        let seqy_a = vec![vec!["acg".to_string(), "def".to_string()]];
         let assign1 = vec![1i32]; // chain 0 -> chain 1
         let assign2 = vec![-1i32, 0]; // chain 1 <- chain 0
         let tm_mat = vec![vec![0.5, 0.8]];
@@ -220,7 +216,8 @@ mod tests {
                       _sy: &mut Vec<Vec<String>>,
                       _a1: &mut Vec<i32>,
                       _a2: &mut Vec<i32>,
-                      _seq: &mut Vec<String>| -> f64 {
+                      _seq: &mut Vec<String>|
+         -> f64 {
             tm[0][0] = 0.3; // worse
             0.3
         };

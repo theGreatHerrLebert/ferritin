@@ -88,7 +88,11 @@ fn structure_id_from_path(path: &Path) -> String {
         .unwrap_or("unknown");
 
     // If there's a parent directory, include it for uniqueness
-    if let Some(parent) = path.parent().and_then(|p| p.file_name()).and_then(|p| p.to_str()) {
+    if let Some(parent) = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|p| p.to_str())
+    {
         // Only prepend parent if it's not "." or a root-level path
         if parent != "." && parent != "/" {
             return format!("{parent}/{stem}");
@@ -163,9 +167,14 @@ fn main() -> Result<()> {
         // Build collision-safe output names: stem, stem_2, stem_3, ...
         let mut out_names: Vec<String> = Vec::with_capacity(files.len());
         {
-            let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            let mut seen: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
             for path in &files {
-                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
                 let count = seen.entry(stem.clone()).or_insert(0);
                 *count += 1;
                 if *count == 1 {
@@ -176,23 +185,26 @@ fn main() -> Result<()> {
             }
         }
 
-        files.par_iter().zip(out_names.par_iter()).for_each(|(path, out_name)| {
-            let sid = structure_id_from_path(path);
-            match load_and_write_single(path, &sid, &args.out, out_name) {
-                Ok(_) => {
-                    let done = n_done.fetch_add(1, Ordering::Relaxed) + 1;
-                    if done % 100 == 0 {
-                        let elapsed = t0.elapsed().as_secs_f64();
-                        let rate = done as f64 / elapsed;
-                        eprintln!("  [{done}/{}] {rate:.1} structs/s", files.len());
+        files
+            .par_iter()
+            .zip(out_names.par_iter())
+            .for_each(|(path, out_name)| {
+                let sid = structure_id_from_path(path);
+                match load_and_write_single(path, &sid, &args.out, out_name) {
+                    Ok(_) => {
+                        let done = n_done.fetch_add(1, Ordering::Relaxed) + 1;
+                        if done % 100 == 0 {
+                            let elapsed = t0.elapsed().as_secs_f64();
+                            let rate = done as f64 / elapsed;
+                            eprintln!("  [{done}/{}] {rate:.1} structs/s", files.len());
+                        }
+                    }
+                    Err(e) => {
+                        n_failed.fetch_add(1, Ordering::Relaxed);
+                        eprintln!("  SKIP {}: {e:#}", path.display());
                     }
                 }
-                Err(e) => {
-                    n_failed.fetch_add(1, Ordering::Relaxed);
-                    eprintln!("  SKIP {}: {e:#}", path.display());
-                }
-            }
-        });
+            });
     } else {
         // Streaming chunked writes — process chunk_size structures at a time,
         // flush each chunk to the Parquet writer to keep memory bounded.
@@ -204,20 +216,14 @@ fn main() -> Result<()> {
             .set_compression(parquet::basic::Compression::ZSTD(Default::default()))
             .build();
         let schema_arc = std::sync::Arc::new(schema);
-        let mut writer = parquet::arrow::ArrowWriter::try_new(
-            file,
-            schema_arc,
-            Some(props),
-        )?;
+        let mut writer = parquet::arrow::ArrowWriter::try_new(file, schema_arc, Some(props))?;
 
         for chunk in files.chunks(args.chunk_size) {
             let batches: Vec<_> = chunk
                 .par_iter()
                 .filter_map(|path| {
                     let sid = structure_id_from_path(path);
-                    match load_pdb_permissive(path)
-                        .and_then(|pdb| pdb_to_atom_batch(&pdb, &sid))
-                    {
+                    match load_pdb_permissive(path).and_then(|pdb| pdb_to_atom_batch(&pdb, &sid)) {
                         Ok(batch) => {
                             n_done.fetch_add(1, Ordering::Relaxed);
                             Some(batch)
@@ -254,9 +260,7 @@ fn main() -> Result<()> {
         done as f64 / elapsed
     );
     if !args.per_structure {
-        let size = std::fs::metadata(&args.out)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let size = std::fs::metadata(&args.out).map(|m| m.len()).unwrap_or(0);
         eprintln!(
             "Output: {} ({:.1} MB)",
             args.out.display(),
@@ -267,12 +271,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_and_write_single(
-    path: &Path,
-    sid: &str,
-    out_dir: &Path,
-    out_name: &str,
-) -> Result<usize> {
+fn load_and_write_single(path: &Path, sid: &str, out_dir: &Path, out_name: &str) -> Result<usize> {
     let pdb = load_pdb_permissive(path)?;
     let total_atoms: usize = pdb.models().map(|m| m.atom_count()).sum();
     let batch = pdb_to_atom_batch(&pdb, sid)?;

@@ -34,8 +34,7 @@ fn ipc_bytes_to_batch(data: &[u8]) -> PyResult<arrow::array::RecordBatch> {
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
     let batches: Result<Vec<_>, _> = reader.collect();
-    let batches =
-        batches.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    let batches = batches.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
     if batches.is_empty() {
         return Err(pyo3::exceptions::PyValueError::new_err(
@@ -94,8 +93,7 @@ fn to_structure_arrow_ipc<'py>(
 /// Returns a list of (structure_id, PyPDB) tuples.
 #[pyfunction]
 fn from_arrow_ipc(py: Python<'_>, data: &[u8]) -> PyResult<Vec<(String, PyPDB)>> {
-    let batch =
-        ipc_bytes_to_batch(data)?;
+    let batch = ipc_bytes_to_batch(data)?;
     let pdbs = py
         .allow_threads(|| atom_batch_to_pdbs(&batch))
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -109,12 +107,7 @@ fn from_arrow_ipc(py: Python<'_>, data: &[u8]) -> PyResult<Vec<(String, PyPDB)>>
 /// Write a structure directly to a Parquet file.
 #[pyfunction]
 #[pyo3(signature = (pdb, path, structure_id=None))]
-fn to_parquet(
-    py: Python<'_>,
-    pdb: &PyPDB,
-    path: &str,
-    structure_id: Option<&str>,
-) -> PyResult<()> {
+fn to_parquet(py: Python<'_>, pdb: &PyPDB, path: &str, structure_id: Option<&str>) -> PyResult<()> {
     let sid = structure_id.unwrap_or("unknown");
     let batch = py
         .allow_threads(|| pdb_to_atom_batch(&pdb.inner, sid))

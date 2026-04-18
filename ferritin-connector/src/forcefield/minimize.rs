@@ -81,12 +81,8 @@ impl NbCache {
     fn refresh(&mut self, coords: &[[f64; 3]], topo: &Topology) {
         if let Some(ref nbl) = self.nbl {
             if nbl.needs_rebuild(coords) {
-                let new_nbl = NeighborList::build(
-                    coords,
-                    self.cutoff,
-                    &topo.excluded_pairs,
-                    &topo.pairs_14,
-                );
+                let new_nbl =
+                    NeighborList::build(coords, self.cutoff, &topo.excluded_pairs, &topo.pairs_14);
                 // Re-upload NBL pairs to GPU if using GPU path
                 #[cfg(feature = "cuda")]
                 if let Some(ref mut gpu) = self.gpu {
@@ -112,7 +108,10 @@ impl NbCache {
             if let Ok(gpu_ctx) = super::gpu::GpuContext::try_global().ok_or(()) {
                 match gpu.energy(gpu_ctx, &coords_flat) {
                     Ok(result) => return result,
-                    Err(e) => eprintln!("[ferritin-gpu] GPU energy failed, falling back to CPU: {}", e),
+                    Err(e) => eprintln!(
+                        "[ferritin-gpu] GPU energy failed, falling back to CPU: {}",
+                        e
+                    ),
                 }
             }
         }
@@ -137,7 +136,10 @@ impl NbCache {
             if let Ok(gpu_ctx) = super::gpu::GpuContext::try_global().ok_or(()) {
                 match gpu.energy_and_forces(gpu_ctx, &coords_flat) {
                     Ok(result) => return result,
-                    Err(e) => eprintln!("[ferritin-gpu] GPU energy+forces failed, falling back to CPU: {}", e),
+                    Err(e) => eprintln!(
+                        "[ferritin-gpu] GPU energy+forces failed, falling back to CPU: {}",
+                        e
+                    ),
                 }
             }
         }
@@ -186,11 +188,7 @@ const PLATEAU_PATIENCE: usize = 5;
 /// has plateaued. `prev_energy` is `None` on the first call (no comparison
 /// possible yet). Returns the new counter value and whether convergence
 /// should be declared.
-fn check_energy_plateau(
-    prev_energy: Option<f64>,
-    energy: f64,
-    counter: usize,
-) -> (usize, bool) {
+fn check_energy_plateau(prev_energy: Option<f64>, energy: f64, counter: usize) -> (usize, bool) {
     let Some(prev) = prev_energy else {
         return (0, false);
     };
@@ -277,7 +275,7 @@ pub fn steepest_descent(
             let f_mag = (forces[i][0] * forces[i][0]
                 + forces[i][1] * forces[i][1]
                 + forces[i][2] * forces[i][2])
-            .sqrt();
+                .sqrt();
             if f_mag < 1e-12 {
                 continue;
             }
@@ -326,7 +324,9 @@ pub fn steepest_descent(
 fn dot3n(a: &[[f64; 3]], b: &[[f64; 3]], constrained: &[bool]) -> f64 {
     let mut sum = 0.0;
     for i in 0..a.len() {
-        if constrained[i] { continue; }
+        if constrained[i] {
+            continue;
+        }
         sum += a[i][0] * b[i][0] + a[i][1] * b[i][1] + a[i][2] * b[i][2];
     }
     sum
@@ -335,8 +335,10 @@ fn dot3n(a: &[[f64; 3]], b: &[[f64; 3]], constrained: &[bool]) -> f64 {
 /// Scale direction vector: out = a * x + b * y (only unconstrained atoms).
 fn axpby(
     out: &mut [[f64; 3]],
-    a: f64, x: &[[f64; 3]],
-    b: f64, y: &[[f64; 3]],
+    a: f64,
+    x: &[[f64; 3]],
+    b: f64,
+    y: &[[f64; 3]],
     constrained: &[bool],
 ) {
     for i in 0..out.len() {
@@ -377,11 +379,17 @@ fn line_search<F: ForceField>(
     let max_disp = 0.8; // Å — well inside the 2 Å NBL buffer
     let mut max_d = 0.0_f64;
     for i in 0..n {
-        if constrained[i] { continue; }
+        if constrained[i] {
+            continue;
+        }
         let d2 = direction[i][0].powi(2) + direction[i][1].powi(2) + direction[i][2].powi(2);
         max_d = max_d.max(d2.sqrt());
     }
-    let mut alpha = if max_d > 1e-12 { (max_disp / max_d).min(1.0) } else { 1.0 };
+    let mut alpha = if max_d > 1e-12 {
+        (max_disp / max_d).min(1.0)
+    } else {
+        1.0
+    };
 
     for _ in 0..20 {
         // trial = pos + alpha * direction
@@ -464,7 +472,9 @@ pub fn conjugate_gradient(
         // Check convergence: max force magnitude
         let mut max_force = 0.0f64;
         for i in 0..n {
-            if constrained[i] { continue; }
+            if constrained[i] {
+                continue;
+            }
             let f2 = old_forces[i][0].powi(2) + old_forces[i][1].powi(2) + old_forces[i][2].powi(2);
             max_force = max_force.max(f2.sqrt());
         }
@@ -474,8 +484,7 @@ pub fn conjugate_gradient(
         }
 
         // Plateau fallback
-        let (new_counter, plateaued) =
-            check_energy_plateau(plateau_prev, energy, plateau_counter);
+        let (new_counter, plateaued) = check_energy_plateau(plateau_prev, energy, plateau_counter);
         plateau_counter = new_counter;
         if plateaued {
             converged = true;
@@ -491,14 +500,25 @@ pub fn conjugate_gradient(
         if grad_dot_dir >= 0.0 {
             // Restart: reset to steepest descent
             for i in 0..n {
-                direction[i] = if constrained[i] { [0.0; 3] } else { old_forces[i] };
+                direction[i] = if constrained[i] {
+                    [0.0; 3]
+                } else {
+                    old_forces[i]
+                };
             }
             old_gtg = dot3n(&old_forces, &old_forces, constrained);
             continue;
         }
 
         let (alpha, new_energy, new_pos) = line_search(
-            &pos, &direction, grad_dot_dir, energy, topo, params, constrained, &mut nbc,
+            &pos,
+            &direction,
+            grad_dot_dir,
+            energy,
+            topo,
+            params,
+            constrained,
+            &mut nbc,
         );
 
         if alpha == 0.0 {
@@ -541,7 +561,14 @@ pub fn conjugate_gradient(
 
         // Update direction: d_new = f_new + β * d_old
         let old_dir = direction.clone();
-        axpby(&mut direction, 1.0, &new_forces, beta, &old_dir, constrained);
+        axpby(
+            &mut direction,
+            1.0,
+            &new_forces,
+            beta,
+            &old_dir,
+            constrained,
+        );
 
         old_forces = new_forces;
         old_gtg = new_gtg;
@@ -611,7 +638,9 @@ pub fn lbfgs(
         // Check convergence: max gradient magnitude
         let mut max_grad = 0.0f64;
         for i in 0..n {
-            if constrained[i] { continue; }
+            if constrained[i] {
+                continue;
+            }
             let g2 = grad[i][0].powi(2) + grad[i][1].powi(2) + grad[i][2].powi(2);
             max_grad = max_grad.max(g2.sqrt());
         }
@@ -622,8 +651,7 @@ pub fn lbfgs(
 
         // Plateau fallback: declare convergence if energy has stopped moving
         // even though the gradient norm is still hovering above the threshold.
-        let (new_counter, plateaued) =
-            check_energy_plateau(prev_energy, energy, plateau_counter);
+        let (new_counter, plateaued) = check_energy_plateau(prev_energy, energy, plateau_counter);
         plateau_counter = new_counter;
         if plateaued {
             converged = true;
@@ -638,7 +666,14 @@ pub fn lbfgs(
         let grad_dot_dir = dot3n_raw(&grad, &direction, constrained);
         let (alpha, new_energy, new_pos) = if grad_dot_dir < 0.0 {
             line_search(
-                &pos, &direction, grad_dot_dir, energy, topo, params, constrained, &mut nbc,
+                &pos,
+                &direction,
+                grad_dot_dir,
+                energy,
+                topo,
+                params,
+                constrained,
+                &mut nbc,
             )
         } else {
             (0.0, energy, pos.clone())
@@ -655,7 +690,9 @@ pub fn lbfgs(
             let sd_step = 0.01;
             let prev_energy = energy;
             for i in 0..n {
-                if constrained[i] { continue; }
+                if constrained[i] {
+                    continue;
+                }
                 let g_mag = (grad[i][0].powi(2) + grad[i][1].powi(2) + grad[i][2].powi(2)).sqrt();
                 if g_mag > 1e-12 {
                     let scale = sd_step / g_mag;
@@ -752,7 +789,9 @@ fn lbfgs_two_loop(
         alpha_hist[i] = alpha_i;
         // q = q - alpha_i * y_i
         for j in 0..n {
-            if constrained[j] { continue; }
+            if constrained[j] {
+                continue;
+            }
             q[j][0] -= alpha_i * y_hist[i][j][0];
             q[j][1] -= alpha_i * y_hist[i][j][1];
             q[j][2] -= alpha_i * y_hist[i][j][2];
@@ -767,7 +806,9 @@ fn lbfgs_two_loop(
         if yy > 1e-30 {
             let gamma = sy / yy;
             for j in 0..n {
-                if constrained[j] { continue; }
+                if constrained[j] {
+                    continue;
+                }
                 q[j][0] *= gamma;
                 q[j][1] *= gamma;
                 q[j][2] *= gamma;
@@ -780,7 +821,9 @@ fn lbfgs_two_loop(
         let beta = rho_hist[i] * dot3n_raw(&y_hist[i], &q, constrained);
         let diff = alpha_hist[i] - beta;
         for j in 0..n {
-            if constrained[j] { continue; }
+            if constrained[j] {
+                continue;
+            }
             q[j][0] += diff * s_hist[i][j][0];
             q[j][1] += diff * s_hist[i][j][1];
             q[j][2] += diff * s_hist[i][j][2];
@@ -815,7 +858,9 @@ fn negate_forces(forces: &[[f64; 3]], constrained: &[bool]) -> Vec<[f64; 3]> {
 fn dot3n_raw(a: &[[f64; 3]], b: &[[f64; 3]], constrained: &[bool]) -> f64 {
     let mut sum = 0.0;
     for i in 0..a.len() {
-        if constrained[i] { continue; }
+        if constrained[i] {
+            continue;
+        }
         sum += a[i][0] * b[i][0] + a[i][1] * b[i][1] + a[i][2] * b[i][2];
     }
     sum
@@ -834,13 +879,16 @@ pub fn minimize_hydrogens(
     max_steps: usize,
     gradient_tolerance: f64,
 ) -> MinimizeResult {
-    let constrained: Vec<bool> = topo
-        .atoms
-        .iter()
-        .map(|a| !a.is_hydrogen)
-        .collect();
+    let constrained: Vec<bool> = topo.atoms.iter().map(|a| !a.is_hydrogen).collect();
 
-    steepest_descent(coords, topo, params, max_steps, gradient_tolerance, &constrained)
+    steepest_descent(
+        coords,
+        topo,
+        params,
+        max_steps,
+        gradient_tolerance,
+        &constrained,
+    )
 }
 
 /// Minimize hydrogen positions using conjugate gradient.
@@ -852,13 +900,16 @@ pub fn minimize_hydrogens_cg(
     max_steps: usize,
     gradient_tolerance: f64,
 ) -> MinimizeResult {
-    let constrained: Vec<bool> = topo
-        .atoms
-        .iter()
-        .map(|a| !a.is_hydrogen)
-        .collect();
+    let constrained: Vec<bool> = topo.atoms.iter().map(|a| !a.is_hydrogen).collect();
 
-    conjugate_gradient(coords, topo, params, max_steps, gradient_tolerance, &constrained)
+    conjugate_gradient(
+        coords,
+        topo,
+        params,
+        max_steps,
+        gradient_tolerance,
+        &constrained,
+    )
 }
 
 /// Minimize hydrogen positions using L-BFGS.
@@ -870,13 +921,16 @@ pub fn minimize_hydrogens_lbfgs(
     max_steps: usize,
     gradient_tolerance: f64,
 ) -> MinimizeResult {
-    let constrained: Vec<bool> = topo
-        .atoms
-        .iter()
-        .map(|a| !a.is_hydrogen)
-        .collect();
+    let constrained: Vec<bool> = topo.atoms.iter().map(|a| !a.is_hydrogen).collect();
 
-    lbfgs(coords, topo, params, max_steps, gradient_tolerance, &constrained)
+    lbfgs(
+        coords,
+        topo,
+        params,
+        max_steps,
+        gradient_tolerance,
+        &constrained,
+    )
 }
 
 #[cfg(test)]
@@ -939,9 +993,9 @@ mod plateau_tests {
 #[cfg(all(test, feature = "cuda"))]
 mod gpu_parity_tests {
     use super::*;
+    use crate::add_hydrogens;
     use crate::forcefield::params::charmm19_eef1;
     use crate::forcefield::topology::build_topology;
-    use crate::add_hydrogens;
     use std::path::PathBuf;
 
     fn ake_path() -> PathBuf {
@@ -992,14 +1046,13 @@ mod gpu_parity_tests {
             &topo.excluded_pairs,
             &topo.pairs_14,
         );
-        let cpu_energy = super::super::energy::compute_energy_nbl(
-            &coords, &topo, &ff, &nbl,
-        );
+        let cpu_energy = super::super::energy::compute_energy_nbl(&coords, &topo, &ff, &nbl);
 
         // GPU: construct GpuStructState directly (bypasses NbCache threshold)
         let mut gpu_state = gpu::GpuStructState::new(gpu_ctx, &topo, &nbl, &ff)
             .expect("failed to create GPU state");
-        let gpu_energy = gpu_state.energy(gpu_ctx, &coords_flat)
+        let gpu_energy = gpu_state
+            .energy(gpu_ctx, &coords_flat)
             .expect("GPU energy eval failed");
 
         let diff = (gpu_energy.total - cpu_energy.total).abs();

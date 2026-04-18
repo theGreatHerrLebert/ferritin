@@ -26,7 +26,9 @@ use crate::db::{DBReader, DbError};
 use crate::gapped::{smith_waterman, GappedAlignment};
 use crate::kmer::{KmerEncoder, KmerHit, KmerIndex, KmerIndexError, KmerLookup};
 use crate::kmer_generator::widen_to_i32;
-use crate::kmer_index_file::{write_kmi, KmerIndexFile, KmiReaderError, KmiWriterError, ReducerSnapshot};
+use crate::kmer_index_file::{
+    write_kmi, KmerIndexFile, KmiReaderError, KmiWriterError, ReducerSnapshot,
+};
 use crate::matrix::SubstitutionMatrix;
 use crate::prefilter::{diagonal_prefilter, PrefilterHit, PrefilterOptions};
 use crate::reduced_alphabet::ReducedAlphabet;
@@ -204,7 +206,10 @@ impl TargetSource {
         }
         let mut positions: Vec<u32> = (0..n as u32).collect();
         positions.sort_unstable_by_key(|&i| db.index[i as usize].key);
-        let sorted_keys: Vec<u32> = positions.iter().map(|&i| db.index[i as usize].key).collect();
+        let sorted_keys: Vec<u32> = positions
+            .iter()
+            .map(|&i| db.index[i as usize].key)
+            .collect();
         // Reject duplicates: consecutive equal entries in sorted_keys
         // mean two DB entries share a key, which would make `fetch`
         // return whichever position binary_search lands on —
@@ -215,7 +220,11 @@ impl TargetSource {
                 return Err(BuildFromDbError::DuplicateKey { key: w[0] });
             }
         }
-        Ok(Self::Db { db, sorted_keys, sorted_to_db_pos: positions })
+        Ok(Self::Db {
+            db,
+            sorted_keys,
+            sorted_to_db_pos: positions,
+        })
     }
 
     /// Encoded target bytes for `seq_id`, or `None` if the seq_id isn't
@@ -224,7 +233,11 @@ impl TargetSource {
     /// engine — `Sequence::from_ascii` runs per call.
     fn fetch(&self, seq_id: u32, alphabet: &Alphabet) -> Option<Cow<'_, [u8]>> {
         match self {
-            Self::Db { db, sorted_keys, sorted_to_db_pos } => {
+            Self::Db {
+                db,
+                sorted_keys,
+                sorted_to_db_pos,
+            } => {
                 // Binary search for `seq_id` in the sorted keys array;
                 // fall back to None for absent keys. Duplicate keys in
                 // a DB are pathological but would simply resolve to
@@ -233,7 +246,9 @@ impl TargetSource {
                 let db_pos = sorted_to_db_pos[sorted_idx] as usize;
                 let entry = &db.index[db_pos];
                 let payload = db.get_payload(entry);
-                Some(Cow::Owned(Sequence::from_ascii(alphabet.clone(), payload).data))
+                Some(Cow::Owned(
+                    Sequence::from_ascii(alphabet.clone(), payload).data,
+                ))
             }
             Self::InMemory(map) => map.get(&seq_id).map(|v| Cow::Borrowed(v.as_slice())),
         }
@@ -357,15 +372,7 @@ impl SearchEngine {
         full_alphabet_size: usize,
         x_full: u8,
         encoded_full: Vec<(u32, Vec<u8>)>,
-    ) -> Result<
-        (
-            Option<ReducedAlphabet>,
-            usize,
-            u8,
-            Vec<(u32, Vec<u8>)>,
-        ),
-        SearchError,
-    > {
+    ) -> Result<(Option<ReducedAlphabet>, usize, u8, Vec<(u32, Vec<u8>)>), SearchError> {
         let reducer_opt = match opts.reduce_to {
             Some(r) => Some(
                 ReducedAlphabet::from_matrix(matrix, r, Some(x_full))
@@ -429,7 +436,10 @@ impl SearchEngine {
             .iter()
             .map(|entry| {
                 let payload = reader.get_payload(entry);
-                (entry.key, Sequence::from_ascii(alphabet.clone(), payload).data)
+                (
+                    entry.key,
+                    Sequence::from_ascii(alphabet.clone(), payload).data,
+                )
             })
             .collect();
 
@@ -697,9 +707,7 @@ impl SearchEngine {
         ) {
             Ok(u) => u,
             Err(e) => {
-                eprintln!(
-                    "[ferritin-search] GPU ungapped batch failed; CPU fallback: {e:#}"
-                );
+                eprintln!("[ferritin-search] GPU ungapped batch failed; CPU fallback: {e:#}");
                 return self.search_cpu(query, prefilter_hits);
             }
         };
@@ -715,7 +723,10 @@ impl SearchEngine {
             return Vec::new();
         }
 
-        let surviving_targets: Vec<&[u8]> = surviving.iter().map(|(i, _)| &*candidates[*i].target).collect();
+        let surviving_targets: Vec<&[u8]> = surviving
+            .iter()
+            .map(|(i, _)| &*candidates[*i].target)
+            .collect();
 
         // Batched SW score+endpoint. Dispatch by query length:
         //   query_len ≤ 256              → warp singletile (4.5a), fastest
@@ -725,9 +736,7 @@ impl SearchEngine {
         // All three are batched GPU kernels; any infrastructure error
         // falls the whole query back to the CPU path for correctness.
         use crate::gpu::pssm_sw_warp::{self, MAX_QUERY_LEN as SINGLETILE_MAX_Q};
-        use crate::gpu::pssm_sw_warp_multitile::{
-            self, MAX_QUERY_LEN as MULTITILE_MAX_Q,
-        };
+        use crate::gpu::pssm_sw_warp_multitile::{self, MAX_QUERY_LEN as MULTITILE_MAX_Q};
         use crate::pssm::Pssm;
         let sw_scores = if query.len() <= SINGLETILE_MAX_Q {
             let pssm = Pssm::build(query, &self.matrix_int, self.full_alphabet_size);
@@ -772,9 +781,7 @@ impl SearchEngine {
             ) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!(
-                        "[ferritin-search] GPU SW batch failed; CPU fallback: {e:#}"
-                    );
+                    eprintln!("[ferritin-search] GPU SW batch failed; CPU fallback: {e:#}");
                     return self.search_cpu(query, prefilter_hits);
                 }
             }
@@ -882,7 +889,11 @@ mod tests {
             .iter()
             .map(|(id, s)| (*id, Sequence::from_ascii(alpha.clone(), s)))
             .collect();
-        let opts = SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() };
+        let opts = SearchOptions {
+            k: 3,
+            reduce_to: Some(13),
+            ..Default::default()
+        };
         let engine = SearchEngine::build(targets.clone(), &m, alpha.clone(), opts).unwrap();
         for (qid, seq) in &targets {
             let hits = engine.search(seq);
@@ -906,7 +917,11 @@ mod tests {
             .iter()
             .map(|(id, s)| (*id, Sequence::from_ascii(alpha.clone(), s)))
             .collect();
-        let opts = SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() };
+        let opts = SearchOptions {
+            k: 3,
+            reduce_to: Some(13),
+            ..Default::default()
+        };
         let engine = SearchEngine::build(targets, &m, alpha.clone(), opts).unwrap();
 
         let query = Sequence::from_ascii(alpha, b"MKLVRQPSTNLKACDFGHIY");
@@ -935,13 +950,7 @@ mod tests {
             min_score: 0,
             ..Default::default()
         };
-        let engine = SearchEngine::build(
-            targets.clone(),
-            &m,
-            alpha.clone(),
-            opts1,
-        )
-        .unwrap();
+        let engine = SearchEngine::build(targets.clone(), &m, alpha.clone(), opts1).unwrap();
         let q = Sequence::from_ascii(alpha.clone(), b"MKLVRQPSTNL");
         assert!(!engine.search(&q).is_empty());
 
@@ -952,8 +961,7 @@ mod tests {
             min_score: 100_000,
             ..Default::default()
         };
-        let engine2 =
-            SearchEngine::build(targets, &m, alpha.clone(), opts2).unwrap();
+        let engine2 = SearchEngine::build(targets, &m, alpha.clone(), opts2).unwrap();
         assert!(engine2.search(&q).is_empty());
     }
 
@@ -984,8 +992,10 @@ mod tests {
         // reduce_to: None → k-mer index lives in the full 21-letter
         // alphabet. Smaller k keeps table_size sane.
         let (alpha, m) = alpha_and_matrix();
-        let targets: Vec<(u32, Sequence)> =
-            vec![(1u32, Sequence::from_ascii(alpha.clone(), b"MKLVRQPSTNLAACDF"))];
+        let targets: Vec<(u32, Sequence)> = vec![(
+            1u32,
+            Sequence::from_ascii(alpha.clone(), b"MKLVRQPSTNLAACDF"),
+        )];
         let opts = SearchOptions {
             k: 3,
             reduce_to: None,
@@ -1032,10 +1042,8 @@ mod tests {
             use_gpu: true,
             ..Default::default()
         };
-        let engine_cpu =
-            SearchEngine::build(targets.clone(), &m, alpha.clone(), opts_cpu).unwrap();
-        let engine_gpu =
-            SearchEngine::build(targets.clone(), &m, alpha.clone(), opts_gpu).unwrap();
+        let engine_cpu = SearchEngine::build(targets.clone(), &m, alpha.clone(), opts_cpu).unwrap();
+        let engine_gpu = SearchEngine::build(targets.clone(), &m, alpha.clone(), opts_gpu).unwrap();
 
         for (qid, seq) in &targets {
             let cpu = engine_cpu.search(seq);
@@ -1089,15 +1097,14 @@ mod tests {
         w.finish().unwrap();
 
         let (alpha, m) = alpha_and_matrix();
-        let opts = SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() };
+        let opts = SearchOptions {
+            k: 3,
+            reduce_to: Some(13),
+            ..Default::default()
+        };
 
-        let from_db = SearchEngine::build_from_mmseqs_db(
-            &prefix,
-            &m,
-            alpha.clone(),
-            opts.clone(),
-        )
-        .expect("build_from_mmseqs_db");
+        let from_db = SearchEngine::build_from_mmseqs_db(&prefix, &m, alpha.clone(), opts.clone())
+            .expect("build_from_mmseqs_db");
 
         let in_mem_targets: Vec<(u32, Sequence)> = entries
             .iter()
@@ -1172,16 +1179,25 @@ mod tests {
         w.finish().unwrap();
 
         let (alpha, m) = alpha_and_matrix();
-        let opts = SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() };
+        let opts = SearchOptions {
+            k: 3,
+            reduce_to: Some(13),
+            ..Default::default()
+        };
 
-        let in_mem = SearchEngine::build_from_mmseqs_db(
-            &db_prefix, &m, alpha.clone(), opts.clone(),
-        )
-        .expect("build_from_mmseqs_db");
-        in_mem.write_kmer_index(&kmi_path).expect("write_kmer_index");
+        let in_mem =
+            SearchEngine::build_from_mmseqs_db(&db_prefix, &m, alpha.clone(), opts.clone())
+                .expect("build_from_mmseqs_db");
+        in_mem
+            .write_kmer_index(&kmi_path)
+            .expect("write_kmer_index");
 
         let on_disk = SearchEngine::open_from_mmseqs_db_with_kmi(
-            &db_prefix, &kmi_path, &m, alpha.clone(), opts,
+            &db_prefix,
+            &kmi_path,
+            &m,
+            alpha.clone(),
+            opts,
         )
         .expect("open_from_mmseqs_db_with_kmi");
 
@@ -1220,8 +1236,14 @@ mod tests {
 
         let (alpha, m) = alpha_and_matrix();
         let err = SearchEngine::build_from_mmseqs_db(
-            &prefix, &m, alpha,
-            SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() },
+            &prefix,
+            &m,
+            alpha,
+            SearchOptions {
+                k: 3,
+                reduce_to: Some(13),
+                ..Default::default()
+            },
         )
         .err()
         .expect("expected DuplicateKey");
@@ -1260,7 +1282,11 @@ mod tests {
         w.finish().unwrap();
 
         let (alpha, m) = alpha_and_matrix();
-        let opts = SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() };
+        let opts = SearchOptions {
+            k: 3,
+            reduce_to: Some(13),
+            ..Default::default()
+        };
         let engine = SearchEngine::build_from_mmseqs_db(&prefix, &m, alpha.clone(), opts)
             .expect("build_from_mmseqs_db");
         assert_eq!(engine.target_count(), entries.len());
@@ -1316,11 +1342,13 @@ mod tests {
         w.finish().unwrap();
 
         let (alpha, m) = alpha_and_matrix();
-        let opts = SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() };
-        let built = SearchEngine::build_from_mmseqs_db(
-            &db_prefix, &m, alpha.clone(), opts.clone(),
-        )
-        .unwrap();
+        let opts = SearchOptions {
+            k: 3,
+            reduce_to: Some(13),
+            ..Default::default()
+        };
+        let built = SearchEngine::build_from_mmseqs_db(&db_prefix, &m, alpha.clone(), opts.clone())
+            .unwrap();
         built.write_kmer_index(&kmi_path).unwrap();
 
         // Tamper: open the .kmi file on disk and swap a byte in the
@@ -1336,11 +1364,10 @@ mod tests {
         bytes[body_start] = original.wrapping_add(1);
         std::fs::write(&kmi_path, &bytes).unwrap();
 
-        let err = SearchEngine::open_from_mmseqs_db_with_kmi(
-            &db_prefix, &kmi_path, &m, alpha, opts,
-        )
-        .err()
-        .expect("expected KmiReducerMismatch");
+        let err =
+            SearchEngine::open_from_mmseqs_db_with_kmi(&db_prefix, &kmi_path, &m, alpha, opts)
+                .err()
+                .expect("expected KmiReducerMismatch");
         assert!(
             matches!(err, BuildFromDbError::KmiReducerMismatch),
             "expected KmiReducerMismatch, got {err}",
@@ -1363,21 +1390,40 @@ mod tests {
         let (alpha, m) = alpha_and_matrix();
         // Build with reduce_to=13.
         let built = SearchEngine::build_from_mmseqs_db(
-            &db_prefix, &m, alpha.clone(),
-            SearchOptions { k: 3, reduce_to: Some(13), ..Default::default() },
+            &db_prefix,
+            &m,
+            alpha.clone(),
+            SearchOptions {
+                k: 3,
+                reduce_to: Some(13),
+                ..Default::default()
+            },
         )
         .unwrap();
         built.write_kmer_index(&kmi_path).unwrap();
 
         // Try to open with reduce_to=None → kmi alphabet_size=13, expected=21. Must raise.
         let err = SearchEngine::open_from_mmseqs_db_with_kmi(
-            &db_prefix, &kmi_path, &m, alpha,
-            SearchOptions { k: 3, reduce_to: None, ..Default::default() },
+            &db_prefix,
+            &kmi_path,
+            &m,
+            alpha,
+            SearchOptions {
+                k: 3,
+                reduce_to: None,
+                ..Default::default()
+            },
         )
         .err()
         .expect("expected KmiParamMismatch");
         assert!(
-            matches!(err, BuildFromDbError::KmiParamMismatch { field: "alphabet_size", .. }),
+            matches!(
+                err,
+                BuildFromDbError::KmiParamMismatch {
+                    field: "alphabet_size",
+                    ..
+                }
+            ),
             "expected alphabet_size mismatch, got {err}",
         );
     }
@@ -1385,7 +1431,10 @@ mod tests {
     #[test]
     fn unrelated_query_returns_no_hits_at_reasonable_threshold() {
         let (alpha, m) = alpha_and_matrix();
-        let targets = vec![(1u32, Sequence::from_ascii(alpha.clone(), b"AAAAAAAAAAAAAAAAAAAA"))];
+        let targets = vec![(
+            1u32,
+            Sequence::from_ascii(alpha.clone(), b"AAAAAAAAAAAAAAAAAAAA"),
+        )];
         let opts = SearchOptions {
             k: 3,
             reduce_to: Some(13),

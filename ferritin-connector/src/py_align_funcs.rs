@@ -46,10 +46,7 @@ fn build_pool(n_threads: usize) -> rayon::ThreadPool {
 }
 
 /// Extract list of PyPDB from a Python list.
-fn extract_list(
-    list: &Bound<'_, PyList>,
-    chain: Option<&str>,
-) -> PyResult<Vec<StructureData>> {
+fn extract_list(list: &Bound<'_, PyList>, chain: Option<&str>) -> PyResult<Vec<StructureData>> {
     list.iter()
         .map(|item| {
             let pdb = item.extract::<PyRef<'_, PyPDB>>()?;
@@ -62,11 +59,7 @@ fn extract_list(
 // TM-align
 // ===========================================================================
 
-fn run_tmalign(
-    s1: &StructureData,
-    s2: &StructureData,
-    fast: bool,
-) -> Result<AlignResult, String> {
+fn run_tmalign(s1: &StructureData, s2: &StructureData, fast: bool) -> Result<AlignResult, String> {
     let opts = AlignOptions {
         fast_opt: fast,
         ..AlignOptions::default()
@@ -362,9 +355,7 @@ impl PyFlexAlignResult {
 }
 
 /// Pack a FlexResult into a PyFlexAlignResult (extracts fields to avoid Send issues).
-fn pack_flex_result(
-    r: ferritin_align::ext::flexalign::FlexResult,
-) -> PyFlexAlignResult {
+fn pack_flex_result(r: ferritin_align::ext::flexalign::FlexResult) -> PyFlexAlignResult {
     let se = &r.se_result;
     // Flatten transforms: [u11,u12,...,u33,t1,t2,t3] per segment
     let mut transforms_flat = Vec::with_capacity(r.transforms.len() * 12);
@@ -515,7 +506,14 @@ fn run_flexalign(
         ..FlexOptions::default()
     };
     let result = flexalign_main(
-        &s1.coords, &s2.coords, &seqx, &seqy, &secx, &secy, &opts, &[],
+        &s1.coords,
+        &s2.coords,
+        &seqx,
+        &seqy,
+        &secx,
+        &secy,
+        &opts,
+        &[],
     )
     .map_err(|e| e.to_string())?;
     Ok(pack_flex_result(result))
@@ -701,11 +699,7 @@ fn extract_chains(pdb: &PyPDB) -> PyResult<Vec<ChainData>> {
 /// complex-level TM-score.
 #[pyfunction]
 #[pyo3(signature = (pdb1, pdb2))]
-pub fn mm_align_pair(
-    py: Python<'_>,
-    pdb1: &PyPDB,
-    pdb2: &PyPDB,
-) -> PyResult<PyMMAlignResult> {
+pub fn mm_align_pair(py: Python<'_>, pdb1: &PyPDB, pdb2: &PyPDB) -> PyResult<PyMMAlignResult> {
     let chains1 = extract_chains(pdb1)?;
     let chains2 = extract_chains(pdb2)?;
 

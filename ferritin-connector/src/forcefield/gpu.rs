@@ -62,21 +62,19 @@ impl GpuContext {
     /// Returns None if no GPU is available or initialization fails.
     pub fn try_global() -> Option<&'static GpuContext> {
         GPU_CONTEXT
-            .get_or_init(|| {
-                match Self::init() {
-                    Ok(ctx) => {
-                        eprintln!(
-                            "[ferritin-gpu] CUDA initialized: {} (CC {}.{})",
-                            ctx.ctx.name().unwrap_or_default(),
-                            ctx.ctx.compute_capability().map(|c| c.0).unwrap_or(0),
-                            ctx.ctx.compute_capability().map(|c| c.1).unwrap_or(0),
-                        );
-                        Some(ctx)
-                    }
-                    Err(e) => {
-                        eprintln!("[ferritin-gpu] No GPU available, using CPU: {}", e);
-                        None
-                    }
+            .get_or_init(|| match Self::init() {
+                Ok(ctx) => {
+                    eprintln!(
+                        "[ferritin-gpu] CUDA initialized: {} (CC {}.{})",
+                        ctx.ctx.name().unwrap_or_default(),
+                        ctx.ctx.compute_capability().map(|c| c.0).unwrap_or(0),
+                        ctx.ctx.compute_capability().map(|c| c.1).unwrap_or(0),
+                    );
+                    Some(ctx)
+                }
+                Err(e) => {
+                    eprintln!("[ferritin-gpu] No GPU available, using CPU: {}", e);
+                    None
                 }
             })
             .as_ref()
@@ -100,8 +98,7 @@ impl GpuContext {
     fn init() -> Result<Self, Box<dyn std::error::Error>> {
         let ctx = CudaContext::new(0)?;
         let (major, minor) = ctx.compute_capability()?;
-        let arch: &'static str =
-            Box::leak(format!("sm_{}{}", major, minor).into_boxed_str());
+        let arch: &'static str = Box::leak(format!("sm_{}{}", major, minor).into_boxed_str());
         let opts = CompileOptions {
             arch: Some(arch),
             ..Default::default()
@@ -491,7 +488,11 @@ impl GpuStructState {
     pub fn refresh_nbl(&mut self, nbl: &NeighborList) -> Result<(), Box<dyn std::error::Error>> {
         let pi: Vec<i32> = nbl.pairs.iter().map(|p| p.i as i32).collect();
         let pj: Vec<i32> = nbl.pairs.iter().map(|p| p.j as i32).collect();
-        let p14: Vec<i32> = nbl.pairs.iter().map(|p| if p.is_14 { 1 } else { 0 }).collect();
+        let p14: Vec<i32> = nbl
+            .pairs
+            .iter()
+            .map(|p| if p.is_14 { 1 } else { 0 })
+            .collect();
         let np = pi.len();
 
         self.topo_gpu.pair_i = self.stream.clone_htod(&pi)?;
@@ -548,17 +549,31 @@ impl GpuStructState {
         // Nonbonded
         {
             let mut a = self.stream.launch_builder(&gpu.kernels.nonbonded);
-            a.arg(&self.coords); a.arg(&t.pair_i); a.arg(&t.pair_j); a.arg(&t.pair_14);
-            a.arg(&t.lj_r); a.arg(&t.lj_eps); a.arg(&t.atom_types);
-            a.arg(&t.charges); a.arg(&t.is_h);
-            a.arg(&t.eef1_dg_free); a.arg(&t.eef1_volume);
-            a.arg(&t.eef1_sigma); a.arg(&t.eef1_r_min);
-            a.arg(&t.n_pairs); a.arg(&t.cutoff_sq); a.arg(&t.cuton_sq);
+            a.arg(&self.coords);
+            a.arg(&t.pair_i);
+            a.arg(&t.pair_j);
+            a.arg(&t.pair_14);
+            a.arg(&t.lj_r);
+            a.arg(&t.lj_eps);
+            a.arg(&t.atom_types);
+            a.arg(&t.charges);
+            a.arg(&t.is_h);
+            a.arg(&t.eef1_dg_free);
+            a.arg(&t.eef1_volume);
+            a.arg(&t.eef1_sigma);
+            a.arg(&t.eef1_r_min);
+            a.arg(&t.n_pairs);
+            a.arg(&t.cutoff_sq);
+            a.arg(&t.cuton_sq);
             a.arg(&t.eef1_cutoff_sq);
-            a.arg(&t.coulomb_factor); a.arg(&t.scee_inv); a.arg(&t.scnb_inv);
+            a.arg(&t.coulomb_factor);
+            a.arg(&t.scee_inv);
+            a.arg(&t.scnb_inv);
             a.arg(&t.pi_sqrt_pi);
-            a.arg(&mut self.pair_vdw); a.arg(&mut self.pair_elec);
-            a.arg(&mut self.pair_solv); a.arg(&mut self.forces);
+            a.arg(&mut self.pair_vdw);
+            a.arg(&mut self.pair_elec);
+            a.arg(&mut self.pair_solv);
+            a.arg(&mut self.forces);
             unsafe {
                 a.launch(LaunchConfig::for_num_elems(t.n_pairs as u32))?;
             }
@@ -567,9 +582,13 @@ impl GpuStructState {
         // Bonds
         if t.n_bonds > 0 {
             let mut a = self.stream.launch_builder(&gpu.kernels.bond);
-            a.arg(&self.coords); a.arg(&t.bond_i); a.arg(&t.bond_j);
-            a.arg(&t.bond_k); a.arg(&t.bond_r0);
-            a.arg(&t.n_bonds); a.arg(&mut self.bond_energies);
+            a.arg(&self.coords);
+            a.arg(&t.bond_i);
+            a.arg(&t.bond_j);
+            a.arg(&t.bond_k);
+            a.arg(&t.bond_r0);
+            a.arg(&t.n_bonds);
+            a.arg(&mut self.bond_energies);
             a.arg(&mut self.forces);
             unsafe {
                 a.launch(LaunchConfig::for_num_elems(t.n_bonds as u32))?;
@@ -579,9 +598,14 @@ impl GpuStructState {
         // Angles
         if t.n_angles > 0 {
             let mut a = self.stream.launch_builder(&gpu.kernels.angle);
-            a.arg(&self.coords); a.arg(&t.angle_i); a.arg(&t.angle_j);
-            a.arg(&t.angle_k); a.arg(&t.angle_kf); a.arg(&t.angle_t0);
-            a.arg(&t.n_angles); a.arg(&mut self.angle_energies);
+            a.arg(&self.coords);
+            a.arg(&t.angle_i);
+            a.arg(&t.angle_j);
+            a.arg(&t.angle_k);
+            a.arg(&t.angle_kf);
+            a.arg(&t.angle_t0);
+            a.arg(&t.n_angles);
+            a.arg(&mut self.angle_energies);
             a.arg(&mut self.forces);
             unsafe {
                 a.launch(LaunchConfig::for_num_elems(t.n_angles as u32))?;
@@ -591,10 +615,16 @@ impl GpuStructState {
         // Torsions (smaller block size for register pressure)
         if t.n_torsion_terms > 0 {
             let mut a = self.stream.launch_builder(&gpu.kernels.torsion);
-            a.arg(&self.coords); a.arg(&t.tor_i); a.arg(&t.tor_j);
-            a.arg(&t.tor_k); a.arg(&t.tor_l);
-            a.arg(&t.tor_v); a.arg(&t.tor_f); a.arg(&t.tor_p);
-            a.arg(&t.n_torsion_terms); a.arg(&mut self.tor_energies);
+            a.arg(&self.coords);
+            a.arg(&t.tor_i);
+            a.arg(&t.tor_j);
+            a.arg(&t.tor_k);
+            a.arg(&t.tor_l);
+            a.arg(&t.tor_v);
+            a.arg(&t.tor_f);
+            a.arg(&t.tor_p);
+            a.arg(&t.n_torsion_terms);
+            a.arg(&mut self.tor_energies);
             a.arg(&mut self.forces);
             let cfg = LaunchConfig {
                 grid_dim: (((t.n_torsion_terms as u32) + 63) / 64, 1, 1),
@@ -635,11 +665,15 @@ impl GpuStructState {
                 a.arg(&n_i32);
                 a.arg(&mut self.obc_born_radii);
                 a.arg(&mut self.obc_chain);
-                unsafe { a.launch(cfg_1d)?; }
+                unsafe {
+                    a.launch(cfg_1d)?;
+                }
             }
             // Kernel 2: first-loop energy + direct pair forces + bornForces accumulator.
             {
-                let mut a = self.stream.launch_builder(&gpu.kernels.obc_energy_forces_direct);
+                let mut a = self
+                    .stream
+                    .launch_builder(&gpu.kernels.obc_energy_forces_direct);
                 a.arg(&self.coords);
                 a.arg(&t.charges);
                 a.arg(&self.obc_born_radii);
@@ -650,7 +684,9 @@ impl GpuStructState {
                 a.arg(&mut self.obc_per_atom_energy);
                 a.arg(&mut self.forces);
                 a.arg(&mut self.obc_born_forces);
-                unsafe { a.launch(cfg_1d)?; }
+                unsafe {
+                    a.launch(cfg_1d)?;
+                }
             }
             // Kernel 3: bornForces[i] *= R_eff_i^2 · obc_chain[i].
             {
@@ -660,7 +696,9 @@ impl GpuStructState {
                 let n_i32 = t.n_atoms as i32;
                 a.arg(&n_i32);
                 a.arg(&mut self.obc_born_forces);
-                unsafe { a.launch(cfg_1d)?; }
+                unsafe {
+                    a.launch(cfg_1d)?;
+                }
             }
             // Kernel 4: spread bornForces through HCT integrand derivative
             // via a 2D (i, j) launch with atomicAdd into forces[*].
@@ -685,7 +723,9 @@ impl GpuStructState {
                     block_dim: (tile, tile, 1),
                     shared_mem_bytes: 0,
                 };
-                unsafe { a.launch(cfg_2d)?; }
+                unsafe {
+                    a.launch(cfg_2d)?;
+                }
             }
         }
 
@@ -701,7 +741,10 @@ impl GpuStructState {
         let angle: f64 = self.stream.clone_dtoh(&self.angle_energies)?.iter().sum();
         let torsion: f64 = self.stream.clone_dtoh(&self.tor_energies)?.iter().sum();
         let obc_solv: f64 = if t.obc_enabled {
-            self.stream.clone_dtoh(&self.obc_per_atom_energy)?.iter().sum()
+            self.stream
+                .clone_dtoh(&self.obc_per_atom_energy)?
+                .iter()
+                .sum()
         } else {
             0.0
         };
@@ -725,10 +768,7 @@ impl GpuStructState {
     ) -> Result<(EnergyResult, Vec<[f64; 3]>), Box<dyn std::error::Error>> {
         let energy = self.read_energy_only()?;
         let forces_flat = self.stream.clone_dtoh(&self.forces)?;
-        let forces: Vec<[f64; 3]> = forces_flat
-            .chunks(3)
-            .map(|c| [c[0], c[1], c[2]])
-            .collect();
+        let forces: Vec<[f64; 3]> = forces_flat.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
         Ok((energy, forces))
     }
 }
@@ -752,8 +792,7 @@ pub(crate) fn gpu_shrake_rupley(
     probe: f64,
     n_points: usize,
 ) -> Result<Vec<f64>, Box<dyn std::error::Error>> {
-    let gpu = GpuContext::try_global()
-        .ok_or("no GPU available")?;
+    let gpu = GpuContext::try_global().ok_or("no GPU available")?;
 
     let n_atoms = coords.len();
     let stream = gpu.ctx.default_stream();
@@ -772,7 +811,9 @@ pub(crate) fn gpu_shrake_rupley(
         neighbor_offsets.push(neighbor_indices.len() as i32);
         let mut count = 0i32;
         for j in 0..n_atoms {
-            if j == i { continue; }
+            if j == i {
+                continue;
+            }
             let dx = coords[j][0] - coords[i][0];
             let dy = coords[j][1] - coords[i][1];
             let dz = coords[j][2] - coords[i][2];
@@ -815,7 +856,11 @@ pub(crate) fn gpu_shrake_rupley(
     let d_nb_offsets = stream.clone_htod(&neighbor_offsets)?;
     let d_nb_counts = stream.clone_htod(&neighbor_counts)?;
     // Ensure at least 1 element for the neighbor array (empty structures)
-    let nb_padded = if neighbor_indices.is_empty() { vec![0i32] } else { neighbor_indices };
+    let nb_padded = if neighbor_indices.is_empty() {
+        vec![0i32]
+    } else {
+        neighbor_indices
+    };
     let d_nb_indices = stream.clone_htod(&nb_padded)?;
     let mut d_sasa = stream.alloc_zeros::<f64>(n_atoms)?;
 
@@ -823,13 +868,21 @@ pub(crate) fn gpu_shrake_rupley(
     let cfg = LaunchConfig::for_num_elems(n_atoms as u32);
     {
         let mut a = stream.launch_builder(&gpu.kernels.sasa);
-        a.arg(&d_coords); a.arg(&d_expanded); a.arg(&d_expanded_sq);
+        a.arg(&d_coords);
+        a.arg(&d_expanded);
+        a.arg(&d_expanded_sq);
         a.arg(&d_unit_points);
-        a.arg(&d_nb_offsets); a.arg(&d_nb_counts); a.arg(&d_nb_indices);
-        a.arg(&n_atoms_i32); a.arg(&n_points_i32);
-        a.arg(&inv_n); a.arg(&four_pi);
+        a.arg(&d_nb_offsets);
+        a.arg(&d_nb_counts);
+        a.arg(&d_nb_indices);
+        a.arg(&n_atoms_i32);
+        a.arg(&n_points_i32);
+        a.arg(&inv_n);
+        a.arg(&four_pi);
         a.arg(&mut d_sasa);
-        unsafe { a.launch(cfg)?; }
+        unsafe {
+            a.launch(cfg)?;
+        }
     }
     stream.synchronize()?;
 

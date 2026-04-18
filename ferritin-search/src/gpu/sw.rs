@@ -48,9 +48,7 @@ impl SwKernel {
                 match Self::compile(ctx) {
                     Ok(k) => Some(k),
                     Err(e) => {
-                        eprintln!(
-                            "[ferritin-search-gpu] sw kernel compile failed: {e:#}"
-                        );
+                        eprintln!("[ferritin-search-gpu] sw kernel compile failed: {e:#}");
                         None
                     }
                 }
@@ -108,10 +106,8 @@ pub fn smith_waterman_score_batch_gpu(
         return Ok(Vec::new());
     }
 
-    let kernel = SwKernel::try_global()
-        .ok_or_else(|| anyhow!("GPU SW kernel unavailable"))?;
-    let ctx = GpuContext::try_global()
-        .ok_or_else(|| anyhow!("GPU context unavailable"))?;
+    let kernel = SwKernel::try_global().ok_or_else(|| anyhow!("GPU SW kernel unavailable"))?;
+    let ctx = GpuContext::try_global().ok_or_else(|| anyhow!("GPU context unavailable"))?;
     let stream = ctx.cuda_context().new_stream()?;
 
     // Pack targets flat + per-pair offset/length.
@@ -238,27 +234,57 @@ mod tests {
 
         // Each test pair: (query_used, target, scores_used, gap_open_used, gap_extend_used).
         let pairs: Vec<(Vec<u8>, Vec<u8>, &[i32], i32, i32)> = vec![
-            (query.clone(), t_full, scores.as_slice(), gap_open, gap_extend),
-            (query.clone(), t_query_insert, scores.as_slice(), gap_open, gap_extend),
-            (query.clone(), t_target_insert, scores.as_slice(), gap_open, gap_extend),
-            (query.clone(), t_unrelated, scores.as_slice(), gap_open, gap_extend),
-            (q_strict, t_strict, scores_strict.as_slice(), gap_open, gap_extend),
-            (q_local, t_local_trim, scores.as_slice(), gap_open, gap_extend),
+            (
+                query.clone(),
+                t_full,
+                scores.as_slice(),
+                gap_open,
+                gap_extend,
+            ),
+            (
+                query.clone(),
+                t_query_insert,
+                scores.as_slice(),
+                gap_open,
+                gap_extend,
+            ),
+            (
+                query.clone(),
+                t_target_insert,
+                scores.as_slice(),
+                gap_open,
+                gap_extend,
+            ),
+            (
+                query.clone(),
+                t_unrelated,
+                scores.as_slice(),
+                gap_open,
+                gap_extend,
+            ),
+            (
+                q_strict,
+                t_strict,
+                scores_strict.as_slice(),
+                gap_open,
+                gap_extend,
+            ),
+            (
+                q_local,
+                t_local_trim,
+                scores.as_slice(),
+                gap_open,
+                gap_extend,
+            ),
         ];
 
         for (i, (q, t, s, go, ge)) in pairs.iter().enumerate() {
             // Single-pair GPU launch (the kernel is batched but per-pair
             // gap penalties + scores can vary, so we call it once per
             // pair for these mixed-config tests).
-            let gpu = smith_waterman_score_batch_gpu(
-                q,
-                &[t.as_slice()],
-                s,
-                alphabet_size,
-                *go,
-                *ge,
-            )
-            .expect("GPU SW failed");
+            let gpu =
+                smith_waterman_score_batch_gpu(q, &[t.as_slice()], s, alphabet_size, *go, *ge)
+                    .expect("GPU SW failed");
             assert_eq!(gpu.len(), 1);
 
             let cpu = smith_waterman(q, t, s, alphabet_size, *go, *ge);
@@ -295,10 +321,8 @@ mod tests {
         let t1: Vec<u8> = vec![0, 1, 2, 3];
         let t2: Vec<u8> = vec![3, 2, 1, 0];
         let targets: Vec<&[u8]> = vec![&t1, &t2];
-        let out = smith_waterman_score_batch_gpu(
-            &[], &targets, &scores, alphabet_size, -5, -1,
-        )
-        .expect("empty query must not be an infrastructure error");
+        let out = smith_waterman_score_batch_gpu(&[], &targets, &scores, alphabet_size, -5, -1)
+            .expect("empty query must not be an infrastructure error");
         assert_eq!(out.len(), 2);
         for ge in &out {
             assert_eq!(ge.score, 0);
@@ -308,15 +332,8 @@ mod tests {
     #[test]
     fn empty_target_list_returns_empty_vec_without_dispatch() {
         let scores = identity_matrix(4, 3, -2);
-        let result = smith_waterman_score_batch_gpu(
-            &[0, 1, 2],
-            &[],
-            &scores,
-            4,
-            -5,
-            -1,
-        )
-        .expect("ok");
+        let result =
+            smith_waterman_score_batch_gpu(&[0, 1, 2], &[], &scores, 4, -5, -1).expect("ok");
         assert!(result.is_empty());
     }
 
@@ -335,8 +352,7 @@ mod tests {
         let gap_open = -5;
         let gap_extend = -1;
 
-        let query: Vec<u8> =
-            (0..40).map(|i| (i % alphabet_size) as u8).collect();
+        let query: Vec<u8> = (0..40).map(|i| (i % alphabet_size) as u8).collect();
 
         let mut rng_state: u32 = 0x1234_5678;
         let mut next = || {
@@ -367,14 +383,7 @@ mod tests {
         .expect("GPU SW failed");
 
         for (i, target) in targets.iter().enumerate() {
-            let cpu = smith_waterman(
-                &query,
-                target,
-                &scores,
-                alphabet_size,
-                gap_open,
-                gap_extend,
-            );
+            let cpu = smith_waterman(&query, target, &scores, alphabet_size, gap_open, gap_extend);
             let cpu_score = cpu.as_ref().map(|a| a.score).unwrap_or(0);
             assert_eq!(
                 gpu[i].score, cpu_score,

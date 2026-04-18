@@ -8,10 +8,6 @@ use crate::core::types::DPWorkspace;
 /// Get initial alignment from secondary structure matching.
 ///
 /// Returns alignment map (j2i).
-pub fn get_initial_ss(
-    ws: &mut DPWorkspace,
-    secx: &[char],
-    secy: &[char],
-) -> Vec<i32> {
+pub fn get_initial_ss(ws: &mut DPWorkspace, secx: &[char], secy: &[char]) -> Vec<i32> {
     nwdp_secondary_structure(ws, secx, secy, -1.0)
 }

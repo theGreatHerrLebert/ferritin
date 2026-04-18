@@ -190,7 +190,10 @@ impl PaddedDb {
         let n_buckets = self.num_buckets();
         let mut out = vec![
             vec![
-                SlotInfo { real_len: 0, original_index: usize::MAX };
+                SlotInfo {
+                    real_len: 0,
+                    original_index: usize::MAX
+                };
                 self.bucket_size
             ];
             n_buckets
@@ -230,8 +233,8 @@ mod tests {
         // longest length (6). Sorted ascending by length → order
         // within bucket is [1, 3, 5, 6].
         let t0: Vec<u8> = vec![1, 2, 3, 4, 5, 6]; // len 6
-        let t1: Vec<u8> = vec![7];                // len 1
-        let t2: Vec<u8> = vec![8, 9, 10];         // len 3
+        let t1: Vec<u8> = vec![7]; // len 1
+        let t2: Vec<u8> = vec![8, 9, 10]; // len 3
         let t3: Vec<u8> = vec![11, 12, 13, 14, 15]; // len 5
         let targets: Vec<&[u8]> = vec![&t0, &t1, &t2, &t3];
         let db = PaddedDb::build(&targets, 4, 0);
@@ -255,7 +258,7 @@ mod tests {
     #[test]
     fn short_targets_padded_correctly_past_their_real_length() {
         let t0: Vec<u8> = vec![10, 20, 30, 40, 50]; // len 5
-        let t1: Vec<u8> = vec![99];                 // len 1
+        let t1: Vec<u8> = vec![99]; // len 1
         let targets: Vec<&[u8]> = vec![&t0, &t1];
         let db = PaddedDb::build(&targets, 2, 0xAA);
 
@@ -285,10 +288,8 @@ mod tests {
         assert_eq!(last_bucket.len(), 4);
         // Exactly one of the four slots has a real target byte; the
         // other three are all pad_byte.
-        let real_bytes: Vec<&Vec<u8>> =
-            last_bucket.iter().filter(|r| r[0] != 0xff).collect();
-        let pad_bytes: Vec<&Vec<u8>> =
-            last_bucket.iter().filter(|r| r[0] == 0xff).collect();
+        let real_bytes: Vec<&Vec<u8>> = last_bucket.iter().filter(|r| r[0] != 0xff).collect();
+        let pad_bytes: Vec<&Vec<u8>> = last_bucket.iter().filter(|r| r[0] == 0xff).collect();
         assert_eq!(real_bytes.len(), 1);
         assert_eq!(pad_bytes.len(), 3);
     }
@@ -368,11 +369,9 @@ mod tests {
         let lens = db.slot_lens();
         assert_eq!(lens.len(), 1);
         // 3 real slots + 1 inactive
-        let active: Vec<&SlotInfo> =
-            lens[0].iter().filter(|s| s.real_len > 0).collect();
+        let active: Vec<&SlotInfo> = lens[0].iter().filter(|s| s.real_len > 0).collect();
         assert_eq!(active.len(), 3);
-        let inactive: Vec<&SlotInfo> =
-            lens[0].iter().filter(|s| s.real_len == 0).collect();
+        let inactive: Vec<&SlotInfo> = lens[0].iter().filter(|s| s.real_len == 0).collect();
         assert_eq!(inactive.len(), 1);
         assert_eq!(inactive[0].original_index, usize::MAX);
     }

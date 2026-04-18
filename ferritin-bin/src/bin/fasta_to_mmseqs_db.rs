@@ -34,7 +34,7 @@ use ferritin_search::db::{DBWriter, Dbtype};
 #[derive(Parser, Debug)]
 #[command(
     name = "fasta_to_mmseqs_db",
-    about = "Convert FASTA to an MMseqs2-compatible DB (amino acids).",
+    about = "Convert FASTA to an MMseqs2-compatible DB (amino acids)."
 )]
 struct Args {
     /// Input FASTA file (plain text, not gzipped).
@@ -54,8 +54,8 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let t0 = Instant::now();
 
-    let file = File::open(&args.fasta)
-        .with_context(|| format!("open FASTA {}", args.fasta.display()))?;
+    let file =
+        File::open(&args.fasta).with_context(|| format!("open FASTA {}", args.fasta.display()))?;
     let reader = BufReader::with_capacity(1 << 20, file); // 1 MiB buffer
 
     let mut writer = DBWriter::create(&args.out_prefix, Dbtype::AMINO_ACIDS)

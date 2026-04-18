@@ -263,11 +263,7 @@ impl ReducedAlphabet {
 
 /// Mean of all `score(a, b)` over `a != b` with `a in class_a`, `b in class_b`.
 /// Off-diagonal only so merging isn't biased by already-identical cells.
-fn avg_inter_class_score(
-    matrix: &SubstitutionMatrix,
-    class_a: &[usize],
-    class_b: &[usize],
-) -> f32 {
+fn avg_inter_class_score(matrix: &SubstitutionMatrix, class_a: &[usize], class_b: &[usize]) -> f32 {
     let mut sum = 0.0f32;
     let mut n = 0u32;
     for &a in class_a {
@@ -279,7 +275,11 @@ fn avg_inter_class_score(
             n += 1;
         }
     }
-    if n == 0 { f32::NEG_INFINITY } else { sum / n as f32 }
+    if n == 0 {
+        f32::NEG_INFINITY
+    } else {
+        sum / n as f32
+    }
 }
 
 #[cfg(test)]
@@ -387,7 +387,10 @@ mod tests {
             vec![x_full],
             "X class has extra members: {:?} (decoded: {:?})",
             members,
-            members.iter().map(|&i| alpha.decode(i) as char).collect::<Vec<_>>(),
+            members
+                .iter()
+                .map(|&i| alpha.decode(i) as char)
+                .collect::<Vec<_>>(),
         );
     }
 
@@ -421,9 +424,15 @@ mod tests {
         // V/I or V/L (aliphatic). We don't pin which one wins because
         // that's an algorithmic choice, but it must be one of these.
         let sensible_pairs = [
-            [b'I', b'L'], [b'D', b'E'], [b'K', b'R'],
-            [b'F', b'Y'], [b'I', b'V'], [b'L', b'V'],
-            [b'S', b'T'], [b'N', b'D'], [b'Q', b'E'],
+            [b'I', b'L'],
+            [b'D', b'E'],
+            [b'K', b'R'],
+            [b'F', b'Y'],
+            [b'I', b'V'],
+            [b'L', b'V'],
+            [b'S', b'T'],
+            [b'N', b'D'],
+            [b'Q', b'E'],
         ];
         assert!(
             sensible_pairs.iter().any(|p| p[..] == merged_letters[..]),
@@ -489,7 +498,9 @@ mod tests {
         let m = SubstitutionMatrix::blosum62();
         let x_full = alpha.encode(b'X');
         let reducer = ReducedAlphabet::from_matrix(&m, 13, Some(x_full)).unwrap();
-        let skip_idx = reducer.unknown_reduced_idx.expect("we reserved X as unknown");
+        let skip_idx = reducer
+            .unknown_reduced_idx
+            .expect("we reserved X as unknown");
 
         // Two near-identical targets, one unrelated.
         let t1 = Sequence::from_ascii(alpha.clone(), b"MKLVRQPST");

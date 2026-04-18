@@ -15,11 +15,11 @@ pub struct AtomTypeEntry {
 /// EEF1 implicit solvation parameters per atom type.
 #[derive(Clone, Debug)]
 pub struct EEF1Param {
-    pub volume: f64,   // van der Waals volume (ų)
-    pub dg_ref: f64,   // reference solvation free energy (kcal/mol)
-    pub dg_free: f64,  // solvation free energy for Gaussian exclusion (kcal/mol)
-    pub sigma: f64,    // Gaussian width (Å)
-    pub r_min: f64,    // minimum interaction radius (Å)
+    pub volume: f64,  // van der Waals volume (ų)
+    pub dg_ref: f64,  // reference solvation free energy (kcal/mol)
+    pub dg_free: f64, // solvation free energy for Gaussian exclusion (kcal/mol)
+    pub sigma: f64,   // Gaussian width (Å)
+    pub r_min: f64,   // minimum interaction radius (Å)
 }
 
 /// Common interface for force field parameter lookup.
@@ -31,21 +31,30 @@ pub trait ForceField: Send + Sync {
     fn get_bond(&self, type_a: &str, type_b: &str) -> Option<&BondParam>;
     fn get_angle(&self, type_a: &str, type_b: &str, type_c: &str) -> Option<&AngleParam>;
     fn get_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>>;
-    fn get_improper_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>>;
+    fn get_improper_torsion(&self, a: &str, b: &str, c: &str, d: &str)
+        -> Option<&Vec<TorsionTerm>>;
     fn is_improper_center(&self, residue: &str, atom: &str) -> bool;
     fn get_lj(&self, atype: &str) -> Option<&LJParam>;
     fn scee(&self) -> f64;
     fn scnb(&self) -> f64;
     /// EEF1 solvation parameters (None for force fields without implicit solvent).
-    fn get_eef1(&self, _atype: &str) -> Option<&EEF1Param> { None }
+    fn get_eef1(&self, _atype: &str) -> Option<&EEF1Param> {
+        None
+    }
     /// Whether this force field has EEF1 solvation enabled.
-    fn has_eef1(&self) -> bool { false }
+    fn has_eef1(&self) -> bool {
+        false
+    }
 
     /// OBC GB per-atom parameters (None for force fields without OBC).
     /// Phase A scaffolding — Phase B will populate AmberParams.
-    fn get_obc_gb(&self, _atype: &str) -> Option<&crate::forcefield::gb_obc::ObcAtomParams> { None }
+    fn get_obc_gb(&self, _atype: &str) -> Option<&crate::forcefield::gb_obc::ObcAtomParams> {
+        None
+    }
     /// Whether this force field has OBC GB solvation enabled.
-    fn has_obc_gb(&self) -> bool { false }
+    fn has_obc_gb(&self) -> bool {
+        false
+    }
 
     /// Nonbonded interaction cutoff (Å). Pairs beyond this distance are
     /// ignored in the LJ + Coulomb loops and the NBL builder.
@@ -55,7 +64,9 @@ pub trait ForceField: Send + Sync {
     /// uses 9.0 Å per BALL's `@CTOFNB=9.0` (the EEF1 solvation damping
     /// makes the energy less sensitive to truncation), giving a ~4.6×
     /// reduction in NBL pairs vs 15 Å.
-    fn nonbonded_cutoff(&self) -> f64 { 15.0 }
+    fn nonbonded_cutoff(&self) -> f64 {
+        15.0
+    }
 
     /// Distance at which the switching function begins to taper interactions.
     /// Must be ≤ `nonbonded_cutoff()`. Interactions are full-strength below
@@ -64,7 +75,9 @@ pub trait ForceField: Send + Sync {
     ///
     /// Default: 13.0 Å (consistent with the 15 Å cutoff). CHARMM19+EEF1
     /// overrides to 7.0 Å per BALL's `@CTONNB=7.0`.
-    fn switching_on(&self) -> f64 { 13.0 }
+    fn switching_on(&self) -> f64 {
+        13.0
+    }
 }
 
 /// Bond stretch parameters: E = k * (r - r0)²
@@ -77,7 +90,7 @@ pub struct BondParam {
 /// Angle bend parameters: E = k * (θ - θ0)²
 #[derive(Clone, Debug)]
 pub struct AngleParam {
-    pub k: f64,     // kcal/mol/rad²
+    pub k: f64,      // kcal/mol/rad²
     pub theta0: f64, // radians
 }
 
@@ -94,7 +107,7 @@ pub struct TorsionTerm {
 #[derive(Clone, Debug)]
 pub struct LJParam {
     pub r: f64,       // van der Waals radius (Å)
-    pub epsilon: f64,  // well depth (kcal/mol)
+    pub epsilon: f64, // well depth (kcal/mol)
 }
 
 /// Complete AMBER force field parameter set.
@@ -313,10 +326,9 @@ impl AmberParams {
                         if let (Ok(r), Ok(eps)) =
                             (fields[2].parse::<f64>(), fields[3].parse::<f64>())
                         {
-                            params.lj.insert(
-                                fields[1].to_string(),
-                                LJParam { r, epsilon: eps },
-                            );
+                            params
+                                .lj
+                                .insert(fields[1].to_string(), LJParam { r, epsilon: eps });
                         }
                     }
                 }
@@ -378,17 +390,44 @@ impl AmberParams {
         type_c: &str,
         type_d: &str,
     ) -> Option<&Vec<TorsionTerm>> {
-        let (a, b, c, d) = (type_a.to_string(), type_b.to_string(), type_c.to_string(), type_d.to_string());
+        let (a, b, c, d) = (
+            type_a.to_string(),
+            type_b.to_string(),
+            type_c.to_string(),
+            type_d.to_string(),
+        );
         let w = "*".to_string();
         // BALL fallback order (9 patterns):
-        self.torsions.get(&(a.clone(), b.clone(), c.clone(), d.clone()))  // exact
-            .or_else(|| self.torsions.get(&(d.clone(), c.clone(), b.clone(), a.clone())))  // reverse
-            .or_else(|| self.torsions.get(&(w.clone(), b.clone(), c.clone(), d.clone())))  // *-b-c-d
-            .or_else(|| self.torsions.get(&(w.clone(), c.clone(), b.clone(), a.clone())))  // *-c-b-a
-            .or_else(|| self.torsions.get(&(a.clone(), b.clone(), c.clone(), w.clone())))  // a-b-c-*
-            .or_else(|| self.torsions.get(&(d.clone(), c.clone(), b.clone(), w.clone())))  // d-c-b-*
-            .or_else(|| self.torsions.get(&(w.clone(), b.clone(), c.clone(), w.clone())))  // *-b-c-*
-            .or_else(|| self.torsions.get(&(w.clone(), c.clone(), b.clone(), w.clone())))  // *-c-b-*
+        self.torsions
+            .get(&(a.clone(), b.clone(), c.clone(), d.clone())) // exact
+            .or_else(|| {
+                self.torsions
+                    .get(&(d.clone(), c.clone(), b.clone(), a.clone()))
+            }) // reverse
+            .or_else(|| {
+                self.torsions
+                    .get(&(w.clone(), b.clone(), c.clone(), d.clone()))
+            }) // *-b-c-d
+            .or_else(|| {
+                self.torsions
+                    .get(&(w.clone(), c.clone(), b.clone(), a.clone()))
+            }) // *-c-b-a
+            .or_else(|| {
+                self.torsions
+                    .get(&(a.clone(), b.clone(), c.clone(), w.clone()))
+            }) // a-b-c-*
+            .or_else(|| {
+                self.torsions
+                    .get(&(d.clone(), c.clone(), b.clone(), w.clone()))
+            }) // d-c-b-*
+            .or_else(|| {
+                self.torsions
+                    .get(&(w.clone(), b.clone(), c.clone(), w.clone()))
+            }) // *-b-c-*
+            .or_else(|| {
+                self.torsions
+                    .get(&(w.clone(), c.clone(), b.clone(), w.clone()))
+            }) // *-c-b-*
     }
 
     /// Look up improper torsion parameters.
@@ -413,17 +452,38 @@ impl AmberParams {
         type_c: &str,
         type_d: &str,
     ) -> Option<&Vec<TorsionTerm>> {
-        let (a, b, c, d) = (type_a.to_string(), type_b.to_string(), type_c.to_string(), type_d.to_string());
+        let (a, b, c, d) = (
+            type_a.to_string(),
+            type_b.to_string(),
+            type_c.to_string(),
+            type_d.to_string(),
+        );
         let w = "*".to_string();
-        self.improper_torsions.get(&(a.clone(), b.clone(), c.clone(), d.clone()))
-            .or_else(|| self.improper_torsions.get(&(d.clone(), c.clone(), b.clone(), a.clone())))
-            .or_else(|| self.improper_torsions.get(&(w.clone(), b.clone(), c.clone(), d.clone())))
-            .or_else(|| self.improper_torsions.get(&(a.clone(), b.clone(), c.clone(), w.clone())))
+        self.improper_torsions
+            .get(&(a.clone(), b.clone(), c.clone(), d.clone()))
+            .or_else(|| {
+                self.improper_torsions
+                    .get(&(d.clone(), c.clone(), b.clone(), a.clone()))
+            })
+            .or_else(|| {
+                self.improper_torsions
+                    .get(&(w.clone(), b.clone(), c.clone(), d.clone()))
+            })
+            .or_else(|| {
+                self.improper_torsions
+                    .get(&(a.clone(), b.clone(), c.clone(), w.clone()))
+            })
             // Double-wildcard outer (AMBER amide-plane pattern).
-            .or_else(|| self.improper_torsions.get(&(w.clone(), w.clone(), c.clone(), d.clone())))
-            .or_else(|| self.improper_torsions.get(&(d.clone(), c.clone(), w.clone(), w.clone())))
-            // `d-c-*-*` reverse is equivalent to `*-*-c-d` on an already-
-            // canonical stored form; include both to handle either store.
+            .or_else(|| {
+                self.improper_torsions
+                    .get(&(w.clone(), w.clone(), c.clone(), d.clone()))
+            })
+            .or_else(|| {
+                self.improper_torsions
+                    .get(&(d.clone(), c.clone(), w.clone(), w.clone()))
+            })
+        // `d-c-*-*` reverse is equivalent to `*-*-c-d` on an already-
+        // canonical stored form; include both to handle either store.
     }
 
     // kept for backward compatibility — old 3-pattern version removed
@@ -488,13 +548,20 @@ impl AmberParams {
         let mut section = String::new();
         for line in content.lines() {
             let line = line.trim();
-            if line.is_empty() || line.starts_with(';') || line.starts_with('@')
-                || line.starts_with("ver:") || line.starts_with("key:") || line.starts_with("value:")
+            if line.is_empty()
+                || line.starts_with(';')
+                || line.starts_with('@')
+                || line.starts_with("ver:")
+                || line.starts_with("key:")
+                || line.starts_with("value:")
             {
                 continue;
             }
             if line.starts_with('[') {
-                section = line.trim_start_matches('[').trim_end_matches(']').to_string();
+                section = line
+                    .trim_start_matches('[')
+                    .trim_end_matches(']')
+                    .to_string();
                 continue;
             }
             if section != "OBCSolvation" {
@@ -528,7 +595,13 @@ impl ForceField for AmberParams {
     fn get_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>> {
         self.get_torsion(a, b, c, d)
     }
-    fn get_improper_torsion(&self, a: &str, b: &str, c: &str, d: &str) -> Option<&Vec<TorsionTerm>> {
+    fn get_improper_torsion(
+        &self,
+        a: &str,
+        b: &str,
+        c: &str,
+        d: &str,
+    ) -> Option<&Vec<TorsionTerm>> {
         self.get_improper_torsion(a, b, c, d)
     }
     fn is_improper_center(&self, residue: &str, atom: &str) -> bool {
@@ -537,8 +610,12 @@ impl ForceField for AmberParams {
     fn get_lj(&self, atype: &str) -> Option<&LJParam> {
         self.get_lj(atype)
     }
-    fn scee(&self) -> f64 { self.scee }
-    fn scnb(&self) -> f64 { self.scnb }
+    fn scee(&self) -> f64 {
+        self.scee
+    }
+    fn scnb(&self) -> f64 {
+        self.scnb
+    }
     fn nonbonded_cutoff(&self) -> f64 {
         self.cutoff_override.unwrap_or(15.0)
     }
@@ -599,12 +676,20 @@ impl CharmmParams {
         let mut section = String::new();
         for line in content.lines() {
             let line = line.trim();
-            if line.is_empty() || line.starts_with(';') || line.starts_with('@')
-                || line.starts_with("ver:") || line.starts_with("key:") || line.starts_with("value:") {
+            if line.is_empty()
+                || line.starts_with(';')
+                || line.starts_with('@')
+                || line.starts_with("ver:")
+                || line.starts_with("key:")
+                || line.starts_with("value:")
+            {
                 continue;
             }
             if line.starts_with('[') {
-                section = line.trim_start_matches('[').trim_end_matches(']').to_string();
+                section = line
+                    .trim_start_matches('[')
+                    .trim_end_matches(']')
+                    .to_string();
                 continue;
             }
             if section == "EEF1Solvation" {
@@ -621,13 +706,16 @@ impl CharmmParams {
                     ) {
                         // Skip hydrogen types (volume = 0 and dG = 0)
                         if v.abs() > 1e-10 || dg_ref.abs() > 1e-10 || dg_free.abs() > 1e-10 {
-                            eef1.insert(atype, EEF1Param {
-                                volume: v,
-                                dg_ref,
-                                dg_free,
-                                sigma,
-                                r_min,
-                            });
+                            eef1.insert(
+                                atype,
+                                EEF1Param {
+                                    volume: v,
+                                    dg_ref,
+                                    dg_free,
+                                    sigma,
+                                    r_min,
+                                },
+                            );
                         }
                     }
                 }
@@ -653,7 +741,9 @@ impl CharmmParams {
 impl ForceField for CharmmParams {
     fn get_atom_type(&self, residue: &str, atom: &str) -> Option<&AtomTypeEntry> {
         let key = format!("{residue}:{atom}");
-        self.atom_types.get(&key).or_else(|| self.wildcard_types.get(atom))
+        self.atom_types
+            .get(&key)
+            .or_else(|| self.wildcard_types.get(atom))
     }
     fn get_bond(&self, type_a: &str, type_b: &str) -> Option<&BondParam> {
         let key = sorted_pair(type_a, type_b);
@@ -663,25 +753,79 @@ impl ForceField for CharmmParams {
         let key = sorted_triple(type_a, type_b, type_c);
         self.angles.get(&key)
     }
-    fn get_torsion(&self, type_a: &str, type_b: &str, type_c: &str, type_d: &str) -> Option<&Vec<TorsionTerm>> {
-        let (a, b, c, d) = (type_a.to_string(), type_b.to_string(), type_c.to_string(), type_d.to_string());
+    fn get_torsion(
+        &self,
+        type_a: &str,
+        type_b: &str,
+        type_c: &str,
+        type_d: &str,
+    ) -> Option<&Vec<TorsionTerm>> {
+        let (a, b, c, d) = (
+            type_a.to_string(),
+            type_b.to_string(),
+            type_c.to_string(),
+            type_d.to_string(),
+        );
         let w = "*".to_string();
-        self.torsions.get(&(a.clone(), b.clone(), c.clone(), d.clone()))
-            .or_else(|| self.torsions.get(&(d.clone(), c.clone(), b.clone(), a.clone())))
-            .or_else(|| self.torsions.get(&(w.clone(), b.clone(), c.clone(), d.clone())))
-            .or_else(|| self.torsions.get(&(w.clone(), c.clone(), b.clone(), a.clone())))
-            .or_else(|| self.torsions.get(&(a.clone(), b.clone(), c.clone(), w.clone())))
-            .or_else(|| self.torsions.get(&(d.clone(), c.clone(), b.clone(), w.clone())))
-            .or_else(|| self.torsions.get(&(w.clone(), b.clone(), c.clone(), w.clone())))
-            .or_else(|| self.torsions.get(&(w.clone(), c.clone(), b.clone(), w.clone())))
+        self.torsions
+            .get(&(a.clone(), b.clone(), c.clone(), d.clone()))
+            .or_else(|| {
+                self.torsions
+                    .get(&(d.clone(), c.clone(), b.clone(), a.clone()))
+            })
+            .or_else(|| {
+                self.torsions
+                    .get(&(w.clone(), b.clone(), c.clone(), d.clone()))
+            })
+            .or_else(|| {
+                self.torsions
+                    .get(&(w.clone(), c.clone(), b.clone(), a.clone()))
+            })
+            .or_else(|| {
+                self.torsions
+                    .get(&(a.clone(), b.clone(), c.clone(), w.clone()))
+            })
+            .or_else(|| {
+                self.torsions
+                    .get(&(d.clone(), c.clone(), b.clone(), w.clone()))
+            })
+            .or_else(|| {
+                self.torsions
+                    .get(&(w.clone(), b.clone(), c.clone(), w.clone()))
+            })
+            .or_else(|| {
+                self.torsions
+                    .get(&(w.clone(), c.clone(), b.clone(), w.clone()))
+            })
     }
-    fn get_improper_torsion(&self, type_a: &str, type_b: &str, type_c: &str, type_d: &str) -> Option<&Vec<TorsionTerm>> {
-        let (a, b, c, d) = (type_a.to_string(), type_b.to_string(), type_c.to_string(), type_d.to_string());
+    fn get_improper_torsion(
+        &self,
+        type_a: &str,
+        type_b: &str,
+        type_c: &str,
+        type_d: &str,
+    ) -> Option<&Vec<TorsionTerm>> {
+        let (a, b, c, d) = (
+            type_a.to_string(),
+            type_b.to_string(),
+            type_c.to_string(),
+            type_d.to_string(),
+        );
         let w = "*".to_string();
-        self.improper_torsions.get(&(a.clone(), b.clone(), c.clone(), d.clone()))
-            .or_else(|| self.improper_torsions.get(&(d.clone(), c.clone(), b.clone(), a.clone())))
-            .or_else(|| self.improper_torsions.get(&(w.clone(), b.clone(), c.clone(), d.clone())))
-            .or_else(|| self.improper_torsions.get(&(a.clone(), b.clone(), c.clone(), w.clone())))
+        self.improper_torsions
+            .get(&(a.clone(), b.clone(), c.clone(), d.clone()))
+            .or_else(|| {
+                self.improper_torsions
+                    .get(&(d.clone(), c.clone(), b.clone(), a.clone()))
+            })
+            .or_else(|| {
+                self.improper_torsions
+                    .get(&(w.clone(), b.clone(), c.clone(), d.clone()))
+            })
+            .or_else(|| {
+                self.improper_torsions
+                    .get(&(a.clone(), b.clone(), c.clone(), w.clone()))
+            })
     }
     fn is_improper_center(&self, residue: &str, atom: &str) -> bool {
         let key = format!("{residue}:{atom}");
@@ -690,19 +834,29 @@ impl ForceField for CharmmParams {
     fn get_lj(&self, atype: &str) -> Option<&LJParam> {
         self.lj.get(atype)
     }
-    fn scee(&self) -> f64 { self.scee }
-    fn scnb(&self) -> f64 { self.scnb }
+    fn scee(&self) -> f64 {
+        self.scee
+    }
+    fn scnb(&self) -> f64 {
+        self.scnb
+    }
     fn get_eef1(&self, atype: &str) -> Option<&EEF1Param> {
         self.eef1.get(atype)
     }
-    fn has_eef1(&self) -> bool { !self.eef1.is_empty() }
+    fn has_eef1(&self) -> bool {
+        !self.eef1.is_empty()
+    }
     /// CHARMM19+EEF1 canonical cutoff from BALL's param19_eef1.ini:
     /// `@CTOFNB=9.0`. EEF1 solvation makes the energy less sensitive
     /// to long-range truncation, so the short cutoff is safe and gives
     /// ~4.6× fewer NBL pairs vs the default 15 Å.
-    fn nonbonded_cutoff(&self) -> f64 { 9.0 }
+    fn nonbonded_cutoff(&self) -> f64 {
+        9.0
+    }
     /// CHARMM19 switching on from BALL: `@CTONNB=7.0`.
-    fn switching_on(&self) -> f64 { 7.0 }
+    fn switching_on(&self) -> f64 {
+        7.0
+    }
 }
 
 /// Load the embedded CHARMM19 + EEF1 parameter set.
@@ -733,7 +887,12 @@ mod tests {
         let p = amber96_obc();
         assert!(p.has_obc_gb());
         // 36 AMBER classes were extracted from OpenMM amber96.xml + amber96_obc.xml.
-        assert_eq!(p.obc_gb.len(), 36, "expected 36 OBC classes, got {}", p.obc_gb.len());
+        assert_eq!(
+            p.obc_gb.len(),
+            36,
+            "expected 36 OBC classes, got {}",
+            p.obc_gb.len()
+        );
 
         // Spot-check four classes against the OpenMM XML (nm -> A):
         // CT (sp3 C): radius=0.19 nm=1.9 A, scale=0.72
@@ -813,7 +972,10 @@ mod tests {
     #[test]
     fn test_charmm19_eef1_charges_and_types_dump() {
         let p = charmm19_eef1();
-        eprintln!("\n=== CharmmParams::atom_types size: {} ===", p.atom_types.len());
+        eprintln!(
+            "\n=== CharmmParams::atom_types size: {} ===",
+            p.atom_types.len()
+        );
         eprintln!("=== CharmmParams::eef1 size:       {} ===", p.eef1.len());
 
         // Sample lookups for ALA backbone — should be NH1, CH1E, C, O.
@@ -827,7 +989,7 @@ mod tests {
             ("GLY", "CA", "CH2E"),
             ("GLY", "C", "C"),
             ("GLY", "O", "O"),
-            ("PRO", "N", "N"),    // proline N has no H, type "N" not "NH1"
+            ("PRO", "N", "N"), // proline N has no H, type "N" not "NH1"
             ("THR", "OG1", "OH1"),
             ("ASP", "OD1", "OC"),
             ("ARG", "NH1", "NC2"), // guanidinium
@@ -835,7 +997,11 @@ mod tests {
             let key = format!("{res}:{atom}");
             match p.get_atom_type(res, atom) {
                 Some(entry) => {
-                    let match_marker = if entry.amber_type == *expected_type { "✓" } else { "✗" };
+                    let match_marker = if entry.amber_type == *expected_type {
+                        "✓"
+                    } else {
+                        "✗"
+                    };
                     eprintln!(
                         "  [{}] {:<10} -> amber_type={:<6} charge={:>+8.4} (expected {})",
                         match_marker, key, entry.amber_type, entry.charge, expected_type,
@@ -852,10 +1018,8 @@ mod tests {
         // wasn't populated correctly by the parser.
         eprintln!("\n=== EEF1 dg_ref lookups (kcal/mol) ===");
         for ctype in &[
-            "NH1", "NH2", "NH3", "NC2", "N", "NR", "NP",
-            "C", "CR", "CH1E", "CH2E", "CH3E", "CR1E", "CT", "CM",
-            "O", "OC", "OH1", "OM",
-            "S", "SH1E",
+            "NH1", "NH2", "NH3", "NC2", "N", "NR", "NP", "C", "CR", "CH1E", "CH2E", "CH3E", "CR1E",
+            "CT", "CM", "O", "OC", "OH1", "OM", "S", "SH1E",
         ] {
             match p.eef1.get(*ctype) {
                 Some(eef) => eprintln!(
@@ -867,18 +1031,26 @@ mod tests {
         }
 
         // The big claim: ALA:N → NH1 → dg_ref = -5.95
-        let ala_n = p.get_atom_type("ALA", "N")
+        let ala_n = p
+            .get_atom_type("ALA", "N")
             .expect("ALA:N must exist in CHARMM atom_types");
-        let nh1 = p.eef1.get(&ala_n.amber_type)
+        let nh1 = p
+            .eef1
+            .get(&ala_n.amber_type)
             .expect("ALA:N's amber_type must exist in EEF1 hashmap");
         eprintln!(
             "\nFINAL: ALA:N -> {} -> dg_ref={} kcal/mol (expect -5.95)",
             ala_n.amber_type, nh1.dg_ref,
         );
-        assert_eq!(ala_n.amber_type, "NH1",
-            "atom_types parser stored wrong type for ALA:N");
-        assert!((nh1.dg_ref - (-5.95)).abs() < 0.01,
-            "EEF1 parser stored wrong dg_ref for NH1: got {}", nh1.dg_ref);
+        assert_eq!(
+            ala_n.amber_type, "NH1",
+            "atom_types parser stored wrong type for ALA:N"
+        );
+        assert!(
+            (nh1.dg_ref - (-5.95)).abs() < 0.01,
+            "EEF1 parser stored wrong dg_ref for NH1: got {}",
+            nh1.dg_ref
+        );
     }
 
     // ------------------------------------------------------------------
@@ -919,7 +1091,8 @@ mod tests {
 
         eprintln!("\n=== 1crn topology dump ===");
         eprintln!("  total atoms: {}", topo.atoms.len());
-        eprintln!("  unassigned:  {} ({:?})",
+        eprintln!(
+            "  unassigned:  {} ({:?})",
             topo.unassigned_atoms.len(),
             &topo.unassigned_atoms[..topo.unassigned_atoms.len().min(10)],
         );
@@ -936,7 +1109,9 @@ mod tests {
         let mut sample_dump = Vec::new();
 
         for (i, a) in topo.atoms.iter().enumerate() {
-            if a.is_hydrogen { continue; }
+            if a.is_hydrogen {
+                continue;
+            }
 
             // Method (a): trait method
             if let Some(eef) = p.get_eef1(&a.amber_type) {
@@ -956,25 +1131,36 @@ mod tests {
             if i < 12 {
                 sample_dump.push(format!(
                     "  atom[{:3}] {}:{} type={} dg_ref={:?}",
-                    i, a.residue_name, a.atom_name, a.amber_type,
+                    i,
+                    a.residue_name,
+                    a.atom_name,
+                    a.amber_type,
                     p.eef1.get(&a.amber_type).map(|e| e.dg_ref),
                 ));
             }
         }
 
         eprintln!("\n  sample atoms (first 12):");
-        for line in &sample_dump { eprintln!("{}", line); }
+        for line in &sample_dump {
+            eprintln!("{}", line);
+        }
 
         eprintln!("\n  hits_via_trait:  {}/{} heavy", hits_trait, n_heavy);
         eprintln!("  hits_via_direct: {}/{} heavy", hits_direct, n_heavy);
-        eprintln!("  Σ dg_ref via trait : {:>+10.3} kcal/mol = {:>+10.3} kJ/mol",
-            sum_via_trait, sum_via_trait * 4.184);
-        eprintln!("  Σ dg_ref via direct: {:>+10.3} kcal/mol = {:>+10.3} kJ/mol",
-            sum_via_direct, sum_via_direct * 4.184);
+        eprintln!(
+            "  Σ dg_ref via trait : {:>+10.3} kcal/mol = {:>+10.3} kJ/mol",
+            sum_via_trait,
+            sum_via_trait * 4.184
+        );
+        eprintln!(
+            "  Σ dg_ref via direct: {:>+10.3} kcal/mol = {:>+10.3} kJ/mol",
+            sum_via_direct,
+            sum_via_direct * 4.184
+        );
 
         // Per-type breakdown sorted by absolute contribution.
         let mut sorted_types: Vec<_> = type_counts.iter().collect();
-        sorted_types.sort_by(|a, b| b.1.1.abs().partial_cmp(&a.1.1.abs()).unwrap());
+        sorted_types.sort_by(|a, b| b.1 .1.abs().partial_cmp(&a.1 .1.abs()).unwrap());
         eprintln!("\n  Per-type breakdown (kcal/mol total):");
         for (t, (n, total)) in sorted_types.iter().take(20) {
             eprintln!("    {:<8} count={:>4}  total={:>+10.3}", t, n, total);
@@ -987,10 +1173,15 @@ mod tests {
         let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
         let result = compute_energy(&coords, &topo, &p);
         eprintln!("\n  eef1_energy via compute_energy:");
-        eprintln!("    solvation: {:>+10.3} kJ/mol  (canonical via direct sum: {:>+10.3} kJ/mol)",
-            result.solvation, sum_via_direct * 4.184);
-        eprintln!("    diff (compute - direct): {:>+10.3} kJ/mol",
-            result.solvation - sum_via_direct * 4.184);
+        eprintln!(
+            "    solvation: {:>+10.3} kJ/mol  (canonical via direct sum: {:>+10.3} kJ/mol)",
+            result.solvation,
+            sum_via_direct * 4.184
+        );
+        eprintln!(
+            "    diff (compute - direct): {:>+10.3} kJ/mol",
+            result.solvation - sum_via_direct * 4.184
+        );
 
         // The crucial assertion: compute_energy's solvation should equal
         // sum_via_direct * 4.184 plus the pair correction (which we can't
@@ -1000,8 +1191,10 @@ mod tests {
             eprintln!(
                 "\n  ⚠ MISMATCH: direct Σ dg_ref is negative but compute_energy reports positive!"
             );
-            eprintln!("  EEF1 pair correction is +{:.1} kcal/mol, dominating self-solvation.",
-                result.solvation - sum_via_direct);
+            eprintln!(
+                "  EEF1 pair correction is +{:.1} kcal/mol, dominating self-solvation.",
+                result.solvation - sum_via_direct
+            );
             eprintln!("  Either the formula is wrong (verified against BALL — it's not)");
             eprintln!("  OR ferritin is summing more than just self+pair (also unlikely)");
             eprintln!("  OR the canonical L&K answer for 1crn is genuinely positive.");
@@ -1009,12 +1202,24 @@ mod tests {
 
         // Dump all components and the suspect LJ + bond lookups
         eprintln!("\n  All energy components on 1crn (raw, no H, no minimize):");
-        eprintln!("    bond_stretch    = {:>+12.3} kcal/mol", result.bond_stretch);
-        eprintln!("    angle_bend      = {:>+12.3} kcal/mol", result.angle_bend);
+        eprintln!(
+            "    bond_stretch    = {:>+12.3} kcal/mol",
+            result.bond_stretch
+        );
+        eprintln!(
+            "    angle_bend      = {:>+12.3} kcal/mol",
+            result.angle_bend
+        );
         eprintln!("    torsion         = {:>+12.3} kcal/mol", result.torsion);
-        eprintln!("    improper_torsion= {:>+12.3} kcal/mol", result.improper_torsion);
+        eprintln!(
+            "    improper_torsion= {:>+12.3} kcal/mol",
+            result.improper_torsion
+        );
         eprintln!("    vdw             = {:>+12.3} kcal/mol", result.vdw);
-        eprintln!("    electrostatic   = {:>+12.3} kcal/mol", result.electrostatic);
+        eprintln!(
+            "    electrostatic   = {:>+12.3} kcal/mol",
+            result.electrostatic
+        );
         eprintln!("    solvation       = {:>+12.3} kcal/mol", result.solvation);
         eprintln!("    total           = {:>+12.3} kcal/mol", result.total);
 
@@ -1059,21 +1264,25 @@ mod tests {
         let cutoff_sq = 9.0_f64 * 9.0;
 
         let mut pair_12_13 = 0.0_f64;
-        let mut pair_14    = 0.0_f64;
+        let mut pair_14 = 0.0_f64;
         let mut pair_other = 0.0_f64;
-        let mut n_12_13    = 0_usize;
-        let mut n_14       = 0_usize;
-        let mut n_other    = 0_usize;
+        let mut n_12_13 = 0_usize;
+        let mut n_14 = 0_usize;
+        let mut n_other = 0_usize;
         let coords_vec: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
 
         for ii in 0..coords_vec.len() {
-            if topo.atoms[ii].is_hydrogen { continue; }
+            if topo.atoms[ii].is_hydrogen {
+                continue;
+            }
             let eef_i = match p.get_eef1(&topo.atoms[ii].amber_type) {
                 Some(e) => e,
                 None => continue,
             };
             for jj in (ii + 1)..coords_vec.len() {
-                if topo.atoms[jj].is_hydrogen { continue; }
+                if topo.atoms[jj].is_hydrogen {
+                    continue;
+                }
                 let eef_j = match p.get_eef1(&topo.atoms[jj].amber_type) {
                     Some(e) => e,
                     None => continue,
@@ -1083,19 +1292,21 @@ mod tests {
                 let dy = coords_vec[ii][1] - coords_vec[jj][1];
                 let dz = coords_vec[ii][2] - coords_vec[jj][2];
                 let r2 = dx * dx + dy * dy + dz * dz;
-                if r2 > cutoff_sq || r2 < 0.01 { continue; }
+                if r2 > cutoff_sq || r2 < 0.01 {
+                    continue;
+                }
                 let r = r2.sqrt();
 
                 let mut contrib = 0.0_f64;
                 if eef_i.dg_free.abs() > 1e-10 && eef_j.volume > 1e-10 {
                     let dr = (r - eef_i.r_min) / eef_i.sigma;
-                    contrib += -0.5 * eef_j.volume * eef_i.dg_free
-                        * (-dr * dr).exp() / (eef_i.sigma * PI_SQRT_PI * r2);
+                    contrib += -0.5 * eef_j.volume * eef_i.dg_free * (-dr * dr).exp()
+                        / (eef_i.sigma * PI_SQRT_PI * r2);
                 }
                 if eef_j.dg_free.abs() > 1e-10 && eef_i.volume > 1e-10 {
                     let dr = (r - eef_j.r_min) / eef_j.sigma;
-                    contrib += -0.5 * eef_i.volume * eef_j.dg_free
-                        * (-dr * dr).exp() / (eef_j.sigma * PI_SQRT_PI * r2);
+                    contrib += -0.5 * eef_i.volume * eef_j.dg_free * (-dr * dr).exp()
+                        / (eef_j.sigma * PI_SQRT_PI * r2);
                 }
 
                 let pair = (ii, jj); // already ii < jj, matches excluded_pairs keying
@@ -1114,8 +1325,14 @@ mod tests {
 
         let total_inline = pair_12_13 + pair_14 + pair_other;
         eprintln!("\n  === EEF1 pair-correction breakdown (1crn, raw) ===");
-        eprintln!("    excluded_pairs size (1-2 + 1-3): {}", topo.excluded_pairs.len());
-        eprintln!("    pairs_14 size:                   {}", topo.pairs_14.len());
+        eprintln!(
+            "    excluded_pairs size (1-2 + 1-3): {}",
+            topo.excluded_pairs.len()
+        );
+        eprintln!(
+            "    pairs_14 size:                   {}",
+            topo.pairs_14.len()
+        );
         eprintln!();
         eprintln!("    class     |     n_pairs |     contribution (kcal/mol)");
         eprintln!("    ----------+-------------+---------------------------");
@@ -1123,16 +1340,31 @@ mod tests {
         eprintln!("    1-4       | {:>11} | {:>+14.3}", n_14, pair_14);
         eprintln!("    other     | {:>11} | {:>+14.3}", n_other, pair_other);
         eprintln!("    ----------+-------------+---------------------------");
-        eprintln!("    total     | {:>11} | {:>+14.3}",
-            n_12_13 + n_14 + n_other, total_inline);
+        eprintln!(
+            "    total     | {:>11} | {:>+14.3}",
+            n_12_13 + n_14 + n_other,
+            total_inline
+        );
         eprintln!();
-        eprintln!("    self-solvation:              {:>+10.3} kcal/mol", sum_via_direct);
-        eprintln!("    pair correction (inline):    {:>+10.3} kcal/mol", total_inline);
-        eprintln!("    → total (inline):            {:>+10.3} kcal/mol",
-            sum_via_direct + total_inline);
-        eprintln!("    if 1-2+1-3 excluded:         {:>+10.3} kcal/mol",
-            sum_via_direct + pair_14 + pair_other);
-        eprintln!("    if 1-2+1-3 AND 1-4 excluded: {:>+10.3} kcal/mol",
-            sum_via_direct + pair_other);
+        eprintln!(
+            "    self-solvation:              {:>+10.3} kcal/mol",
+            sum_via_direct
+        );
+        eprintln!(
+            "    pair correction (inline):    {:>+10.3} kcal/mol",
+            total_inline
+        );
+        eprintln!(
+            "    → total (inline):            {:>+10.3} kcal/mol",
+            sum_via_direct + total_inline
+        );
+        eprintln!(
+            "    if 1-2+1-3 excluded:         {:>+10.3} kcal/mol",
+            sum_via_direct + pair_14 + pair_other
+        );
+        eprintln!(
+            "    if 1-2+1-3 AND 1-4 excluded: {:>+10.3} kcal/mol",
+            sum_via_direct + pair_other
+        );
     }
 }

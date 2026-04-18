@@ -90,8 +90,12 @@ pub fn hbond_count_per_residue<'py>(
     let n = residues.len();
     let mut counts = vec![0u32; n];
     for b in &bonds {
-        if b.acceptor < n { counts[b.acceptor] += 1; }
-        if b.donor < n { counts[b.donor] += 1; }
+        if b.acceptor < n {
+            counts[b.acceptor] += 1;
+        }
+        if b.donor < n {
+            counts[b.donor] += 1;
+        }
     }
 
     counts.into_pyarray(py)

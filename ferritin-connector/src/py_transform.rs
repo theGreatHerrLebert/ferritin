@@ -17,10 +17,13 @@ impl PyTransform {
     /// 3x3 rotation matrix as numpy array.
     #[getter]
     fn rotation<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
-        let flat: Vec<f64> = self.inner.u.iter().flat_map(|row| row.iter().copied()).collect();
-        PyArray1::from_vec(py, flat)
-            .reshape([3, 3])
-            .unwrap()
+        let flat: Vec<f64> = self
+            .inner
+            .u
+            .iter()
+            .flat_map(|row| row.iter().copied())
+            .collect();
+        PyArray1::from_vec(py, flat).reshape([3, 3]).unwrap()
     }
 
     /// Translation vector as numpy array of shape (3,).

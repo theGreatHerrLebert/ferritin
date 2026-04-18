@@ -82,8 +82,7 @@ pub fn save(pdb: &pdbtbx::PDB, path: &str) -> Result<()> {
 
 /// Nucleotide residue names used to detect RNA/DNA.
 const NUCLEOTIDE_NAMES: &[&str] = &[
-    "A", "T", "G", "C", "U", "DA", "DT", "DG", "DC", "DU",
-    "ADE", "THY", "GUA", "CYT", "URA",
+    "A", "T", "G", "C", "U", "DA", "DT", "DG", "DC", "DU", "ADE", "THY", "GUA", "CYT", "URA",
 ];
 
 /// Extract CA (or C3') coordinates and sequence from a loaded PDB for alignment.
@@ -92,10 +91,7 @@ const NUCLEOTIDE_NAMES: &[&str] = &[
 /// Auto-detects protein (CA) vs RNA (C3') from residue composition.
 ///
 /// Returns a `StructureData` suitable for `tmalign()` and friends.
-pub fn extract_for_alignment(
-    pdb: &pdbtbx::PDB,
-    chain: Option<&str>,
-) -> Result<StructureData> {
+pub fn extract_for_alignment(pdb: &pdbtbx::PDB, chain: Option<&str>) -> Result<StructureData> {
     let mut coords: Vec<Coord3D> = Vec::new();
     let mut sequence: Vec<char> = Vec::new();
     let mut chain_id = String::new();
@@ -150,11 +146,7 @@ pub fn extract_for_alignment(
 
                 let aa = if is_nuc {
                     nuc_count += 1;
-                    res_name
-                        .chars()
-                        .next()
-                        .unwrap_or('x')
-                        .to_ascii_lowercase()
+                    res_name.chars().next().unwrap_or('x').to_ascii_lowercase()
                 } else {
                     prot_count += 1;
                     three_to_one(res_name)
@@ -187,11 +179,7 @@ pub fn extract_for_alignment(
         resi_ids: Vec::new(),
         chain_id,
         mol_type,
-        source_path: pdb
-            .identifier
-            .as_deref()
-            .unwrap_or("")
-            .to_string(),
+        source_path: pdb.identifier.as_deref().unwrap_or("").to_string(),
         pdb_lines: Vec::new(),
     })
 }
@@ -352,10 +340,7 @@ mod tests {
             for chain in model.chains() {
                 assert!(!chain.id().is_empty(), "chain id should not be empty");
                 for residue in chain.residues() {
-                    assert!(
-                        residue.name().is_some(),
-                        "residue should have a name"
-                    );
+                    assert!(residue.name().is_some(), "residue should have a name");
                     for _atom in residue.atoms() {
                         atom_count_manual += 1;
                     }
@@ -463,10 +448,7 @@ mod tests {
     fn test_chain_ids() {
         let pdb = load(&example_path("1ubq.pdb")).expect("load");
         for chain in pdb.chains() {
-            assert!(
-                !chain.id().is_empty(),
-                "chain id should not be empty"
-            );
+            assert!(!chain.id().is_empty(), "chain id should not be empty");
         }
     }
 
@@ -545,10 +527,7 @@ mod tests {
         let sd = extract_for_alignment(&pdb, None).expect("extract");
         // Secondary structure should be one of H, E, T, C
         for &c in &sd.sec_structure {
-            assert!(
-                "HETC".contains(c),
-                "unexpected sec structure char: {c}"
-            );
+            assert!("HETC".contains(c), "unexpected sec structure char: {c}");
         }
     }
 }

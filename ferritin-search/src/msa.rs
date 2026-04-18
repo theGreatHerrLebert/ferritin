@@ -39,7 +39,10 @@ pub struct MsaOptions {
 
 impl Default for MsaOptions {
     fn default() -> Self {
-        Self { max_seqs: 256, gap_idx: 21 }
+        Self {
+            max_seqs: 256,
+            gap_idx: 21,
+        }
     }
 }
 
@@ -197,17 +200,19 @@ fn project_hit_into_query_frame(
                 // a homolog with a 1000-residue insert against a short
                 // query stays representable; downstream consumers can
                 // upcast if they want exact counts.
-                pending_deletions = pending_deletions.saturating_add(
-                    if n > u8::MAX as usize { u8::MAX } else { n as u8 },
-                );
+                pending_deletions = pending_deletions.saturating_add(if n > u8::MAX as usize {
+                    u8::MAX
+                } else {
+                    n as u8
+                });
                 t_cursor += n;
             }
         }
     }
 
     let _ = t_cursor; // satisfy unused-var lint when the trailing ops do nothing
-    // Trailing Delete after the last Match are dropped on the floor —
-    // by construction there's no query column to attribute them to.
+                      // Trailing Delete after the last Match are dropped on the floor —
+                      // by construction there's no query column to attribute them to.
 
     (row_msa, row_del, row_mask)
 }
@@ -273,7 +278,13 @@ mod tests {
         let msa = assemble_msa(
             &q,
             &[hit],
-            |id| if id == 1 { Some(t.data.as_slice()) } else { None },
+            |id| {
+                if id == 1 {
+                    Some(t.data.as_slice())
+                } else {
+                    None
+                }
+            },
             MsaOptions::default(),
         );
         assert_eq!(msa.n_seqs, 2);
@@ -303,7 +314,13 @@ mod tests {
         let msa = assemble_msa(
             &q,
             &[hit],
-            |id| if id == 1 { Some(t.data.as_slice()) } else { None },
+            |id| {
+                if id == 1 {
+                    Some(t.data.as_slice())
+                } else {
+                    None
+                }
+            },
             MsaOptions::default(),
         );
         // MSA row contains the matched target letters (ABCDE), all on the
@@ -335,7 +352,13 @@ mod tests {
         let msa = assemble_msa(
             &q,
             &[hit],
-            |id| if id == 1 { Some(t.data.as_slice()) } else { None },
+            |id| {
+                if id == 1 {
+                    Some(t.data.as_slice())
+                } else {
+                    None
+                }
+            },
             MsaOptions::default(),
         );
         let gap = MsaOptions::default().gap_idx;
@@ -360,7 +383,13 @@ mod tests {
         let msa = assemble_msa(
             &q,
             &[hit],
-            |id| if id == 1 { Some(t.data.as_slice()) } else { None },
+            |id| {
+                if id == 1 {
+                    Some(t.data.as_slice())
+                } else {
+                    None
+                }
+            },
             MsaOptions::default(),
         );
         let gap = MsaOptions::default().gap_idx;
@@ -383,13 +412,11 @@ mod tests {
         let hits: Vec<SearchHit> = (0..10)
             .map(|id| make_hit(id, 100, 0, 2, 0, 2, vec![CigarOp::Match(2)]))
             .collect();
-        let opts = MsaOptions { max_seqs: 4, gap_idx: 21 };
-        let msa = assemble_msa(
-            &q,
-            &hits,
-            |_| Some(t.data.as_slice()),
-            opts,
-        );
+        let opts = MsaOptions {
+            max_seqs: 4,
+            gap_idx: 21,
+        };
+        let msa = assemble_msa(&q, &hits, |_| Some(t.data.as_slice()), opts);
         assert_eq!(msa.n_seqs, 4); // query + 3 hits
     }
 

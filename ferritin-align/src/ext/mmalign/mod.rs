@@ -94,7 +94,16 @@ pub fn concatenate_assigned_chains(
     assign1: &[i32],
     seqx_a_mat: &[Vec<String>],
     seqy_a_mat: &[Vec<String>],
-) -> (Vec<Coord3D>, Vec<Coord3D>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i32, Vec<String>) {
+) -> (
+    Vec<Coord3D>,
+    Vec<Coord3D>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    i32,
+    Vec<String>,
+) {
     let mut xa = Vec::new();
     let mut ya = Vec::new();
     let mut seqx = Vec::new();
@@ -145,9 +154,7 @@ use anyhow::{bail, Result};
 
 use crate::ext::se::{se_main, SeOptions};
 
-use chain_assign::{
-    check_heterooligomer, enhanced_greedy_search, homo_refined_greedy_search,
-};
+use chain_assign::{check_heterooligomer, enhanced_greedy_search, homo_refined_greedy_search};
 use complex_score::calculate_centroids;
 use iter::copy_chain_assign_data;
 
@@ -160,10 +167,7 @@ use iter::copy_chain_assign_data;
 ///
 /// Returns an `MMAlignResult` with chain assignments, per-chain results,
 /// and an overall complex TM-score.
-pub fn mmalign_complex(
-    x_chains: &[ChainData],
-    y_chains: &[ChainData],
-) -> Result<MMAlignResult> {
+pub fn mmalign_complex(x_chains: &[ChainData], y_chains: &[ChainData]) -> Result<MMAlignResult> {
     let chain1_num = x_chains.len();
     let chain2_num = y_chains.len();
 
@@ -188,8 +192,15 @@ pub fn mmalign_complex(
             }
 
             let result = se_main(
-                &xc.coords, &yc.coords, &xc.sequence, &yc.sequence,
-                xc.len(), yc.len(), &se_opts, None, 0,
+                &xc.coords,
+                &yc.coords,
+                &xc.sequence,
+                &yc.sequence,
+                xc.len(),
+                yc.len(),
+                &se_opts,
+                None,
+                0,
             );
 
             tm_mat[i][j] = result.tm1;
@@ -219,8 +230,14 @@ pub fn mmalign_complex(
         enhanced_greedy_search(&tm_mat, chain1_num, chain2_num)
     } else {
         homo_refined_greedy_search(
-            &tm_mat, chain1_num, chain2_num,
-            &x_centroids, &y_centroids, d0mm, total_len, &ut_mat,
+            &tm_mat,
+            chain1_num,
+            chain2_num,
+            &x_centroids,
+            &y_centroids,
+            d0mm,
+            total_len,
+            &ut_mat,
         )
     };
 
@@ -239,13 +256,18 @@ pub fn mmalign_complex(
                 continue;
             }
 
-            let prior = invmap_from_alignment(
-                &seqx_a_mat[i][ju], &seqy_a_mat[i][ju], yc.len(),
-            );
+            let prior = invmap_from_alignment(&seqx_a_mat[i][ju], &seqy_a_mat[i][ju], yc.len());
 
             let result = se_main(
-                &xc.coords, &yc.coords, &xc.sequence, &yc.sequence,
-                xc.len(), yc.len(), &se_opts, Some(&prior), 0,
+                &xc.coords,
+                &yc.coords,
+                &xc.sequence,
+                &yc.sequence,
+                xc.len(),
+                yc.len(),
+                &se_opts,
+                Some(&prior),
+                0,
             );
 
             tm_mat[i][ju] = result.tm1;
@@ -254,8 +276,7 @@ pub fn mmalign_complex(
         }
 
         // Re-assign chains
-        let (new_a1, new_a2, new_score) =
-            enhanced_greedy_search(&tm_mat, chain1_num, chain2_num);
+        let (new_a1, new_a2, new_score) = enhanced_greedy_search(&tm_mat, chain1_num, chain2_num);
 
         if new_score <= best_score {
             break; // no improvement
@@ -267,8 +288,13 @@ pub fn mmalign_complex(
 
     // Step 6: Save best state
     let best_state = copy_chain_assign_data(
-        chain1_num, chain2_num,
-        &seqx_a_mat, &seqy_a_mat, &assign1, &assign2, &tm_mat,
+        chain1_num,
+        chain2_num,
+        &seqx_a_mat,
+        &seqy_a_mat,
+        &assign1,
+        &assign2,
+        &tm_mat,
     );
 
     // Step 7: Build result — final SE alignment for each assigned pair
@@ -286,8 +312,15 @@ pub fn mmalign_complex(
         let xc = &x_chains[i];
         let yc = &y_chains[ju];
         let result = se_main(
-            &xc.coords, &yc.coords, &xc.sequence, &yc.sequence,
-            xc.len(), yc.len(), &se_opts, None, 0,
+            &xc.coords,
+            &yc.coords,
+            &xc.sequence,
+            &yc.sequence,
+            xc.len(),
+            yc.len(),
+            &se_opts,
+            None,
+            0,
         );
         transforms.push(Transform::default());
         per_chain_results.push(result);

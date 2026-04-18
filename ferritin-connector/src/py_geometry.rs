@@ -4,7 +4,10 @@
 //! These are general-purpose structural geometry functions useful beyond
 //! alignment — for MD analysis, docking, fitting, etc.
 
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{
+    IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2,
+    PyUntypedArrayMethods,
+};
 use pyo3::prelude::*;
 
 use ferritin_align::core::kabsch::{kabsch, KabschMode};
@@ -74,9 +77,8 @@ pub fn kabsch_superpose<'py>(
         ));
     }
 
-    let result = kabsch(&xc, &yc, KabschMode::Both).ok_or_else(|| {
-        pyo3::exceptions::PyRuntimeError::new_err("Kabsch algorithm failed")
-    })?;
+    let result = kabsch(&xc, &yc, KabschMode::Both)
+        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Kabsch algorithm failed"))?;
 
     let rmsd = (result.rms / n as f64).sqrt();
 
@@ -140,10 +142,7 @@ pub fn rmsd_no_super<'py>(
 /// Returns:
 ///     RMSD after optimal superposition.
 #[pyfunction]
-pub fn rmsd<'py>(
-    x: PyReadonlyArray2<'py, f64>,
-    y: PyReadonlyArray2<'py, f64>,
-) -> PyResult<f64> {
+pub fn rmsd<'py>(x: PyReadonlyArray2<'py, f64>, y: PyReadonlyArray2<'py, f64>) -> PyResult<f64> {
     let xc = numpy_to_coords(&x)?;
     let yc = numpy_to_coords(&y)?;
     if xc.len() != yc.len() {
@@ -155,9 +154,8 @@ pub fn rmsd<'py>(
     if n == 0 {
         return Ok(0.0);
     }
-    let result = kabsch(&xc, &yc, KabschMode::RmsOnly).ok_or_else(|| {
-        pyo3::exceptions::PyRuntimeError::new_err("Kabsch algorithm failed")
-    })?;
+    let result = kabsch(&xc, &yc, KabschMode::RmsOnly)
+        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Kabsch algorithm failed"))?;
     Ok((result.rms / n as f64).sqrt())
 }
 
@@ -204,11 +202,7 @@ pub fn apply_transform<'py>(
     })?;
 
     let transform = Transform {
-        u: [
-            [r[0], r[1], r[2]],
-            [r[3], r[4], r[5]],
-            [r[6], r[7], r[8]],
-        ],
+        u: [[r[0], r[1], r[2]], [r[3], r[4], r[5]], [r[6], r[7], r[8]]],
         t: [t[0], t[1], t[2]],
     };
 
@@ -238,9 +232,7 @@ pub fn apply_transform<'py>(
 /// Returns:
 ///     String of length N with characters H/E/T/C.
 #[pyfunction]
-pub fn assign_secondary_structure<'py>(
-    coords: PyReadonlyArray2<'py, f64>,
-) -> PyResult<String> {
+pub fn assign_secondary_structure<'py>(coords: PyReadonlyArray2<'py, f64>) -> PyResult<String> {
     let xc = numpy_to_coords(&coords)?;
     let sec = make_sec(&xc);
     Ok(sec.into_iter().collect())

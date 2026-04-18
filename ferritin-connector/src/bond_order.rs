@@ -68,44 +68,79 @@ fn estimate_bond_order(elem_a: &str, elem_b: &str, dist: f64) -> Option<BondOrde
 
     match (e1, e2) {
         ("C", "C") => {
-            if dist < 1.25 { Some(BondOrder::Triple) }
-            else if dist < 1.38 { Some(BondOrder::Double) }
-            else if dist < 1.43 { Some(BondOrder::Aromatic) } // 1.38-1.43 aromatic
-            else if dist < 1.65 { Some(BondOrder::Single) }
-            else { None }
+            if dist < 1.25 {
+                Some(BondOrder::Triple)
+            } else if dist < 1.38 {
+                Some(BondOrder::Double)
+            } else if dist < 1.43 {
+                Some(BondOrder::Aromatic)
+            }
+            // 1.38-1.43 aromatic
+            else if dist < 1.65 {
+                Some(BondOrder::Single)
+            } else {
+                None
+            }
         }
         ("C", "N") => {
-            if dist < 1.20 { Some(BondOrder::Triple) }
-            else if dist < 1.33 { Some(BondOrder::Double) }
-            else if dist < 1.38 { Some(BondOrder::Aromatic) }
-            else if dist < 1.55 { Some(BondOrder::Single) }
-            else { None }
+            if dist < 1.20 {
+                Some(BondOrder::Triple)
+            } else if dist < 1.33 {
+                Some(BondOrder::Double)
+            } else if dist < 1.38 {
+                Some(BondOrder::Aromatic)
+            } else if dist < 1.55 {
+                Some(BondOrder::Single)
+            } else {
+                None
+            }
         }
         ("C", "O") => {
-            if dist < 1.28 { Some(BondOrder::Double) }
-            else if dist < 1.50 { Some(BondOrder::Single) }
-            else { None }
+            if dist < 1.28 {
+                Some(BondOrder::Double)
+            } else if dist < 1.50 {
+                Some(BondOrder::Single)
+            } else {
+                None
+            }
         }
         ("C", "S") => {
-            if dist < 1.68 { Some(BondOrder::Double) }
-            else if dist < 1.90 { Some(BondOrder::Single) }
-            else { None }
+            if dist < 1.68 {
+                Some(BondOrder::Double)
+            } else if dist < 1.90 {
+                Some(BondOrder::Single)
+            } else {
+                None
+            }
         }
         ("N", "N") => {
-            if dist < 1.20 { Some(BondOrder::Triple) }
-            else if dist < 1.30 { Some(BondOrder::Double) }
-            else if dist < 1.50 { Some(BondOrder::Single) }
-            else { None }
+            if dist < 1.20 {
+                Some(BondOrder::Triple)
+            } else if dist < 1.30 {
+                Some(BondOrder::Double)
+            } else if dist < 1.50 {
+                Some(BondOrder::Single)
+            } else {
+                None
+            }
         }
         ("N", "O") => {
-            if dist < 1.25 { Some(BondOrder::Double) }
-            else if dist < 1.50 { Some(BondOrder::Single) }
-            else { None }
+            if dist < 1.25 {
+                Some(BondOrder::Double)
+            } else if dist < 1.50 {
+                Some(BondOrder::Single)
+            } else {
+                None
+            }
         }
         ("O", "P") | ("O", "S") => {
-            if dist < 1.55 { Some(BondOrder::Double) }
-            else if dist < 1.75 { Some(BondOrder::Single) }
-            else { None }
+            if dist < 1.55 {
+                Some(BondOrder::Double)
+            } else if dist < 1.75 {
+                Some(BondOrder::Single)
+            } else {
+                None
+            }
         }
         // Default: single bond if within bonding distance
         _ => {
@@ -114,7 +149,11 @@ fn estimate_bond_order(elem_a: &str, elem_b: &str, dist: f64) -> Option<BondOrde
                 (a, _) | (_, a) if a == "S" || a == "P" => 2.2,
                 _ => 1.9,
             };
-            if dist < max_dist && dist > 0.4 { Some(BondOrder::Single) } else { None }
+            if dist < max_dist && dist > 0.4 {
+                Some(BondOrder::Single)
+            } else {
+                None
+            }
         }
     }
 }
@@ -200,7 +239,11 @@ fn refine_aromatic_bonds(atoms: &[AtomInfo], bonds: &mut [OrderedBond]) {
             continue;
         }
         let (e1, e2) = (&atoms[bond.i].element, &atoms[bond.j].element);
-        let (e1, e2) = if e1 <= e2 { (e1.as_str(), e2.as_str()) } else { (e2.as_str(), e1.as_str()) };
+        let (e1, e2) = if e1 <= e2 {
+            (e1.as_str(), e2.as_str())
+        } else {
+            (e2.as_str(), e1.as_str())
+        };
 
         match (e1, e2) {
             ("C", "C") if bond.length > 1.35 && bond.length < 1.43 => {
@@ -220,11 +263,7 @@ fn refine_aromatic_bonds(atoms: &[AtomInfo], bonds: &mut [OrderedBond]) {
 
 /// Build a molecular graph from atom positions and elements.
 /// Infers bonds from distances, estimates bond orders, detects rings.
-pub fn build_mol_graph(
-    positions: &[[f64; 3]],
-    elements: &[String],
-    names: &[String],
-) -> MolGraph {
+pub fn build_mol_graph(positions: &[[f64; 3]], elements: &[String], names: &[String]) -> MolGraph {
     let n = positions.len();
 
     // Step 1: Find bonds and estimate orders from distances
@@ -241,7 +280,12 @@ pub fn build_mol_graph(
 
             if let Some(order) = estimate_bond_order(&elements[i], &elements[j], dist) {
                 let bond_idx = bonds.len();
-                bonds.push(OrderedBond { i, j, order, length: dist });
+                bonds.push(OrderedBond {
+                    i,
+                    j,
+                    order,
+                    length: dist,
+                });
                 neighbors[i].push(j);
                 neighbors[j].push(i);
                 atom_bonds[i].push(bond_idx);
@@ -369,7 +413,10 @@ mod tests {
         assert_eq!(estimate_bond_order("C", "C", 1.54), Some(BondOrder::Single));
         assert_eq!(estimate_bond_order("C", "C", 1.34), Some(BondOrder::Double));
         assert_eq!(estimate_bond_order("C", "C", 1.20), Some(BondOrder::Triple));
-        assert_eq!(estimate_bond_order("C", "C", 1.40), Some(BondOrder::Aromatic));
+        assert_eq!(
+            estimate_bond_order("C", "C", 1.40),
+            Some(BondOrder::Aromatic)
+        );
     }
 
     #[test]
@@ -423,11 +470,7 @@ mod tests {
     #[test]
     fn test_ring_detection_linear() {
         // Linear chain: no rings
-        let positions = vec![
-            [0.0, 0.0, 0.0],
-            [1.5, 0.0, 0.0],
-            [3.0, 0.0, 0.0],
-        ];
+        let positions = vec![[0.0, 0.0, 0.0], [1.5, 0.0, 0.0], [3.0, 0.0, 0.0]];
         let elements = vec!["C".to_string(); 3];
         let names = vec!["C1".to_string(), "C2".to_string(), "C3".to_string()];
 

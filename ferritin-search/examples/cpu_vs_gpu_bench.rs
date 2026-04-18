@@ -19,9 +19,7 @@ use ferritin_search::search::{SearchEngine, SearchOptions};
 use ferritin_search::sequence::Sequence;
 
 fn parse_arg<T: std::str::FromStr>(args: &[String], i: usize, default: T) -> T {
-    args.get(i)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(default)
+    args.get(i).and_then(|s| s.parse().ok()).unwrap_or(default)
 }
 
 fn env_usize(key: &str, default: usize) -> usize {
@@ -105,7 +103,10 @@ fn main() {
         .expect("cpu engine build");
     let engine_gpu = SearchEngine::build(targets.clone(), &matrix, alpha.clone(), make_opts(true))
         .expect("gpu engine build");
-    eprintln!("[bench] engines built in {:.2}s", t_build.elapsed().as_secs_f64());
+    eprintln!(
+        "[bench] engines built in {:.2}s",
+        t_build.elapsed().as_secs_f64()
+    );
 
     // Warm up each path — in particular, first GPU call pays NVRTC
     // compile cost. Warmup excluded from timing.
@@ -135,13 +136,15 @@ fn main() {
     println!("=== SearchEngine::search() CPU vs GPU ===");
     println!("corpus:          {n_targets} targets");
     println!("queries:         {n_queries}");
-    println!("cpu total:       {cpu_elapsed:.3} s   ({cpu_qps:.1} queries/s)   hits={cpu_hit_count}");
-    println!("gpu total:       {gpu_elapsed:.3} s   ({gpu_qps:.1} queries/s)   hits={gpu_hit_count}");
+    println!(
+        "cpu total:       {cpu_elapsed:.3} s   ({cpu_qps:.1} queries/s)   hits={cpu_hit_count}"
+    );
+    println!(
+        "gpu total:       {gpu_elapsed:.3} s   ({gpu_qps:.1} queries/s)   hits={gpu_hit_count}"
+    );
     println!("gpu speedup:     {speedup:.2}x");
 
     if cpu_hit_count != gpu_hit_count {
-        eprintln!(
-            "[bench] WARNING: hit count differs: cpu={cpu_hit_count} gpu={gpu_hit_count}"
-        );
+        eprintln!("[bench] WARNING: hit count differs: cpu={cpu_hit_count} gpu={gpu_hit_count}");
     }
 }

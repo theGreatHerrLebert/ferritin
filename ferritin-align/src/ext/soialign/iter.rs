@@ -8,7 +8,7 @@
 use crate::core::kabsch::{kabsch, KabschMode};
 use crate::core::nwdp::nwdp_score_matrix;
 use crate::core::tmscore::{extract_aligned_pairs, tmscore8_search};
-use crate::core::types::{Coord3D, DPWorkspace, TMParams, Transform, dist_squared};
+use crate::core::types::{dist_squared, Coord3D, DPWorkspace, TMParams, Transform};
 
 use crate::ext::soialign::greedy::soi_egs;
 use crate::ext::soialign::sec_bond::SecBond;
@@ -20,12 +20,7 @@ use crate::ext::soialign::sec_bond::SecBond;
 /// Otherwise `score = 1 / (1 + d^2 / d0^2)`.
 ///
 /// Corresponds to C++ `SOI_super2score`.
-pub fn super2score(
-    xt: &[Coord3D],
-    ya: &[Coord3D],
-    d0: f64,
-    score_d8: f64,
-) -> Vec<Vec<f64>> {
+pub fn super2score(xt: &[Coord3D], ya: &[Coord3D], d0: f64, score_d8: f64) -> Vec<Vec<f64>> {
     let xlen = xt.len();
     let ylen = ya.len();
     let d02 = d0 * d0;
@@ -48,11 +43,7 @@ pub fn super2score(
 /// Transpose a 1-indexed score matrix from `(xlen+1) x (ylen+1)` to `(ylen+1) x (xlen+1)`.
 ///
 /// Used when running SOI_iter with x and y roles swapped.
-pub fn transpose_score(
-    score: &[Vec<f64>],
-    xlen: usize,
-    ylen: usize,
-) -> Vec<Vec<f64>> {
+pub fn transpose_score(score: &[Vec<f64>], xlen: usize, ylen: usize) -> Vec<Vec<f64>> {
     let mut scoret = vec![vec![0.0_f64; xlen + 1]; ylen + 1];
     for i in 0..xlen {
         for j in 0..ylen {
@@ -137,7 +128,15 @@ pub fn soi_iter(
             }
         }
 
-        soi_egs(&score, xlen, ylen, &mut invmap, secx_bond, secy_bond, mm_opt);
+        soi_egs(
+            &score,
+            xlen,
+            ylen,
+            &mut invmap,
+            secx_bond,
+            secy_bond,
+            mm_opt,
+        );
 
         // Extract aligned pairs
         let (xtm, ytm) = extract_aligned_pairs(xa, ya, &invmap);
@@ -235,7 +234,15 @@ pub fn get_soi_initial_assign(
         let dp_result = nwdp_score_matrix(&mut ws, &score, xlen, ylen, -0.6);
         invmap[..ylen].copy_from_slice(&dp_result[..ylen]);
     }
-    soi_egs(&score, xlen, ylen, &mut invmap, secx_bond, secy_bond, mm_opt);
+    soi_egs(
+        &score,
+        xlen,
+        ylen,
+        &mut invmap,
+        secx_bond,
+        secy_bond,
+        mm_opt,
+    );
 
     (invmap, score)
 }
@@ -252,8 +259,7 @@ mod tests {
 
     #[test]
     fn test_super2score_identical() {
-        let coords: Vec<Coord3D> =
-            vec![[0.0, 0.0, 0.0], [3.8, 0.0, 0.0], [7.6, 0.0, 0.0]];
+        let coords: Vec<Coord3D> = vec![[0.0, 0.0, 0.0], [3.8, 0.0, 0.0], [7.6, 0.0, 0.0]];
         let score = super2score(&coords, &coords, 5.0, 100.0);
         // Diagonal should be 1.0 (distance=0)
         for i in 0..3 {
@@ -330,9 +336,7 @@ mod tests {
     fn test_get_soi_initial_assign() {
         let n = 5;
         let close_k = 3;
-        let coords: Vec<Coord3D> = (0..n)
-            .map(|i| [i as f64 * 3.8, 0.0, 0.0])
-            .collect();
+        let coords: Vec<Coord3D> = (0..n).map(|i| [i as f64 * 3.8, 0.0, 0.0]).collect();
 
         // K-nearest neighbors for identical structures
         let xk = crate::ext::soialign::close_k::get_close_k(&coords, close_k);
@@ -342,9 +346,8 @@ mod tests {
         let secx_bond = vec![[-1i32, -1]; n];
         let secy_bond = vec![[-1i32, -1]; n];
 
-        let (invmap, score) = get_soi_initial_assign(
-            &xk, &yk, close_k, n, n, &params, &secx_bond, &secy_bond, 0,
-        );
+        let (invmap, score) =
+            get_soi_initial_assign(&xk, &yk, close_k, n, n, &params, &secx_bond, &secy_bond, 0);
 
         // For identical structures, should get diagonal assignment
         let n_assigned = invmap.iter().filter(|&&v| v >= 0).count();

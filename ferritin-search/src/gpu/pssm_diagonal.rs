@@ -18,9 +18,7 @@
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{anyhow, Context, Result};
-use cudarc::driver::{
-    CudaFunction, CudaModule, LaunchConfig, PushKernelArg,
-};
+use cudarc::driver::{CudaFunction, CudaModule, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::{compile_ptx_with_opts, CompileOptions};
 
 use super::GpuContext;
@@ -136,8 +134,7 @@ pub fn ungapped_alignment_pssm_batch_gpu(
 
     let kernel = PssmDiagonalKernel::try_global()
         .ok_or_else(|| anyhow!("GPU PSSM diagonal kernel unavailable"))?;
-    let ctx = GpuContext::try_global()
-        .ok_or_else(|| anyhow!("GPU context unavailable"))?;
+    let ctx = GpuContext::try_global().ok_or_else(|| anyhow!("GPU context unavailable"))?;
     let stream = ctx.cuda_context().new_stream()?;
 
     // Pack targets flat + per-pair offset/length/diagonal.
@@ -158,7 +155,11 @@ pub fn ungapped_alignment_pssm_batch_gpu(
 
     // PSSM data should never be empty once the shared-mem check above
     // passes, but guard for cudarc's zero-byte rejection anyway.
-    let pssm_for_gpu: &[i32] = if pssm.data.is_empty() { &[0i32] } else { &pssm.data };
+    let pssm_for_gpu: &[i32] = if pssm.data.is_empty() {
+        &[0i32]
+    } else {
+        &pssm.data
+    };
     let d_pssm = stream.clone_htod(pssm_for_gpu)?;
     let d_targets = stream.clone_htod(&targets_flat)?;
     let d_offsets = stream.clone_htod(&target_offsets)?;
@@ -268,18 +269,14 @@ mod tests {
             (&t_empty, 5),
         ];
 
-        let pssm_results = ungapped_alignment_pssm_batch_gpu(&pssm, &pairs)
-            .expect("PSSM GPU dispatch failed");
-        let non_pssm_results =
-            ungapped_alignment_batch_gpu(&query, &pairs, &scores, alphabet_size)
-                .expect("non-PSSM GPU dispatch failed");
+        let pssm_results =
+            ungapped_alignment_pssm_batch_gpu(&pssm, &pairs).expect("PSSM GPU dispatch failed");
+        let non_pssm_results = ungapped_alignment_batch_gpu(&query, &pairs, &scores, alphabet_size)
+            .expect("non-PSSM GPU dispatch failed");
 
         for (i, (target, diag)) in pairs.iter().enumerate() {
             let cpu = ungapped_alignment(&query, target, *diag, &scores, alphabet_size);
-            assert_eq!(
-                pssm_results[i], cpu,
-                "pair {i}: PSSM GPU vs CPU disagree"
-            );
+            assert_eq!(pssm_results[i], cpu, "pair {i}: PSSM GPU vs CPU disagree");
             assert_eq!(
                 pssm_results[i], non_pssm_results[i],
                 "pair {i}: PSSM GPU vs non-PSSM GPU disagree"
@@ -313,7 +310,9 @@ mod tests {
         let mut diagonals: Vec<i32> = Vec::new();
         for _ in 0..200 {
             let len = 10 + (next() as usize % 60);
-            let target: Vec<u8> = (0..len).map(|_| (next() % alphabet_size as u32) as u8).collect();
+            let target: Vec<u8> = (0..len)
+                .map(|_| (next() % alphabet_size as u32) as u8)
+                .collect();
             let diag = (next() as i32 % 31) - 15;
             targets.push(target);
             diagonals.push(diag);
@@ -324,8 +323,8 @@ mod tests {
             .map(|(t, d)| (t.as_slice(), *d))
             .collect();
 
-        let pssm_results = ungapped_alignment_pssm_batch_gpu(&pssm, &pairs)
-            .expect("PSSM GPU dispatch failed");
+        let pssm_results =
+            ungapped_alignment_pssm_batch_gpu(&pssm, &pairs).expect("PSSM GPU dispatch failed");
 
         for (i, (target, diag)) in pairs.iter().enumerate() {
             let cpu = ungapped_alignment(&query, target, *diag, &scores, alphabet_size);

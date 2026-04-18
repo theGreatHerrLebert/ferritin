@@ -7,7 +7,7 @@
 //! 3. Coordinate distance without rotation
 //! 4. Secondary structure matching
 
-use crate::core::types::{Coord3D, DPWorkspace, Transform, dist_squared};
+use crate::core::types::{dist_squared, Coord3D, DPWorkspace, Transform};
 
 /// Core DP fill + traceback shared by all variants.
 ///
@@ -197,11 +197,7 @@ mod tests {
     #[test]
     fn coords_identical_points() {
         let mut ws = DPWorkspace::new(10, 10);
-        let pts: Vec<Coord3D> = vec![
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ];
+        let pts: Vec<Coord3D> = vec![[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let transform = Transform::default(); // identity
         let d02 = 1.0;
         let j2i = nwdp_coords(&mut ws, &pts, &pts, &transform, d02, -0.6);

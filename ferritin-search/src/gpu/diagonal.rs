@@ -43,9 +43,7 @@ impl DiagonalKernel {
                 match Self::compile(ctx) {
                     Ok(k) => Some(k),
                     Err(e) => {
-                        eprintln!(
-                            "[ferritin-search-gpu] diagonal kernel compile failed: {e:#}"
-                        );
+                        eprintln!("[ferritin-search-gpu] diagonal kernel compile failed: {e:#}");
                         None
                     }
                 }
@@ -100,10 +98,9 @@ pub fn ungapped_alignment_batch_gpu(
         return Ok(Vec::new());
     }
 
-    let kernel = DiagonalKernel::try_global()
-        .ok_or_else(|| anyhow!("GPU diagonal kernel unavailable"))?;
-    let ctx = GpuContext::try_global()
-        .ok_or_else(|| anyhow!("GPU context unavailable"))?;
+    let kernel =
+        DiagonalKernel::try_global().ok_or_else(|| anyhow!("GPU diagonal kernel unavailable"))?;
+    let ctx = GpuContext::try_global().ok_or_else(|| anyhow!("GPU context unavailable"))?;
     let stream = ctx.cuda_context().new_stream()?;
 
     // Pack variable-length targets into one flat byte buffer with
@@ -241,13 +238,8 @@ mod tests {
             (&t_empty_overlap, 5),
         ];
 
-        let gpu_results = ungapped_alignment_batch_gpu(
-            &query,
-            &pairs,
-            &scores,
-            alphabet_size,
-        )
-        .expect("GPU batch ungapped failed");
+        let gpu_results = ungapped_alignment_batch_gpu(&query, &pairs, &scores, alphabet_size)
+            .expect("GPU batch ungapped failed");
 
         for (i, (target, diagonal)) in pairs.iter().enumerate() {
             let cpu = ungapped_alignment(&query, target, *diagonal, &scores, alphabet_size);
@@ -283,8 +275,7 @@ mod tests {
     fn empty_pair_list_returns_empty_vec_without_gpu_dispatch() {
         // Should never even probe the kernel for a zero-pair call.
         let scores = identity_matrix(4, 3, -2);
-        let result =
-            ungapped_alignment_batch_gpu(&[0, 1, 2], &[], &scores, 4).expect("ok");
+        let result = ungapped_alignment_batch_gpu(&[0, 1, 2], &[], &scores, 4).expect("ok");
         assert!(result.is_empty());
     }
 
@@ -316,7 +307,9 @@ mod tests {
         let mut diagonals: Vec<i32> = Vec::new();
         for _ in 0..100 {
             let len = 10 + (next() as usize % 60);
-            let target: Vec<u8> = (0..len).map(|_| (next() % alphabet_size as u32) as u8).collect();
+            let target: Vec<u8> = (0..len)
+                .map(|_| (next() % alphabet_size as u32) as u8)
+                .collect();
             let diag = (next() as i32 % 31) - 15;
             targets.push(target);
             diagonals.push(diag);
@@ -327,13 +320,8 @@ mod tests {
             .map(|(t, d)| (t.as_slice(), *d))
             .collect();
 
-        let gpu_results = ungapped_alignment_batch_gpu(
-            &query,
-            &pairs,
-            &scores,
-            alphabet_size,
-        )
-        .expect("GPU batch failed");
+        let gpu_results = ungapped_alignment_batch_gpu(&query, &pairs, &scores, alphabet_size)
+            .expect("GPU batch failed");
 
         for (i, (target, diagonal)) in pairs.iter().enumerate() {
             let cpu = ungapped_alignment(&query, target, *diagonal, &scores, alphabet_size);

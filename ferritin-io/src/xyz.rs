@@ -3,7 +3,7 @@
 //! XYZ format: first line is atom count L, second is description,
 //! then L lines of "atom x y z".
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use std::fs;
 
 use ferritin_align::core::residue_map::three_to_one;
@@ -15,7 +15,9 @@ pub fn load_xyz(path: &str) -> Result<Vec<StructureData>> {
     let mut lines = content.lines();
 
     let first = lines.next().unwrap_or("").trim();
-    let len: usize = first.parse().map_err(|_| anyhow::anyhow!("Invalid XYZ atom count: {first}"))?;
+    let len: usize = first
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid XYZ atom count: {first}"))?;
     if len == 0 {
         bail!("Empty XYZ file");
     }

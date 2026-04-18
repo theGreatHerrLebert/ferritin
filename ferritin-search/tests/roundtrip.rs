@@ -51,7 +51,11 @@ fn find_mmseqs() -> Option<PathBuf> {
 fn find_example_fasta() -> Option<PathBuf> {
     if let Ok(explicit) = std::env::var("FERRITIN_SEARCH_EXAMPLE_FASTA") {
         let p = PathBuf::from(explicit);
-        return if p.exists() { p.canonicalize().ok() } else { None };
+        return if p.exists() {
+            p.canonicalize().ok()
+        } else {
+            None
+        };
     }
     // Vendored fixture: a 50-sequence subset of upstream examples/DB.fasta.
     // Committed to the repo so the oracle is reproducible without network.
@@ -61,7 +65,11 @@ fn find_example_fasta() -> Option<PathBuf> {
     }
     // Fallback: full upstream example if a local MMseqs2 clone is present.
     let p = PathBuf::from(format!("{CRATE_ROOT}/../../MMseqs2/examples/DB.fasta"));
-    if p.exists() { p.canonicalize().ok() } else { None }
+    if p.exists() {
+        p.canonicalize().ok()
+    } else {
+        None
+    }
 }
 
 /// Resolve oracle inputs or exit. Returns `None` if not required and not found
@@ -111,15 +119,26 @@ fn rust_reader_matches_upstream_createdb_output() {
     let r = DBReader::open(&upstream_prefix).expect("open upstream DB");
     assert_eq!(r.dbtype.base(), 0, "protein FASTA → AMINO_ACIDS dbtype");
     assert!(!r.is_empty(), "upstream produced empty DB?");
-    assert!(r.source.is_some(), "source file should be present for createdb output");
-    assert!(r.lookup.is_some(), "lookup file should be present for createdb output");
+    assert!(
+        r.source.is_some(),
+        "source file should be present for createdb output"
+    );
+    assert!(
+        r.lookup.is_some(),
+        "lookup file should be present for createdb output"
+    );
 
     // Every index entry fits within the data blob and is null-terminated.
     let data = r.data();
     for e in &r.index {
         let end = e.offset + e.length;
         assert!(end as usize <= data.len(), "entry {} overflows blob", e.key);
-        assert_eq!(data[end as usize - 1], 0, "missing \\0 at end of entry {}", e.key);
+        assert_eq!(
+            data[end as usize - 1],
+            0,
+            "missing \\0 at end of entry {}",
+            e.key
+        );
     }
 
     // First entry starts at offset 0.

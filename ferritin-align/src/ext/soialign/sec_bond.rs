@@ -27,10 +27,7 @@ pub fn assign_sec_bond(secx: &[u8]) -> Vec<SecBond> {
     for i in 0..xlen {
         let ss = secx[i];
         secx_bond[i] = [-1, -1];
-        if ss != prev_ss
-            && !(ss == b'C' && prev_ss == b'T')
-            && !(ss == b'T' && prev_ss == b'C')
-        {
+        if ss != prev_ss && !(ss == b'C' && prev_ss == b'T') && !(ss == b'T' && prev_ss == b'C') {
             if starti >= 0 {
                 // previous SSE ends at i
                 let endi = i as i32;

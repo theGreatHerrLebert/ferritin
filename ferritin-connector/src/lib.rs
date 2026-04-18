@@ -5,9 +5,8 @@ pub(crate) mod add_hydrogens;
 pub mod altloc;
 mod bond_order;
 mod dssp;
-mod fragment_templates;
-mod reconstruct;
 pub mod forcefield;
+mod fragment_templates;
 mod hbond;
 mod parallel;
 mod py_add_hydrogens;
@@ -24,9 +23,10 @@ mod py_msa;
 mod py_pdb;
 mod py_sasa;
 mod py_search;
-mod py_supervision;
 mod py_structure;
+mod py_supervision;
 mod py_transform;
+mod reconstruct;
 pub mod sasa;
 
 /// ferritin_connector — PyO3 bindings for the ferritin structural bioinformatics toolkit.

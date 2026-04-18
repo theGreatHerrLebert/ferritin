@@ -32,11 +32,7 @@ fn test_roundtrip_all_test_pdbs() {
     let mut entries: Vec<_> = fs::read_dir(test_path)
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map_or(false, |ext| ext == "pdb")
-        })
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "pdb"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
 
@@ -57,9 +53,7 @@ fn test_roundtrip_all_test_pdbs() {
         };
 
         // Count atoms across ALL models (not just first)
-        let original_atoms: usize = pdb.models()
-            .map(|m| m.atom_count())
-            .sum();
+        let original_atoms: usize = pdb.models().map(|m| m.atom_count()).sum();
         if original_atoms == 0 {
             n_skipped += 1;
             continue;
@@ -92,7 +86,10 @@ fn test_roundtrip_all_test_pdbs() {
         };
 
         if rebuilt.len() != 1 {
-            failures.push(format!("{name}: expected 1 structure, got {}", rebuilt.len()));
+            failures.push(format!(
+                "{name}: expected 1 structure, got {}",
+                rebuilt.len()
+            ));
             continue;
         }
 
@@ -102,9 +99,7 @@ fn test_roundtrip_all_test_pdbs() {
             continue;
         }
 
-        let rebuilt_atoms: usize = rebuilt_pdb.models()
-            .map(|m| m.atom_count())
-            .sum();
+        let rebuilt_atoms: usize = rebuilt_pdb.models().map(|m| m.atom_count()).sum();
         if rebuilt_atoms != original_atoms {
             failures.push(format!(
                 "{name}: atom count mismatch after roundtrip: {original_atoms} → {rebuilt_atoms}"
@@ -113,12 +108,16 @@ fn test_roundtrip_all_test_pdbs() {
         }
 
         // Spot-check coordinates of first atom
-        let orig_first = pdb.models().next()
+        let orig_first = pdb
+            .models()
+            .next()
             .and_then(|m| m.chains().next())
             .and_then(|c| c.residues().next())
             .and_then(|r| r.conformers().next())
             .and_then(|cf| cf.atoms().next());
-        let rebuilt_first = rebuilt_pdb.models().next()
+        let rebuilt_first = rebuilt_pdb
+            .models()
+            .next()
             .and_then(|m| m.chains().next())
             .and_then(|c| c.residues().next())
             .and_then(|r| r.conformers().next())
@@ -129,9 +128,7 @@ fn test_roundtrip_all_test_pdbs() {
             let (rx, ry, rz) = rebuilt.pos();
             let max_diff = (ox - rx).abs().max((oy - ry).abs()).max((oz - rz).abs());
             if max_diff > 1e-6 {
-                failures.push(format!(
-                    "{name}: coordinate drift: max_diff={max_diff:.2e}"
-                ));
+                failures.push(format!("{name}: coordinate drift: max_diff={max_diff:.2e}"));
                 continue;
             }
         }

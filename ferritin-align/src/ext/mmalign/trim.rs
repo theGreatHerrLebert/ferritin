@@ -5,7 +5,7 @@
 //!
 //! Ported from C++ USAlign `MMalign.h`: `trimComplex`.
 
-use crate::core::types::{MolType, dist_squared};
+use crate::core::types::{dist_squared, MolType};
 
 use super::ChainData;
 

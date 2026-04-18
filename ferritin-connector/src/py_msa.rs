@@ -217,7 +217,11 @@ impl PySearchEngine {
             use_gpu,
         };
         let inner = CoreSearchEngine::open_from_mmseqs_db_with_kmi(
-            db_prefix, kmi_path, &matrix, alphabet.clone(), opts,
+            db_prefix,
+            kmi_path,
+            &matrix,
+            alphabet.clone(),
+            opts,
         )
         .map_err(|e| PyValueError::new_err(format!("open_from_mmseqs_db_with_kmi failed: {e}")))?;
         Ok(Self { inner, alphabet })

@@ -5,7 +5,7 @@
 //! `get_initial_ss_dimer`, `get_initial5_dimer`, `get_initial_ssplus_dimer`.
 
 use crate::core::kabsch::{kabsch, KabschMode};
-use crate::core::types::{Coord3D, TMParams, Transform, dist_squared};
+use crate::core::types::{dist_squared, Coord3D, TMParams, Transform};
 
 /// Adjust dimer assignment by trying both chain pairings for a 2+2 dimer.
 ///
@@ -57,11 +57,22 @@ pub fn adjust_dimer_assignment(
     let ylen = ylen_vec[j1] + ylen_vec[j2];
     let lnorm = xlen.min(ylen) as f64;
     let mol_type = mol_vec1[i1] + mol_vec1[i2] + mol_vec2[j1] + mol_vec2[j2];
-    let params = TMParams::for_final(lnorm, if mol_type > 0 { crate::core::types::MolType::RNA } else { crate::core::types::MolType::Protein });
+    let params = TMParams::for_final(
+        lnorm,
+        if mol_type > 0 {
+            crate::core::types::MolType::RNA
+        } else {
+            crate::core::types::MolType::Protein
+        },
+    );
     let d0 = params.d0;
 
     // Helper: extract aligned pairs from alignment strings
-    let extract_pairs = |seq_x: &str, seq_y: &str, xc: &[Coord3D], yc: &[Coord3D]| -> (Vec<Coord3D>, Vec<Coord3D>) {
+    let extract_pairs = |seq_x: &str,
+                         seq_y: &str,
+                         xc: &[Coord3D],
+                         yc: &[Coord3D]|
+     -> (Vec<Coord3D>, Vec<Coord3D>) {
         let mut xa = Vec::new();
         let mut ya = Vec::new();
         let xb = seq_x.as_bytes();
@@ -89,12 +100,16 @@ pub fn adjust_dimer_assignment(
 
     // Score for current assignment: (i1,j1) + (i2,j2)
     let (mut xa1, mut ya1) = extract_pairs(
-        &seqx_a_mat[i1][j1], &seqy_a_mat[i1][j1],
-        &x_coords[i1], &y_coords[j1],
+        &seqx_a_mat[i1][j1],
+        &seqy_a_mat[i1][j1],
+        &x_coords[i1],
+        &y_coords[j1],
     );
     let (xa2, ya2) = extract_pairs(
-        &seqx_a_mat[i2][j2], &seqy_a_mat[i2][j2],
-        &x_coords[i2], &y_coords[j2],
+        &seqx_a_mat[i2][j2],
+        &seqy_a_mat[i2][j2],
+        &x_coords[i2],
+        &y_coords[j2],
     );
     xa1.extend_from_slice(&xa2);
     ya1.extend_from_slice(&ya2);
@@ -103,12 +118,16 @@ pub fn adjust_dimer_assignment(
 
     // Score for swapped assignment: (i1,j2) + (i2,j1)
     let (mut xa1s, mut ya1s) = extract_pairs(
-        &seqx_a_mat[i1][j2], &seqy_a_mat[i1][j2],
-        &x_coords[i1], &y_coords[j2],
+        &seqx_a_mat[i1][j2],
+        &seqy_a_mat[i1][j2],
+        &x_coords[i1],
+        &y_coords[j2],
     );
     let (xa2s, ya2s) = extract_pairs(
-        &seqx_a_mat[i2][j1], &seqy_a_mat[i2][j1],
-        &x_coords[i2], &y_coords[j1],
+        &seqx_a_mat[i2][j1],
+        &seqy_a_mat[i2][j1],
+        &x_coords[i2],
+        &y_coords[j1],
     );
     xa1s.extend_from_slice(&xa2s);
     ya1s.extend_from_slice(&ya2s);
@@ -242,12 +261,7 @@ pub fn nwdp_tm_dimer_coords(
 /// Needleman-Wunsch DP for dimer alignment using secondary structure.
 ///
 /// Corresponds to C++ `NWDP_TM_dimer(path, val, secx, secy, len1, len2, mask, gap_open, j2i)`.
-pub fn nwdp_tm_dimer_ss(
-    secx: &[u8],
-    secy: &[u8],
-    mask: &[Vec<bool>],
-    gap_open: f64,
-) -> Vec<i32> {
+pub fn nwdp_tm_dimer_ss(secx: &[u8], secy: &[u8], mask: &[Vec<bool>], gap_open: f64) -> Vec<i32> {
     let len1 = secx.len();
     let len2 = secy.len();
 
@@ -402,9 +416,7 @@ mod tests {
 
     #[test]
     fn test_compute_dimer_score_identical() {
-        let coords: Vec<Coord3D> = (0..10)
-            .map(|i| [i as f64, 0.0, 0.0])
-            .collect();
+        let coords: Vec<Coord3D> = (0..10).map(|i| [i as f64, 0.0, 0.0]).collect();
         let score = compute_dimer_score(&coords, &coords, 5.0, 10.0);
         // Identical structures: each pair contributes 1/(1+0) = 1.0
         // Total = 10/10 = 1.0

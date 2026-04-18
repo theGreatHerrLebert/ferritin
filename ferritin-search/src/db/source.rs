@@ -19,7 +19,10 @@ impl SourceEntry {
         let file_number = it.next().and_then(|s| s.parse::<u32>().ok());
         let filename = it.next().map(|s| s.to_owned());
         match (file_number, filename) {
-            (Some(file_number), Some(filename)) => Ok(Self { file_number, filename }),
+            (Some(file_number), Some(filename)) => Ok(Self {
+                file_number,
+                filename,
+            }),
             _ => Err(DbError::BadSourceLine(text.to_owned())),
         }
     }
@@ -67,15 +70,24 @@ mod tests {
     #[test]
     fn parse_reference_entry() {
         let e = SourceEntry::parse_line(b"0\tDB.fasta\n").unwrap();
-        assert_eq!(e, SourceEntry { file_number: 0, filename: "DB.fasta".to_owned() });
+        assert_eq!(
+            e,
+            SourceEntry {
+                file_number: 0,
+                filename: "DB.fasta".to_owned()
+            }
+        );
     }
 
     #[test]
     fn write_line_exact_format() {
         let mut buf = Vec::new();
-        SourceEntry { file_number: 0, filename: "DB.fasta".to_owned() }
-            .write_line(&mut buf)
-            .unwrap();
+        SourceEntry {
+            file_number: 0,
+            filename: "DB.fasta".to_owned(),
+        }
+        .write_line(&mut buf)
+        .unwrap();
         assert_eq!(buf, b"0\tDB.fasta\n");
     }
 }

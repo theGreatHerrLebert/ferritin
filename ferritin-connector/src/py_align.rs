@@ -67,9 +67,7 @@ impl PyAlignResult {
     fn rotation_matrix<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let u = self.inner.transform.u;
         let flat: Vec<f64> = u.iter().flat_map(|row| row.iter().copied()).collect();
-        numpy::PyArray1::from_vec(py, flat)
-            .reshape([3, 3])
-            .unwrap()
+        numpy::PyArray1::from_vec(py, flat).reshape([3, 3]).unwrap()
     }
 
     /// Translation vector as [x, y, z].

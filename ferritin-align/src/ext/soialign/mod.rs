@@ -20,7 +20,7 @@ pub mod sec_bond;
 
 use crate::core::kabsch::{kabsch, KabschMode};
 use crate::core::tmscore::{detailed_search_standard, tmscore8_search};
-use crate::core::types::{Coord3D, MolType, TMParams, Transform, dist_squared};
+use crate::core::types::{dist_squared, Coord3D, MolType, TMParams, Transform};
 
 use self::close_k::get_close_k;
 use self::iter::{assign2super, get_soi_initial_assign, soi_iter, super2score, transpose_score};
@@ -277,7 +277,8 @@ pub fn soialign_main(
         fwdmap_knn = vec![-1i32; xlen];
         if opts.mm_opt == 6 {
             let mut ws = crate::core::types::DPWorkspace::new(ylen, xlen);
-            let dp_result = crate::core::nwdp::nwdp_score_matrix(&mut ws, &scoret_knn, ylen, xlen, -0.6);
+            let dp_result =
+                crate::core::nwdp::nwdp_score_matrix(&mut ws, &scoret_knn, ylen, xlen, -0.6);
             fwdmap_knn[..xlen].copy_from_slice(&dp_result[..xlen]);
         }
         greedy::soi_egs(
@@ -441,14 +442,7 @@ pub fn soialign_main(
     let params_b = TMParams::for_final(xlen as f64, opts.mol_type);
     let d0b = params_b.d0;
     let tm2 = if n_ali8 > 0 {
-        let (score, _) = tmscore8_search(
-            &xtm,
-            &ytm,
-            1,
-            0,
-            params_b.d0_search,
-            &params_b,
-        );
+        let (score, _) = tmscore8_search(&xtm, &ytm, 1, 0, params_b.d0_search, &params_b);
         score
     } else {
         0.0
@@ -483,14 +477,7 @@ pub fn soialign_main(
     let params_a = TMParams::for_final(ylen as f64, opts.mol_type);
     let d0a = params_a.d0;
     let tm1 = if !xtm2.is_empty() {
-        let (score, _) = tmscore8_search(
-            &xtm2,
-            &ytm2,
-            1,
-            0,
-            params_a.d0_search,
-            &params_a,
-        );
+        let (score, _) = tmscore8_search(&xtm2, &ytm2, 1, 0, params_a.d0_search, &params_a);
         score
     } else {
         0.0
@@ -503,14 +490,7 @@ pub fn soialign_main(
         let lnorm_avg = (xlen + ylen) as f64 * 0.5;
         let params_avg = TMParams::for_final(lnorm_avg, opts.mol_type);
         d0a_avg = params_avg.d0;
-        let (score, _) = tmscore8_search(
-            &xtm2,
-            &ytm2,
-            1,
-            0,
-            params_avg.d0_search,
-            &params_avg,
-        );
+        let (score, _) = tmscore8_search(&xtm2, &ytm2, 1, 0, params_avg.d0_search, &params_avg);
         tm3 = score;
     }
 
@@ -519,28 +499,14 @@ pub fn soialign_main(
     if opts.u_opt && !xtm2.is_empty() {
         let params_u = TMParams::for_final(opts.lnorm_ass, opts.mol_type);
         d0u = params_u.d0;
-        let (score, _) = tmscore8_search(
-            &xtm2,
-            &ytm2,
-            1,
-            0,
-            params_u.d0_search,
-            &params_u,
-        );
+        let (score, _) = tmscore8_search(&xtm2, &ytm2, 1, 0, params_u.d0_search, &params_u);
         tm4 = score;
     }
 
     let mut tm5 = 0.0;
     if opts.d_opt && !xtm2.is_empty() {
         let params_s = TMParams::for_scale(ylen, opts.d0_scale);
-        let (score, _) = tmscore8_search(
-            &xtm2,
-            &ytm2,
-            1,
-            0,
-            params_s.d0_search,
-            &params_s,
-        );
+        let (score, _) = tmscore8_search(&xtm2, &ytm2, 1, 0, params_s.d0_search, &params_s);
         tm5 = score;
     }
 
@@ -664,9 +630,7 @@ mod tests {
             ..Default::default()
         };
         let transform = Transform::default();
-        let result = soialign_main(
-            &coords, &coords, &seq, &seq, &sec, &sec, &transform, &opts,
-        );
+        let result = soialign_main(&coords, &coords, &seq, &seq, &sec, &sec, &transform, &opts);
 
         assert!(result.tm1 > 0.5, "tm1={}", result.tm1);
         assert!(result.tm2 > 0.5, "tm2={}", result.tm2);
@@ -686,9 +650,7 @@ mod tests {
             ..Default::default()
         };
         let transform = Transform::default();
-        let result = soialign_main(
-            &coords, &coords, &seq, &seq, &sec, &sec, &transform, &opts,
-        );
+        let result = soialign_main(&coords, &coords, &seq, &seq, &sec, &sec, &transform, &opts);
 
         // Should still produce an alignment
         assert!(result.n_ali > 0 || result.n_ali8 == 0);
@@ -707,9 +669,7 @@ mod tests {
             ..Default::default()
         };
         let transform = Transform::default();
-        let result = soialign_main(
-            &coords, &coords, &seq, &seq, &sec, &sec, &transform, &opts,
-        );
+        let result = soialign_main(&coords, &coords, &seq, &seq, &sec, &sec, &transform, &opts);
 
         assert!(result.tm1 >= 0.0);
     }
@@ -727,9 +687,7 @@ mod tests {
             ..Default::default()
         };
         let transform = Transform::default();
-        let result = soialign_main(
-            &coords, &coords, &seq, &seq, &sec, &sec, &transform, &opts,
-        );
+        let result = soialign_main(&coords, &coords, &seq, &seq, &sec, &sec, &transform, &opts);
 
         assert!(result.seq_x_aligned.is_empty());
         assert!(result.seq_y_aligned.is_empty());

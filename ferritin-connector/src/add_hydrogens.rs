@@ -133,7 +133,12 @@ pub fn place_peptide_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
     // Only process the first model (consistent with DSSP, H-bonds, etc.)
     let first_model = match pdb.models().next() {
         Some(m) => m,
-        None => return AddHydrogensResult { added: 0, skipped: 0 },
+        None => {
+            return AddHydrogensResult {
+                added: 0,
+                skipped: 0,
+            }
+        }
     };
 
     for (chain_idx, chain) in first_model.chains().enumerate() {
@@ -172,11 +177,7 @@ pub fn place_peptide_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
                         curr.n[1] - curr.ca[1],
                         curr.n[2] - curr.ca[2],
                     ]);
-                    let bisector = normalize([
-                        v1[0] + v2[0],
-                        v1[1] + v2[1],
-                        v1[2] + v2[2],
-                    ]);
+                    let bisector = normalize([v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2]]);
 
                     // Degenerate case: vectors are exactly opposite
                     if bisector[0] == 0.0 && bisector[1] == 0.0 && bisector[2] == 0.0 {
@@ -227,17 +228,14 @@ pub fn place_peptide_hydrogens(pdb: &mut pdbtbx::PDB) -> AddHydrogensResult {
         };
 
         if let Some(h_atom) = pdbtbx::Atom::new(
-            false,          // not HETATM
-            p.serial,       // serial number
-            "H",            // atom name
-            "H",            // atom name (id)
-            p.pos[0],
-            p.pos[1],
-            p.pos[2],
-            1.0,            // occupancy
-            0.0,            // B-factor (unknown)
-            "H",            // element
-            0,              // charge
+            false,    // not HETATM
+            p.serial, // serial number
+            "H",      // atom name
+            "H",      // atom name (id)
+            p.pos[0], p.pos[1], p.pos[2], 1.0, // occupancy
+            0.0, // B-factor (unknown)
+            "H", // element
+            0,   // charge
         ) {
             conformer.add_atom(h_atom);
         }
@@ -310,17 +308,16 @@ fn place_tet1h(parent: [f64; 3], n1: [f64; 3], n2: [f64; 3], n3: [f64; 3], bl: f
     let v1 = normalize(sub(n1, parent));
     let v2 = normalize(sub(n2, parent));
     let v3 = normalize(sub(n3, parent));
-    let avg = normalize([v1[0] + v2[0] + v3[0], v1[1] + v2[1] + v3[1], v1[2] + v2[2] + v3[2]]);
+    let avg = normalize([
+        v1[0] + v2[0] + v3[0],
+        v1[1] + v2[1] + v3[1],
+        v1[2] + v2[2] + v3[2],
+    ]);
     add(parent, scale(avg, -bl))
 }
 
 /// Place 2 H on an atom with 2 heavy neighbors (tetrahedral, e.g., HB2/HB3 on CB).
-fn place_tet2h(
-    parent: [f64; 3],
-    n1: [f64; 3],
-    n2: [f64; 3],
-    bl: f64,
-) -> [[f64; 3]; 2] {
+fn place_tet2h(parent: [f64; 3], n1: [f64; 3], n2: [f64; 3], bl: f64) -> [[f64; 3]; 2] {
     let v1 = normalize(sub(n1, parent));
     let v2 = normalize(sub(n2, parent));
     let bisect = normalize(add(v1, v2));
@@ -335,7 +332,10 @@ fn place_tet2h(
     let h1_dir = normalize(add(scale(anti, cos_ha), scale(perp, sin_ha)));
     let h2_dir = normalize(add(scale(anti, cos_ha), scale(perp, -sin_ha)));
 
-    [add(parent, scale(h1_dir, bl)), add(parent, scale(h2_dir, bl))]
+    [
+        add(parent, scale(h1_dir, bl)),
+        add(parent, scale(h2_dir, bl)),
+    ]
 }
 
 /// Place 3 H in methyl geometry around a single bond axis.
@@ -381,9 +381,15 @@ fn place_planar1h_2n(
     // Place in-plane or flip to other side
     let angle = 60.0_f64.to_radians();
     let dir = if flip {
-        normalize(add(scale(anti_bisect, angle.cos()), scale(perp, -angle.sin())))
+        normalize(add(
+            scale(anti_bisect, angle.cos()),
+            scale(perp, -angle.sin()),
+        ))
     } else {
-        normalize(add(scale(anti_bisect, angle.cos()), scale(perp, angle.sin())))
+        normalize(add(
+            scale(anti_bisect, angle.cos()),
+            scale(perp, angle.sin()),
+        ))
     };
     add(parent, scale(dir, bl))
 }
@@ -447,141 +453,400 @@ enum SidechainH {
 }
 
 macro_rules! ha {
-    () => { SidechainH::Tet1 { name: "HA", parent: "CA", neighbors: ["N", "C", "CB"], bl: CH_BOND_LENGTH } }
+    () => {
+        SidechainH::Tet1 {
+            name: "HA",
+            parent: "CA",
+            neighbors: ["N", "C", "CB"],
+            bl: CH_BOND_LENGTH,
+        }
+    };
 }
 
 macro_rules! hb2b3 {
-    ($n1:expr, $n2:expr) => { SidechainH::Tet2 { names: ["HB2", "HB3"], parent: "CB", neighbors: [$n1, $n2], bl: CH_BOND_LENGTH } }
+    ($n1:expr, $n2:expr) => {
+        SidechainH::Tet2 {
+            names: ["HB2", "HB3"],
+            parent: "CB",
+            neighbors: [$n1, $n2],
+            bl: CH_BOND_LENGTH,
+        }
+    };
 }
 
 fn sidechain_templates(resname: &str) -> &'static [SidechainH] {
     match resname {
-        "GLY" => &[
-            SidechainH::Tet2 { names: ["HA2", "HA3"], parent: "CA", neighbors: ["N", "C"], bl: CH_BOND_LENGTH },
-        ],
+        "GLY" => &[SidechainH::Tet2 {
+            names: ["HA2", "HA3"],
+            parent: "CA",
+            neighbors: ["N", "C"],
+            bl: CH_BOND_LENGTH,
+        }],
         "ALA" => &[
             ha!(),
-            SidechainH::Methyl { names: ["HB1", "HB2", "HB3"], parent: "CB", anchor: "CA", bl: CH_BOND_LENGTH },
+            SidechainH::Methyl {
+                names: ["HB1", "HB2", "HB3"],
+                parent: "CB",
+                anchor: "CA",
+                bl: CH_BOND_LENGTH,
+            },
         ],
         "VAL" => &[
             ha!(),
-            SidechainH::Tet1 { name: "HB", parent: "CB", neighbors: ["CA", "CG1", "CG2"], bl: CH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HG11", "HG12", "HG13"], parent: "CG1", anchor: "CB", bl: CH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HG21", "HG22", "HG23"], parent: "CG2", anchor: "CB", bl: CH_BOND_LENGTH },
+            SidechainH::Tet1 {
+                name: "HB",
+                parent: "CB",
+                neighbors: ["CA", "CG1", "CG2"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HG11", "HG12", "HG13"],
+                parent: "CG1",
+                anchor: "CB",
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HG21", "HG22", "HG23"],
+                parent: "CG2",
+                anchor: "CB",
+                bl: CH_BOND_LENGTH,
+            },
         ],
         "LEU" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Tet1 { name: "HG", parent: "CG", neighbors: ["CB", "CD1", "CD2"], bl: CH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HD11", "HD12", "HD13"], parent: "CD1", anchor: "CG", bl: CH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HD21", "HD22", "HD23"], parent: "CD2", anchor: "CG", bl: CH_BOND_LENGTH },
+            SidechainH::Tet1 {
+                name: "HG",
+                parent: "CG",
+                neighbors: ["CB", "CD1", "CD2"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HD11", "HD12", "HD13"],
+                parent: "CD1",
+                anchor: "CG",
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HD21", "HD22", "HD23"],
+                parent: "CD2",
+                anchor: "CG",
+                bl: CH_BOND_LENGTH,
+            },
         ],
         "ILE" => &[
             ha!(),
-            SidechainH::Tet1 { name: "HB", parent: "CB", neighbors: ["CA", "CG1", "CG2"], bl: CH_BOND_LENGTH },
-            SidechainH::Tet2 { names: ["HG12", "HG13"], parent: "CG1", neighbors: ["CB", "CD1"], bl: CH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HG21", "HG22", "HG23"], parent: "CG2", anchor: "CB", bl: CH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HD11", "HD12", "HD13"], parent: "CD1", anchor: "CG1", bl: CH_BOND_LENGTH },
+            SidechainH::Tet1 {
+                name: "HB",
+                parent: "CB",
+                neighbors: ["CA", "CG1", "CG2"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Tet2 {
+                names: ["HG12", "HG13"],
+                parent: "CG1",
+                neighbors: ["CB", "CD1"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HG21", "HG22", "HG23"],
+                parent: "CG2",
+                anchor: "CB",
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HD11", "HD12", "HD13"],
+                parent: "CD1",
+                anchor: "CG1",
+                bl: CH_BOND_LENGTH,
+            },
         ],
         "PRO" => &[
-            SidechainH::Tet1 { name: "HA", parent: "CA", neighbors: ["N", "C", "CB"], bl: CH_BOND_LENGTH },
-            SidechainH::Tet2 { names: ["HB2", "HB3"], parent: "CB", neighbors: ["CA", "CG"], bl: CH_BOND_LENGTH },
-            SidechainH::Tet2 { names: ["HG2", "HG3"], parent: "CG", neighbors: ["CB", "CD"], bl: CH_BOND_LENGTH },
-            SidechainH::Tet2 { names: ["HD2", "HD3"], parent: "CD", neighbors: ["CG", "N"], bl: CH_BOND_LENGTH },
+            SidechainH::Tet1 {
+                name: "HA",
+                parent: "CA",
+                neighbors: ["N", "C", "CB"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Tet2 {
+                names: ["HB2", "HB3"],
+                parent: "CB",
+                neighbors: ["CA", "CG"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Tet2 {
+                names: ["HG2", "HG3"],
+                parent: "CG",
+                neighbors: ["CB", "CD"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Tet2 {
+                names: ["HD2", "HD3"],
+                parent: "CD",
+                neighbors: ["CG", "N"],
+                bl: CH_BOND_LENGTH,
+            },
         ],
         "PHE" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Aromatic { name: "HD1", parent: "CD1", ring_neighbors: ["CG", "CE1"] },
-            SidechainH::Aromatic { name: "HD2", parent: "CD2", ring_neighbors: ["CG", "CE2"] },
-            SidechainH::Aromatic { name: "HE1", parent: "CE1", ring_neighbors: ["CD1", "CZ"] },
-            SidechainH::Aromatic { name: "HE2", parent: "CE2", ring_neighbors: ["CD2", "CZ"] },
-            SidechainH::Aromatic { name: "HZ", parent: "CZ", ring_neighbors: ["CE1", "CE2"] },
+            SidechainH::Aromatic {
+                name: "HD1",
+                parent: "CD1",
+                ring_neighbors: ["CG", "CE1"],
+            },
+            SidechainH::Aromatic {
+                name: "HD2",
+                parent: "CD2",
+                ring_neighbors: ["CG", "CE2"],
+            },
+            SidechainH::Aromatic {
+                name: "HE1",
+                parent: "CE1",
+                ring_neighbors: ["CD1", "CZ"],
+            },
+            SidechainH::Aromatic {
+                name: "HE2",
+                parent: "CE2",
+                ring_neighbors: ["CD2", "CZ"],
+            },
+            SidechainH::Aromatic {
+                name: "HZ",
+                parent: "CZ",
+                ring_neighbors: ["CE1", "CE2"],
+            },
         ],
         "TYR" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Aromatic { name: "HD1", parent: "CD1", ring_neighbors: ["CG", "CE1"] },
-            SidechainH::Aromatic { name: "HD2", parent: "CD2", ring_neighbors: ["CG", "CE2"] },
-            SidechainH::Aromatic { name: "HE1", parent: "CE1", ring_neighbors: ["CD1", "CZ"] },
-            SidechainH::Aromatic { name: "HE2", parent: "CE2", ring_neighbors: ["CD2", "CZ"] },
-            SidechainH::Hydroxyl { name: "HH", parent: "OH", neighbor: "CZ", bl: OH_BOND_LENGTH },
+            SidechainH::Aromatic {
+                name: "HD1",
+                parent: "CD1",
+                ring_neighbors: ["CG", "CE1"],
+            },
+            SidechainH::Aromatic {
+                name: "HD2",
+                parent: "CD2",
+                ring_neighbors: ["CG", "CE2"],
+            },
+            SidechainH::Aromatic {
+                name: "HE1",
+                parent: "CE1",
+                ring_neighbors: ["CD1", "CZ"],
+            },
+            SidechainH::Aromatic {
+                name: "HE2",
+                parent: "CE2",
+                ring_neighbors: ["CD2", "CZ"],
+            },
+            SidechainH::Hydroxyl {
+                name: "HH",
+                parent: "OH",
+                neighbor: "CZ",
+                bl: OH_BOND_LENGTH,
+            },
         ],
         "TRP" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Aromatic { name: "HD1", parent: "CD1", ring_neighbors: ["CG", "NE1"] },
-            SidechainH::Hydroxyl { name: "HE1", parent: "NE1", neighbor: "CD1", bl: NH_BOND_LENGTH }, // ring NH
-            SidechainH::Aromatic { name: "HE3", parent: "CE3", ring_neighbors: ["CD2", "CZ3"] },
-            SidechainH::Aromatic { name: "HZ2", parent: "CZ2", ring_neighbors: ["CE2", "CH2"] },
-            SidechainH::Aromatic { name: "HZ3", parent: "CZ3", ring_neighbors: ["CE3", "CH2"] },
-            SidechainH::Aromatic { name: "HH2", parent: "CH2", ring_neighbors: ["CZ2", "CZ3"] },
+            SidechainH::Aromatic {
+                name: "HD1",
+                parent: "CD1",
+                ring_neighbors: ["CG", "NE1"],
+            },
+            SidechainH::Hydroxyl {
+                name: "HE1",
+                parent: "NE1",
+                neighbor: "CD1",
+                bl: NH_BOND_LENGTH,
+            }, // ring NH
+            SidechainH::Aromatic {
+                name: "HE3",
+                parent: "CE3",
+                ring_neighbors: ["CD2", "CZ3"],
+            },
+            SidechainH::Aromatic {
+                name: "HZ2",
+                parent: "CZ2",
+                ring_neighbors: ["CE2", "CH2"],
+            },
+            SidechainH::Aromatic {
+                name: "HZ3",
+                parent: "CZ3",
+                ring_neighbors: ["CE3", "CH2"],
+            },
+            SidechainH::Aromatic {
+                name: "HH2",
+                parent: "CH2",
+                ring_neighbors: ["CZ2", "CZ3"],
+            },
         ],
         "SER" => &[
             ha!(),
             hb2b3!("CA", "OG"),
-            SidechainH::Hydroxyl { name: "HG", parent: "OG", neighbor: "CB", bl: OH_BOND_LENGTH },
+            SidechainH::Hydroxyl {
+                name: "HG",
+                parent: "OG",
+                neighbor: "CB",
+                bl: OH_BOND_LENGTH,
+            },
         ],
         "THR" => &[
             ha!(),
-            SidechainH::Tet1 { name: "HB", parent: "CB", neighbors: ["CA", "OG1", "CG2"], bl: CH_BOND_LENGTH },
-            SidechainH::Hydroxyl { name: "HG1", parent: "OG1", neighbor: "CB", bl: OH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HG21", "HG22", "HG23"], parent: "CG2", anchor: "CB", bl: CH_BOND_LENGTH },
+            SidechainH::Tet1 {
+                name: "HB",
+                parent: "CB",
+                neighbors: ["CA", "OG1", "CG2"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Hydroxyl {
+                name: "HG1",
+                parent: "OG1",
+                neighbor: "CB",
+                bl: OH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HG21", "HG22", "HG23"],
+                parent: "CG2",
+                anchor: "CB",
+                bl: CH_BOND_LENGTH,
+            },
         ],
         "CYS" => &[
             ha!(),
             hb2b3!("CA", "SG"),
-            SidechainH::Hydroxyl { name: "HG", parent: "SG", neighbor: "CB", bl: SH_BOND_LENGTH },
+            SidechainH::Hydroxyl {
+                name: "HG",
+                parent: "SG",
+                neighbor: "CB",
+                bl: SH_BOND_LENGTH,
+            },
         ],
         "MET" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Tet2 { names: ["HG2", "HG3"], parent: "CG", neighbors: ["CB", "SD"], bl: CH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HE1", "HE2", "HE3"], parent: "CE", anchor: "SD", bl: CH_BOND_LENGTH },
+            SidechainH::Tet2 {
+                names: ["HG2", "HG3"],
+                parent: "CG",
+                neighbors: ["CB", "SD"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HE1", "HE2", "HE3"],
+                parent: "CE",
+                anchor: "SD",
+                bl: CH_BOND_LENGTH,
+            },
         ],
-        "ASP" => &[
-            ha!(),
-            hb2b3!("CA", "CG"),
-        ],
+        "ASP" => &[ha!(), hb2b3!("CA", "CG")],
         "GLU" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Tet2 { names: ["HG2", "HG3"], parent: "CG", neighbors: ["CB", "CD"], bl: CH_BOND_LENGTH },
+            SidechainH::Tet2 {
+                names: ["HG2", "HG3"],
+                parent: "CG",
+                neighbors: ["CB", "CD"],
+                bl: CH_BOND_LENGTH,
+            },
         ],
         "ASN" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::PlanarNH2 { names: ["HD21", "HD22"], parent: "ND2", neighbors: ["CG", "OD1"] },
+            SidechainH::PlanarNH2 {
+                names: ["HD21", "HD22"],
+                parent: "ND2",
+                neighbors: ["CG", "OD1"],
+            },
         ],
         "GLN" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Tet2 { names: ["HG2", "HG3"], parent: "CG", neighbors: ["CB", "CD"], bl: CH_BOND_LENGTH },
-            SidechainH::PlanarNH2 { names: ["HE21", "HE22"], parent: "NE2", neighbors: ["CD", "OE1"] },
+            SidechainH::Tet2 {
+                names: ["HG2", "HG3"],
+                parent: "CG",
+                neighbors: ["CB", "CD"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::PlanarNH2 {
+                names: ["HE21", "HE22"],
+                parent: "NE2",
+                neighbors: ["CD", "OE1"],
+            },
         ],
         "LYS" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Tet2 { names: ["HG2", "HG3"], parent: "CG", neighbors: ["CB", "CD"], bl: CH_BOND_LENGTH },
-            SidechainH::Tet2 { names: ["HD2", "HD3"], parent: "CD", neighbors: ["CG", "CE"], bl: CH_BOND_LENGTH },
-            SidechainH::Tet2 { names: ["HE2", "HE3"], parent: "CE", neighbors: ["CD", "NZ"], bl: CH_BOND_LENGTH },
-            SidechainH::Methyl { names: ["HZ1", "HZ2", "HZ3"], parent: "NZ", anchor: "CE", bl: NH_BOND_LENGTH },
+            SidechainH::Tet2 {
+                names: ["HG2", "HG3"],
+                parent: "CG",
+                neighbors: ["CB", "CD"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Tet2 {
+                names: ["HD2", "HD3"],
+                parent: "CD",
+                neighbors: ["CG", "CE"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Tet2 {
+                names: ["HE2", "HE3"],
+                parent: "CE",
+                neighbors: ["CD", "NZ"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Methyl {
+                names: ["HZ1", "HZ2", "HZ3"],
+                parent: "NZ",
+                anchor: "CE",
+                bl: NH_BOND_LENGTH,
+            },
         ],
         "ARG" => &[
             ha!(),
             hb2b3!("CA", "CG"),
-            SidechainH::Tet2 { names: ["HG2", "HG3"], parent: "CG", neighbors: ["CB", "CD"], bl: CH_BOND_LENGTH },
-            SidechainH::Tet2 { names: ["HD2", "HD3"], parent: "CD", neighbors: ["CG", "NE"], bl: CH_BOND_LENGTH },
-            SidechainH::Hydroxyl { name: "HE", parent: "NE", neighbor: "CD", bl: NH_BOND_LENGTH },
-            SidechainH::PlanarNH2 { names: ["HH11", "HH12"], parent: "NH1", neighbors: ["CZ", "NE"] },
-            SidechainH::PlanarNH2 { names: ["HH21", "HH22"], parent: "NH2", neighbors: ["CZ", "NH1"] },
+            SidechainH::Tet2 {
+                names: ["HG2", "HG3"],
+                parent: "CG",
+                neighbors: ["CB", "CD"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Tet2 {
+                names: ["HD2", "HD3"],
+                parent: "CD",
+                neighbors: ["CG", "NE"],
+                bl: CH_BOND_LENGTH,
+            },
+            SidechainH::Hydroxyl {
+                name: "HE",
+                parent: "NE",
+                neighbor: "CD",
+                bl: NH_BOND_LENGTH,
+            },
+            SidechainH::PlanarNH2 {
+                names: ["HH11", "HH12"],
+                parent: "NH1",
+                neighbors: ["CZ", "NE"],
+            },
+            SidechainH::PlanarNH2 {
+                names: ["HH21", "HH22"],
+                parent: "NH2",
+                neighbors: ["CZ", "NH1"],
+            },
         ],
         "HIS" => &[
             ha!(),
             hb2b3!("CA", "CG"),
             // Default: HID tautomer (H on ND1)
-            SidechainH::Aromatic { name: "HD2", parent: "CD2", ring_neighbors: ["CG", "NE2"] },
-            SidechainH::Aromatic { name: "HE1", parent: "CE1", ring_neighbors: ["ND1", "NE2"] },
+            SidechainH::Aromatic {
+                name: "HD2",
+                parent: "CD2",
+                ring_neighbors: ["CG", "NE2"],
+            },
+            SidechainH::Aromatic {
+                name: "HE1",
+                parent: "CE1",
+                ring_neighbors: ["ND1", "NE2"],
+            },
         ],
         _ => &[],
     }
@@ -592,7 +857,9 @@ fn sidechain_templates(resname: &str) -> &'static [SidechainH] {
 // ---------------------------------------------------------------------------
 
 /// Collect atom positions from a residue into a map (primary conformer only).
-fn collect_atom_positions(residue: &pdbtbx::Residue) -> (HashMap<String, [f64; 3]>, HashSet<String>) {
+fn collect_atom_positions(
+    residue: &pdbtbx::Residue,
+) -> (HashMap<String, [f64; 3]>, HashSet<String>) {
     let mut positions = HashMap::new();
     let mut existing_h = HashSet::new();
 
@@ -635,59 +902,165 @@ fn compute_sidechain_h(
 
     for tmpl in templates {
         match tmpl {
-            SidechainH::Tet1 { name, parent, neighbors, bl } => {
-                if existing_h.contains(*name) { continue; }
-                let p = match positions.get(*parent) { Some(v) => *v, None => continue };
-                let n1 = match positions.get(neighbors[0]) { Some(v) => *v, None => continue };
-                let n2 = match positions.get(neighbors[1]) { Some(v) => *v, None => continue };
-                let n3 = match positions.get(neighbors[2]) { Some(v) => *v, None => continue };
+            SidechainH::Tet1 {
+                name,
+                parent,
+                neighbors,
+                bl,
+            } => {
+                if existing_h.contains(*name) {
+                    continue;
+                }
+                let p = match positions.get(*parent) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let n1 = match positions.get(neighbors[0]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let n2 = match positions.get(neighbors[1]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let n3 = match positions.get(neighbors[2]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
                 result.push((name.to_string(), place_tet1h(p, n1, n2, n3, *bl)));
             }
-            SidechainH::Tet2 { names, parent, neighbors, bl } => {
-                if existing_h.contains(names[0]) && existing_h.contains(names[1]) { continue; }
-                let p = match positions.get(*parent) { Some(v) => *v, None => continue };
-                let n1 = match positions.get(neighbors[0]) { Some(v) => *v, None => continue };
-                let n2 = match positions.get(neighbors[1]) { Some(v) => *v, None => continue };
+            SidechainH::Tet2 {
+                names,
+                parent,
+                neighbors,
+                bl,
+            } => {
+                if existing_h.contains(names[0]) && existing_h.contains(names[1]) {
+                    continue;
+                }
+                let p = match positions.get(*parent) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let n1 = match positions.get(neighbors[0]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let n2 = match positions.get(neighbors[1]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
                 let hs = place_tet2h(p, n1, n2, *bl);
-                if !existing_h.contains(names[0]) { result.push((names[0].to_string(), hs[0])); }
-                if !existing_h.contains(names[1]) { result.push((names[1].to_string(), hs[1])); }
-            }
-            SidechainH::Methyl { names, parent, anchor, bl } => {
-                if existing_h.contains(names[0]) { continue; }
-                let p = match positions.get(*parent) { Some(v) => *v, None => continue };
-                let a = match positions.get(*anchor) { Some(v) => *v, None => continue };
-                let hs = place_methyl3h(p, a, *bl);
-                for (i, h) in hs.iter().enumerate() {
-                    if !existing_h.contains(names[i]) { result.push((names[i].to_string(), *h)); }
+                if !existing_h.contains(names[0]) {
+                    result.push((names[0].to_string(), hs[0]));
+                }
+                if !existing_h.contains(names[1]) {
+                    result.push((names[1].to_string(), hs[1]));
                 }
             }
-            SidechainH::Aromatic { name, parent, ring_neighbors } => {
-                if existing_h.contains(*name) { continue; }
-                let p = match positions.get(*parent) { Some(v) => *v, None => continue };
-                let r1 = match positions.get(ring_neighbors[0]) { Some(v) => *v, None => continue };
-                let r2 = match positions.get(ring_neighbors[1]) { Some(v) => *v, None => continue };
-                result.push((name.to_string(), place_aromatic1h(p, r1, r2, AROMATIC_CH_BOND_LENGTH)));
+            SidechainH::Methyl {
+                names,
+                parent,
+                anchor,
+                bl,
+            } => {
+                if existing_h.contains(names[0]) {
+                    continue;
+                }
+                let p = match positions.get(*parent) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let a = match positions.get(*anchor) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let hs = place_methyl3h(p, a, *bl);
+                for (i, h) in hs.iter().enumerate() {
+                    if !existing_h.contains(names[i]) {
+                        result.push((names[i].to_string(), *h));
+                    }
+                }
             }
-            SidechainH::Hydroxyl { name, parent, neighbor, bl } => {
-                if existing_h.contains(*name) { continue; }
-                let p = match positions.get(*parent) { Some(v) => *v, None => continue };
-                let n = match positions.get(*neighbor) { Some(v) => *v, None => continue };
+            SidechainH::Aromatic {
+                name,
+                parent,
+                ring_neighbors,
+            } => {
+                if existing_h.contains(*name) {
+                    continue;
+                }
+                let p = match positions.get(*parent) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let r1 = match positions.get(ring_neighbors[0]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let r2 = match positions.get(ring_neighbors[1]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                result.push((
+                    name.to_string(),
+                    place_aromatic1h(p, r1, r2, AROMATIC_CH_BOND_LENGTH),
+                ));
+            }
+            SidechainH::Hydroxyl {
+                name,
+                parent,
+                neighbor,
+                bl,
+            } => {
+                if existing_h.contains(*name) {
+                    continue;
+                }
+                let p = match positions.get(*parent) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let n = match positions.get(*neighbor) {
+                    Some(v) => *v,
+                    None => continue,
+                };
                 // For CYS SG, skip if disulfide bonded
                 if *parent == "SG" && is_disulfide(p, all_sg_positions) {
                     continue;
                 }
                 result.push((name.to_string(), place_oh1h(p, n, *bl)));
             }
-            SidechainH::PlanarNH2 { names, parent, neighbors } => {
-                if existing_h.contains(names[0]) && existing_h.contains(names[1]) { continue; }
-                let p = match positions.get(*parent) { Some(v) => *v, None => continue };
-                let n1 = match positions.get(neighbors[0]) { Some(v) => *v, None => continue };
-                let n2 = match positions.get(neighbors[1]) { Some(v) => *v, None => continue };
+            SidechainH::PlanarNH2 {
+                names,
+                parent,
+                neighbors,
+            } => {
+                if existing_h.contains(names[0]) && existing_h.contains(names[1]) {
+                    continue;
+                }
+                let p = match positions.get(*parent) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let n1 = match positions.get(neighbors[0]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
+                let n2 = match positions.get(neighbors[1]) {
+                    Some(v) => *v,
+                    None => continue,
+                };
                 if !existing_h.contains(names[0]) {
-                    result.push((names[0].to_string(), place_planar1h_2n(p, n1, n2, NH_BOND_LENGTH, false)));
+                    result.push((
+                        names[0].to_string(),
+                        place_planar1h_2n(p, n1, n2, NH_BOND_LENGTH, false),
+                    ));
                 }
                 if !existing_h.contains(names[1]) {
-                    result.push((names[1].to_string(), place_planar1h_2n(p, n1, n2, NH_BOND_LENGTH, true)));
+                    result.push((
+                        names[1].to_string(),
+                        place_planar1h_2n(p, n1, n2, NH_BOND_LENGTH, true),
+                    ));
                 }
             }
         }
@@ -716,7 +1089,12 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> Add
 
     let first_model = match pdb.models().next() {
         Some(m) => m,
-        None => return AddHydrogensResult { added: 0, skipped: 0 },
+        None => {
+            return AddHydrogensResult {
+                added: 0,
+                skipped: 0,
+            }
+        }
     };
 
     // Collect all SG positions for disulfide detection (primary conformer only).
@@ -779,17 +1157,37 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> Add
             if first_aa == Some(residue_idx) {
                 if let Some(&n_pos) = positions.get("N") {
                     if let Some(&ca_pos) = positions.get("CA") {
-                        let has_any = existing_h.contains("H1") || existing_h.contains("1H")
-                            || existing_h.contains("H2") || existing_h.contains("2H")
-                            || existing_h.contains("H") ;
+                        let has_any = existing_h.contains("H1")
+                            || existing_h.contains("1H")
+                            || existing_h.contains("H2")
+                            || existing_h.contains("2H")
+                            || existing_h.contains("H");
                         if !has_any {
                             let hs = place_methyl3h(n_pos, ca_pos, NH_BOND_LENGTH);
                             max_serial += 1;
-                            placements.push((chain_idx, residue_idx, "H1".to_string(), hs[0], max_serial));
+                            placements.push((
+                                chain_idx,
+                                residue_idx,
+                                "H1".to_string(),
+                                hs[0],
+                                max_serial,
+                            ));
                             max_serial += 1;
-                            placements.push((chain_idx, residue_idx, "H2".to_string(), hs[1], max_serial));
+                            placements.push((
+                                chain_idx,
+                                residue_idx,
+                                "H2".to_string(),
+                                hs[1],
+                                max_serial,
+                            ));
                             max_serial += 1;
-                            placements.push((chain_idx, residue_idx, "H3".to_string(), hs[2], max_serial));
+                            placements.push((
+                                chain_idx,
+                                residue_idx,
+                                "H3".to_string(),
+                                hs[2],
+                                max_serial,
+                            ));
                         }
                     }
                 }
@@ -802,7 +1200,13 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> Add
                         if let Some(&c_pos) = positions.get("C") {
                             let h = place_oh1h(oxt_pos, c_pos, OH_BOND_LENGTH);
                             max_serial += 1;
-                            placements.push((chain_idx, residue_idx, "HXT".to_string(), h, max_serial));
+                            placements.push((
+                                chain_idx,
+                                residue_idx,
+                                "HXT".to_string(),
+                                h,
+                                max_serial,
+                            ));
                         }
                     }
                 }
@@ -835,9 +1239,7 @@ pub fn place_sidechain_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> Add
         };
 
         if let Some(h_atom) = pdbtbx::Atom::new(
-            false, serial, &h_name, &h_name,
-            pos[0], pos[1], pos[2],
-            1.0, 0.0, "H", 0,
+            false, serial, &h_name, &h_name, pos[0], pos[1], pos[2], 1.0, 0.0, "H", 0,
         ) {
             conformer.add_atom(h_atom);
         }
@@ -876,10 +1278,7 @@ use crate::bond_order::{self, MolGraph};
 ///
 /// This handles ligands, non-standard residues, modified amino acids,
 /// and any molecule not covered by the standard AA templates.
-fn general_handle_atom(
-    graph: &MolGraph,
-    atom_idx: usize,
-) -> Vec<(String, [f64; 3])> {
+fn general_handle_atom(graph: &MolGraph, atom_idx: usize) -> Vec<(String, [f64; 3])> {
     let atom = &graph.atoms[atom_idx];
     let mut results = Vec::new();
 
@@ -898,7 +1297,9 @@ fn general_handle_atom(
     }
 
     // Skip if atom already has H neighbors
-    let existing_h_count = atom.neighbors.iter()
+    let existing_h_count = atom
+        .neighbors
+        .iter()
         .filter(|&&n| graph.atoms[n].element == "H" || graph.atoms[n].element == "D")
         .count() as i32;
 
@@ -908,12 +1309,16 @@ fn general_handle_atom(
     }
 
     let bond_length = bond_order::mmff94_bond_length(&atom.element);
-    let n_heavy_neighbors = atom.neighbors.iter()
+    let n_heavy_neighbors = atom
+        .neighbors
+        .iter()
         .filter(|&&n| graph.atoms[n].element != "H" && graph.atoms[n].element != "D")
         .count();
 
     // Get heavy neighbor positions
-    let heavy_nbrs: Vec<[f64; 3]> = atom.neighbors.iter()
+    let heavy_nbrs: Vec<[f64; 3]> = atom
+        .neighbors
+        .iter()
         .filter(|&&n| graph.atoms[n].element != "H" && graph.atoms[n].element != "D")
         .map(|&n| graph.atoms[n].pos)
         .collect();
@@ -924,7 +1329,13 @@ fn general_handle_atom(
     match (h_to_add, n_heavy_neighbors) {
         // 1 H, 3 heavy neighbors → tetrahedral (HA-like)
         (1, 3) => {
-            let h = place_tet1h(atom.pos, heavy_nbrs[0], heavy_nbrs[1], heavy_nbrs[2], bond_length);
+            let h = place_tet1h(
+                atom.pos,
+                heavy_nbrs[0],
+                heavy_nbrs[1],
+                heavy_nbrs[2],
+                bond_length,
+            );
             results.push((format!("H{}", atom_nr_start + 1), h));
         }
         // 1 H, 2 heavy neighbors → bent (water-like or ring)
@@ -1081,8 +1492,16 @@ fn place_water_h(o_pos: [f64; 3]) -> [[f64; 3]; 2] {
     let dir2 = [0.0, -half_angle.sin(), half_angle.cos()];
 
     [
-        [o_pos[0] + bl * dir1[0], o_pos[1] + bl * dir1[1], o_pos[2] + bl * dir1[2]],
-        [o_pos[0] + bl * dir2[0], o_pos[1] + bl * dir2[1], o_pos[2] + bl * dir2[2]],
+        [
+            o_pos[0] + bl * dir1[0],
+            o_pos[1] + bl * dir1[1],
+            o_pos[2] + bl * dir1[2],
+        ],
+        [
+            o_pos[0] + bl * dir2[0],
+            o_pos[1] + bl * dir2[1],
+            o_pos[2] + bl * dir2[2],
+        ],
     ]
 }
 
@@ -1147,9 +1566,21 @@ pub fn place_general_hydrogens(pdb: &mut pdbtbx::PDB, include_water: bool) -> Ad
                     if !has_h {
                         let hs = place_water_h(o);
                         max_serial += 1;
-                        placements.push((chain_idx, residue_idx, "H1".to_string(), hs[0], max_serial));
+                        placements.push((
+                            chain_idx,
+                            residue_idx,
+                            "H1".to_string(),
+                            hs[0],
+                            max_serial,
+                        ));
                         max_serial += 1;
-                        placements.push((chain_idx, residue_idx, "H2".to_string(), hs[1], max_serial));
+                        placements.push((
+                            chain_idx,
+                            residue_idx,
+                            "H2".to_string(),
+                            hs[1],
+                            max_serial,
+                        ));
                     }
                 }
                 continue;
@@ -1214,9 +1645,7 @@ pub fn place_general_hydrogens(pdb: &mut pdbtbx::PDB, include_water: bool) -> Ad
         };
 
         if let Some(h_atom) = pdbtbx::Atom::new(
-            false, serial, &h_name, &h_name,
-            pos[0], pos[1], pos[2],
-            1.0, 0.0, "H", 0,
+            false, serial, &h_name, &h_name, pos[0], pos[1], pos[2], 1.0, 0.0, "H", 0,
         ) {
             conformer.add_atom(h_atom);
         }
@@ -1309,11 +1738,7 @@ mod tests {
         let n_residues: usize = pdb
             .chains()
             .flat_map(|c| c.residues())
-            .filter(|r| {
-                r.conformers()
-                    .next()
-                    .map_or(false, |c| c.is_amino_acid())
-            })
+            .filter(|r| r.conformers().next().map_or(false, |c| c.is_amino_acid()))
             .count();
 
         let n_proline: usize = pdb
@@ -1475,8 +1900,16 @@ mod tests {
         assert!(result.added > 0, "Should place sidechain H atoms");
         assert_eq!(after, before + result.added);
         // 1CRN has 46 residues, expect roughly 5-8 H per residue on average
-        assert!(result.added > 150, "Expected >150 sidechain H, got {}", result.added);
-        assert!(result.added < 500, "Expected <500 sidechain H, got {}", result.added);
+        assert!(
+            result.added > 150,
+            "Expected >150 sidechain H, got {}",
+            result.added
+        );
+        assert!(
+            result.added < 500,
+            "Expected <500 sidechain H, got {}",
+            result.added
+        );
     }
 
     #[test]
@@ -1504,7 +1937,11 @@ mod tests {
         let result = place_all_hydrogens(&mut pdb, false);
 
         // Backbone (40) + sidechain (150+)
-        assert!(result.added > 190, "Expected >190 total H, got {}", result.added);
+        assert!(
+            result.added > 190,
+            "Expected >190 total H, got {}",
+            result.added
+        );
         assert_eq!(pdb.atom_count(), before + result.added);
 
         // Idempotent
@@ -1546,22 +1983,32 @@ mod tests {
             for residue in chain.residues() {
                 let heavy: Vec<[f64; 3]> = crate::altloc::residue_atoms_primary(residue)
                     .filter(|a| a.element().map_or(true, |e| e.symbol() != "H"))
-                    .map(|a| { let (x,y,z) = a.pos(); [x,y,z] })
+                    .map(|a| {
+                        let (x, y, z) = a.pos();
+                        [x, y, z]
+                    })
                     .collect();
 
                 for atom in crate::altloc::residue_atoms_primary(residue) {
-                    if atom.element().map_or(true, |e| e.symbol() != "H") { continue; }
+                    if atom.element().map_or(true, |e| e.symbol() != "H") {
+                        continue;
+                    }
                     let (hx, hy, hz) = atom.pos();
 
                     // Find nearest heavy atom
-                    let min_dist = heavy.iter()
-                        .map(|h| ((hx-h[0]).powi(2) + (hy-h[1]).powi(2) + (hz-h[2]).powi(2)).sqrt())
+                    let min_dist = heavy
+                        .iter()
+                        .map(|h| {
+                            ((hx - h[0]).powi(2) + (hy - h[1]).powi(2) + (hz - h[2]).powi(2)).sqrt()
+                        })
                         .fold(f64::MAX, f64::min);
 
                     assert!(
                         min_dist > 0.8 && min_dist < 1.5,
                         "H atom {} in {} has nearest heavy atom at {:.3} Å (expected 0.9-1.4)",
-                        atom.name(), residue.name().unwrap_or("?"), min_dist
+                        atom.name(),
+                        residue.name().unwrap_or("?"),
+                        min_dist
                     );
                 }
             }
@@ -1576,7 +2023,7 @@ mod tests {
         let n2 = [0.0, 1.5, 0.0];
         let n3 = [0.0, 0.0, 1.5];
         let h = place_tet1h(parent, n1, n2, n3, 1.09);
-        let dist = (h[0]*h[0] + h[1]*h[1] + h[2]*h[2]).sqrt();
+        let dist = (h[0] * h[0] + h[1] * h[1] + h[2] * h[2]).sqrt();
         assert!((dist - 1.09).abs() < 1e-6, "dist={}", dist);
         // H should be in the -x,-y,-z direction
         assert!(h[0] < 0.0 && h[1] < 0.0 && h[2] < 0.0);
@@ -1589,13 +2036,16 @@ mod tests {
         let hs = place_methyl3h(parent, anchor, 1.09);
         // All 3 H should be at bond_length from parent
         for h in &hs {
-            let dist = (h[0]*h[0] + h[1]*h[1] + h[2]*h[2]).sqrt();
+            let dist = (h[0] * h[0] + h[1] * h[1] + h[2] * h[2]).sqrt();
             assert!((dist - 1.09).abs() < 1e-6, "dist={}", dist);
         }
         // H atoms should be ~120 degrees apart
         for i in 0..3 {
-            for j in (i+1)..3 {
-                let d = ((hs[i][0]-hs[j][0]).powi(2) + (hs[i][1]-hs[j][1]).powi(2) + (hs[i][2]-hs[j][2]).powi(2)).sqrt();
+            for j in (i + 1)..3 {
+                let d = ((hs[i][0] - hs[j][0]).powi(2)
+                    + (hs[i][1] - hs[j][1]).powi(2)
+                    + (hs[i][2] - hs[j][2]).powi(2))
+                .sqrt();
                 // Expected H-H distance in methyl: ~1.78 Å
                 assert!(d > 1.5 && d < 2.0, "H{}-H{} dist={:.3}", i, j, d);
             }

@@ -25,7 +25,14 @@ impl DBWriter {
         let prefix = prefix.as_ref().to_path_buf();
         let data = BufWriter::new(File::create(&prefix)?);
         let index_file = BufWriter::new(File::create(with_suffix(&prefix, ".index"))?);
-        Ok(Self { prefix, dbtype, data, index_file, offset: 0, count: 0 })
+        Ok(Self {
+            prefix,
+            dbtype,
+            data,
+            index_file,
+            offset: 0,
+            count: 0,
+        })
     }
 
     /// Append a record.
@@ -42,7 +49,12 @@ impl DBWriter {
         self.data.write_all(payload)?;
         self.data.write_all(&[0u8])?;
         let length = payload.len() as u64 + 1;
-        IndexEntry { key, offset: self.offset, length }.write_line(&mut self.index_file)?;
+        IndexEntry {
+            key,
+            offset: self.offset,
+            length,
+        }
+        .write_line(&mut self.index_file)?;
         self.offset += length;
         self.count += 1;
         Ok(())
@@ -54,7 +66,12 @@ impl DBWriter {
     pub fn write_raw(&mut self, key: u32, raw: &[u8]) -> Result<()> {
         let length = raw.len() as u64;
         self.data.write_all(raw)?;
-        IndexEntry { key, offset: self.offset, length }.write_line(&mut self.index_file)?;
+        IndexEntry {
+            key,
+            offset: self.offset,
+            length,
+        }
+        .write_line(&mut self.index_file)?;
         self.offset += length;
         self.count += 1;
         Ok(())
@@ -74,7 +91,8 @@ impl DBWriter {
         self.index_file.flush()?;
         drop(self.data);
         drop(self.index_file);
-        self.dbtype.write_to_file(with_suffix(&self.prefix, ".dbtype"))?;
+        self.dbtype
+            .write_to_file(with_suffix(&self.prefix, ".dbtype"))?;
         Ok(())
     }
 
@@ -130,9 +148,10 @@ mod tests {
         w.write_raw(0, b"some arbitrary bytes\0").unwrap();
         w.finish().unwrap();
 
-        let idx = index_mod::read_all(
-            prefix.with_file_name(format!("{}.index", prefix.file_name().unwrap().to_string_lossy())),
-        )
+        let idx = index_mod::read_all(prefix.with_file_name(format!(
+            "{}.index",
+            prefix.file_name().unwrap().to_string_lossy()
+        )))
         .unwrap();
         assert_eq!(idx.len(), 1);
         assert_eq!(idx[0].length, 21);

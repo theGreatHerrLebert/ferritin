@@ -4,8 +4,8 @@
 //! feature extraction — columnar, vectorized, and zero-copy to Python.
 
 use arrow::array::{
-    ArrayBuilder, BooleanBuilder, Float64Builder, Int64Builder, RecordBatch,
-    StringBuilder, UInt32Builder,
+    ArrayBuilder, BooleanBuilder, Float64Builder, Int64Builder, RecordBatch, StringBuilder,
+    UInt32Builder,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use std::sync::Arc;
@@ -204,12 +204,42 @@ mod tests {
     fn test_build_batch() {
         let mut builder = AtomBatchBuilder::new(2);
         builder.append(
-            "1crn", 0, "A", "THR", 1, None, None, "CA", 1, Some("C"),
-            17.047, 14.099, 3.625, 13.79, 1.0, false, true,
+            "1crn",
+            0,
+            "A",
+            "THR",
+            1,
+            None,
+            None,
+            "CA",
+            1,
+            Some("C"),
+            17.047,
+            14.099,
+            3.625,
+            13.79,
+            1.0,
+            false,
+            true,
         );
         builder.append(
-            "1crn", 0, "A", "THR", 1, None, None, "CB", 2, Some("C"),
-            16.967, 12.784, 4.338, 13.25, 1.0, false, false,
+            "1crn",
+            0,
+            "A",
+            "THR",
+            1,
+            None,
+            None,
+            "CB",
+            2,
+            Some("C"),
+            16.967,
+            12.784,
+            4.338,
+            13.25,
+            1.0,
+            false,
+            false,
         );
 
         let batch = builder.finish().unwrap();

@@ -26,9 +26,7 @@ const SHARED_MEM_LIMIT_BYTES: usize = 46 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PssmSwDispatchError {
-    #[error(
-        "PSSM size {pssm_bytes} bytes exceeds shared-memory budget {limit_bytes}"
-    )]
+    #[error("PSSM size {pssm_bytes} bytes exceeds shared-memory budget {limit_bytes}")]
     PssmTooLargeForSharedMem {
         pssm_bytes: usize,
         limit_bytes: usize,
@@ -37,10 +35,7 @@ pub enum PssmSwDispatchError {
         "BLOCK_SIZE {block} is not a multiple of PaddedDb bucket_size \
          {bucket}; change block_size to avoid warp-straddle inefficiency"
     )]
-    BlockSizeBucketMismatch {
-        block: usize,
-        bucket: usize,
-    },
+    BlockSizeBucketMismatch { block: usize, bucket: usize },
     #[error("driver: {0}")]
     Driver(#[from] cudarc::driver::DriverError),
     #[error("infrastructure: {0}")]
@@ -62,9 +57,7 @@ impl PssmSwKernel {
                 match Self::compile(ctx) {
                     Ok(k) => Some(k),
                     Err(e) => {
-                        eprintln!(
-                            "[ferritin-search-gpu] pssm_sw kernel compile failed: {e:#}"
-                        );
+                        eprintln!("[ferritin-search-gpu] pssm_sw kernel compile failed: {e:#}");
                         None
                     }
                 }
@@ -131,10 +124,9 @@ pub fn pssm_sw_padded_batch_gpu(
         return Ok(Vec::new());
     }
 
-    let kernel = PssmSwKernel::try_global()
-        .ok_or_else(|| anyhow!("GPU PSSM SW kernel unavailable"))?;
-    let ctx = GpuContext::try_global()
-        .ok_or_else(|| anyhow!("GPU context unavailable"))?;
+    let kernel =
+        PssmSwKernel::try_global().ok_or_else(|| anyhow!("GPU PSSM SW kernel unavailable"))?;
+    let ctx = GpuContext::try_global().ok_or_else(|| anyhow!("GPU context unavailable"))?;
     let stream = ctx.cuda_context().new_stream()?;
 
     // Per-slot real lengths flattened in (bucket * bucket_size + slot) order.
@@ -149,11 +141,7 @@ pub fn pssm_sw_padded_batch_gpu(
         slot_real_lens[b * bucket_size + slot] = padded_db.original_lens[orig] as i32;
     }
 
-    let bucket_starts_i32: Vec<i32> = padded_db
-        .bucket_starts
-        .iter()
-        .map(|&s| s as i32)
-        .collect();
+    let bucket_starts_i32: Vec<i32> = padded_db.bucket_starts.iter().map(|&s| s as i32).collect();
     let bucket_padded_lens_i32: Vec<i32> = padded_db
         .bucket_padded_lens
         .iter()
@@ -164,7 +152,11 @@ pub fn pssm_sw_padded_batch_gpu(
     // Guard for empty PSSM even though the shared-mem check above
     // rejects only oversized PSSMs — an empty one would slip through
     // into cudarc's zero-byte-alloc rejection.
-    let pssm_for_gpu: &[i32] = if pssm.data.is_empty() { &[0i32] } else { &pssm.data };
+    let pssm_for_gpu: &[i32] = if pssm.data.is_empty() {
+        &[0i32]
+    } else {
+        &pssm.data
+    };
     let d_pssm = stream.clone_htod(pssm_for_gpu)?;
     // `clone_htod` rejects zero-byte allocations.
     let padded_data_slice = if padded_db.data.is_empty() {
@@ -277,19 +269,19 @@ mod tests {
         let t_short: Vec<u8> = vec![1, 2];
         let t_long: Vec<u8> = vec![0, 1, 2, 3, 0, 1, 2, 3, 0, 1];
         let targets_owned: Vec<Vec<u8>> = vec![
-            t_full, t_query_insert, t_target_insert, t_unrelated, t_short, t_long,
+            t_full,
+            t_query_insert,
+            t_target_insert,
+            t_unrelated,
+            t_short,
+            t_long,
         ];
         let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
 
         let padded = PaddedDb::build(&targets, 32, 0);
 
-        let pssm_padded_results = pssm_sw_padded_batch_gpu(
-            &pssm,
-            &padded,
-            gap_open,
-            gap_extend,
-        )
-        .expect("PSSM padded SW dispatch failed");
+        let pssm_padded_results = pssm_sw_padded_batch_gpu(&pssm, &padded, gap_open, gap_extend)
+            .expect("PSSM padded SW dispatch failed");
 
         let sw_gpu_results = smith_waterman_score_batch_gpu(
             &query,
@@ -355,29 +347,19 @@ mod tests {
         let targets_owned: Vec<Vec<u8>> = (0..200)
             .map(|_| {
                 let len = 10 + (next() as usize % 50);
-                (0..len).map(|_| (next() % alphabet_size as u32) as u8).collect()
+                (0..len)
+                    .map(|_| (next() % alphabet_size as u32) as u8)
+                    .collect()
             })
             .collect();
         let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
         let padded = PaddedDb::build(&targets, 32, 0);
 
-        let gpu_results = pssm_sw_padded_batch_gpu(
-            &pssm,
-            &padded,
-            gap_open,
-            gap_extend,
-        )
-        .expect("PSSM padded SW dispatch failed");
+        let gpu_results = pssm_sw_padded_batch_gpu(&pssm, &padded, gap_open, gap_extend)
+            .expect("PSSM padded SW dispatch failed");
 
         for (i, target) in targets.iter().enumerate() {
-            let cpu = smith_waterman(
-                &query,
-                target,
-                &scores,
-                alphabet_size,
-                gap_open,
-                gap_extend,
-            );
+            let cpu = smith_waterman(&query, target, &scores, alphabet_size, gap_open, gap_extend);
             let cpu_score = cpu.as_ref().map(|a| a.score).unwrap_or(0);
             assert_eq!(
                 gpu_results[i].score, cpu_score,
@@ -398,8 +380,7 @@ mod tests {
         let query: Vec<u8> = vec![0, 1];
         let pssm = Pssm::build(&query, &scores, alphabet_size);
         let padded = PaddedDb::build(&[], 32, 0);
-        let result =
-            pssm_sw_padded_batch_gpu(&pssm, &padded, -5, -1).expect("ok");
+        let result = pssm_sw_padded_batch_gpu(&pssm, &padded, -5, -1).expect("ok");
         assert!(result.is_empty());
     }
 

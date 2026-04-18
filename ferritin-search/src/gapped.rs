@@ -490,13 +490,9 @@ mod tests {
 
         let t = Sequence::from_ascii(alpha.clone(), b"MNALVVKFGGTSVANAERFLRVADILESNQ");
         // Insert "GG" after position 15 ("MNALVVKFGGTSVAN" + "GG" + "AERFLRVADILESNQ").
-        let q = Sequence::from_ascii(
-            alpha.clone(),
-            b"MNALVVKFGGTSVANGGAERFLRVADILESNQ",
-        );
+        let q = Sequence::from_ascii(alpha.clone(), b"MNALVVKFGGTSVANGGAERFLRVADILESNQ");
 
-        let a = smith_waterman(&q.data, &t.data, &scores, alpha.size(), -11, -1)
-            .unwrap();
+        let a = smith_waterman(&q.data, &t.data, &scores, alpha.size(), -11, -1).unwrap();
         assert!(a.score > 0);
         // 15 matches + gap + 15 matches → alignment_length ~ 32, target_len = 30.
         assert!(

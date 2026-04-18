@@ -78,7 +78,8 @@ fn is_aromatic_ring_carbon(atom_name: &str, residue_name: &str) -> bool {
     if !AROMATIC_RESIDUES.contains(&residue_name) {
         return false;
     }
-    matches!(atom_name,
+    matches!(
+        atom_name,
         "CD1" | "CD2" | "CE1" | "CE2" | "CE3" | "CZ" | "CZ2" | "CZ3" | "CH2"
     )
 }
@@ -109,8 +110,8 @@ pub fn protor_radius(atom_name: &str, residue_name: &str, element: &str) -> f64 
         "N" => 1.64,
         "O" => {
             match name {
-                "OG" | "OG1" | "OH" => 1.46,  // Hydroxyl
-                _ => 1.42,                       // Carbonyl, carboxyl
+                "OG" | "OG1" | "OH" => 1.46, // Hydroxyl
+                _ => 1.42,                   // Carbonyl, carboxyl
             }
         }
         "S" => 1.77,
@@ -273,12 +274,7 @@ impl CellList {
 /// RTX 5090 (~2k CUDA cores saturated).
 const SASA_GPU_THRESHOLD: usize = 500;
 
-pub fn shrake_rupley(
-    coords: &[[f64; 3]],
-    radii: &[f64],
-    probe: f64,
-    n_points: usize,
-) -> Vec<f64> {
+pub fn shrake_rupley(coords: &[[f64; 3]], radii: &[f64], probe: f64, n_points: usize) -> Vec<f64> {
     let n_atoms = coords.len();
     assert_eq!(radii.len(), n_atoms);
 
@@ -394,18 +390,11 @@ pub fn sasa_from_pdb(
                 let (x, y, z) = atom.pos();
                 coords.push([x, y, z]);
 
-                let elem_str = atom
-                    .element()
-                    .map(|e| e.symbol())
-                    .unwrap_or("");
+                let elem_str = atom.element().map(|e| e.symbol()).unwrap_or("");
 
                 let r = match radii_set {
-                    RadiiSet::Bondi => {
-                        vdw_radius(elem_str).unwrap_or(DEFAULT_RADIUS)
-                    }
-                    RadiiSet::ProtOr => {
-                        protor_radius(atom.name(), res_name, elem_str)
-                    }
+                    RadiiSet::Bondi => vdw_radius(elem_str).unwrap_or(DEFAULT_RADIUS),
+                    RadiiSet::ProtOr => protor_radius(atom.name(), res_name, elem_str),
                 };
                 radii.push(r);
             }
@@ -421,7 +410,10 @@ pub fn sasa_from_pdb(
             match crate::forcefield::gpu::gpu_shrake_rupley(&coords, &radii, probe, n_points) {
                 Ok(sasa) => return sasa,
                 Err(e) => {
-                    eprintln!("[ferritin-gpu] GPU SASA failed in sasa_from_pdb, falling back: {}", e);
+                    eprintln!(
+                        "[ferritin-gpu] GPU SASA failed in sasa_from_pdb, falling back: {}",
+                        e
+                    );
                 }
             }
         }
@@ -593,7 +585,12 @@ mod tests {
         let sasa = shrake_rupley(&coords, &radii, 1.4, 960);
         let expected = 4.0 * PI * (1.7 + 1.4_f64).powi(2);
         let rel_err = (sasa[0] - expected).abs() / expected;
-        assert!(rel_err < 0.01, "Single atom SASA {:.2} vs expected {:.2}", sasa[0], expected);
+        assert!(
+            rel_err < 0.01,
+            "Single atom SASA {:.2} vs expected {:.2}",
+            sasa[0],
+            expected
+        );
     }
 
     #[test]
@@ -614,15 +611,24 @@ mod tests {
         let mut coords = vec![[0.0, 0.0, 0.0]]; // center atom
         let mut radii = vec![1.0];
         // Surround with 6 atoms at ±1.5 on each axis
-        for &d in &[[1.5, 0.0, 0.0], [-1.5, 0.0, 0.0],
-                     [0.0, 1.5, 0.0], [0.0, -1.5, 0.0],
-                     [0.0, 0.0, 1.5], [0.0, 0.0, -1.5]] {
+        for &d in &[
+            [1.5, 0.0, 0.0],
+            [-1.5, 0.0, 0.0],
+            [0.0, 1.5, 0.0],
+            [0.0, -1.5, 0.0],
+            [0.0, 0.0, 1.5],
+            [0.0, 0.0, -1.5],
+        ] {
             coords.push(d);
             radii.push(2.0);
         }
         let sasa = shrake_rupley(&coords, &radii, 1.4, 960);
         // Center atom should be nearly fully buried
-        assert!(sasa[0] < 5.0, "Buried atom SASA should be near 0, got {:.2}", sasa[0]);
+        assert!(
+            sasa[0] < 5.0,
+            "Buried atom SASA should be near 0, got {:.2}",
+            sasa[0]
+        );
     }
 
     #[test]

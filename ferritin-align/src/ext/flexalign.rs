@@ -16,7 +16,9 @@
 use anyhow::Result;
 
 use crate::core::align::tmalign::tmalign;
-use crate::core::types::{AlignOptions, AlignResult, Coord3D, MolType, TMParams, Transform, dist_squared};
+use crate::core::types::{
+    dist_squared, AlignOptions, AlignResult, Coord3D, MolType, TMParams, Transform,
+};
 
 use crate::ext::se::{se_main, SeOptions, SeResult};
 
@@ -259,7 +261,16 @@ fn tmalign_fragments(
     let secx_c = u8_to_char(&x_frag.sec);
     let secy_c = u8_to_char(&y_frag.sec);
     let align_opts = make_align_opts(opts);
-    tmalign(&x_frag.coords, &y_frag.coords, &seqx_c, &seqy_c, &secx_c, &secy_c, &align_opts).ok()
+    tmalign(
+        &x_frag.coords,
+        &y_frag.coords,
+        &seqx_c,
+        &seqy_c,
+        &secx_c,
+        &secy_c,
+        &align_opts,
+    )
+    .ok()
 }
 
 /// Apply a transform to all coordinates of xa, returning rotated coordinates.
@@ -545,9 +556,7 @@ pub fn flexalign_main(
     // -- SE refinement after initial alignment ------------------------------
 
     let xt = apply_transform(xa, &current_transform);
-    let mut se_result = se_main(
-        &xt, ya, seqx, seqy, xlen, ylen, &se_opts, None, 1,
-    );
+    let mut se_result = se_main(&xt, ya, seqx, seqy, xlen, ylen, &se_opts, None, 1);
     let mut invmap = se_result.invmap.clone();
     let mut n_ali8 = se_result.n_ali8;
 
@@ -558,13 +567,17 @@ pub fn flexalign_main(
         let x_aligned = extract_x_fragment(
             &se_result.seq_x_aligned,
             &se_result.seq_y_aligned,
-            xa, seqx, secx,
+            xa,
+            seqx,
+            secx,
             |x, y| x != b'-' && y != b'-', // aligned pairs -> X side
         );
         let y_unaligned = extract_y_fragment(
             &se_result.seq_x_aligned,
             &se_result.seq_y_aligned,
-            ya, seqy, secy,
+            ya,
+            seqy,
+            secy,
             |x, _y| x == b'-', // gaps in X -> unaligned Y residues
         );
 
@@ -573,21 +586,23 @@ pub fn flexalign_main(
             let xt_h = apply_transform(xa, &frag_transform);
             tu_vec[0] = frag_transform;
 
-            let se_h = se_main(
-                &xt_h, ya, seqx, seqy, xlen, ylen, &se_opts, None, 1,
-            );
+            let se_h = se_main(&xt_h, ya, seqx, seqy, xlen, ylen, &se_opts, None, 1);
 
             // Try unaligned-X vs aligned-Y
             let x_unaligned = extract_x_fragment(
                 &se_result.seq_x_aligned,
                 &se_result.seq_y_aligned,
-                xa, seqx, secx,
+                xa,
+                seqx,
+                secx,
                 |_x, y| y == b'-', // gaps in Y -> unaligned X residues
             );
             let y_aligned = extract_y_fragment(
                 &se_result.seq_x_aligned,
                 &se_result.seq_y_aligned,
-                ya, seqy, secy,
+                ya,
+                seqy,
+                secy,
                 |x, y| x != b'-' && y != b'-', // aligned pairs -> Y side
             );
 
@@ -597,9 +612,7 @@ pub fn flexalign_main(
             if let Some(frag_result2) = tmalign_fragments(&x_unaligned, &y_aligned, opts) {
                 transform2 = frag_result2.transform;
                 let xt2 = apply_transform(xa, &transform2);
-                se_result2 = se_main(
-                    &xt2, ya, seqx, seqy, xlen, ylen, &se_opts, None, 1,
-                );
+                se_result2 = se_main(&xt2, ya, seqx, seqy, xlen, ylen, &se_opts, None, 1);
             } else {
                 se_result2 = se_result.clone();
                 transform2 = current_transform.clone();
@@ -645,14 +658,18 @@ pub fn flexalign_main(
         let x_unaligned = extract_x_fragment(
             &se_result.seq_x_aligned,
             &se_result.seq_y_aligned,
-            xa, seqx, secx,
+            xa,
+            seqx,
+            secx,
             |_x, y| y == b'-',
         );
         // Extract unaligned residues from Y (gaps in X alignment)
         let y_unaligned = extract_y_fragment(
             &se_result.seq_x_aligned,
             &se_result.seq_y_aligned,
-            ya, seqy, secy,
+            ya,
+            seqy,
+            secy,
             |x, _y| x == b'-',
         );
 
@@ -684,11 +701,7 @@ pub fn flexalign_main(
 
         // Count newly aligned residues for this hinge
         let hinge_char = (hinge as u8) + b'1';
-        let new_ali: usize = se_h
-            .seq_m
-            .bytes()
-            .filter(|&b| b == hinge_char)
-            .count();
+        let new_ali: usize = se_h.seq_m.bytes().filter(|&b| b == hinge_char).count();
 
         // Accept if enough new aligned residues and improvement in n_ali8
         if se_h.n_ali8 >= n_ali8 + 5 && new_ali >= 5 {
@@ -896,12 +909,10 @@ pub fn flexalign_main(
 pub fn format_rotation_matrices(transforms: &[Transform]) -> String {
     let mut s = String::new();
     for (hinge, tr) in transforms.iter().enumerate() {
-        s.push_str(
-            &format!(
-                "------ Hinge {} rotation matrix (Structure_1 -> Structure_2) ------\n",
-                hinge
-            ),
-        );
+        s.push_str(&format!(
+            "------ Hinge {} rotation matrix (Structure_1 -> Structure_2) ------\n",
+            hinge
+        ));
         s.push_str(&format!(
             "m {:>18} {:>14} {:>14} {:>14}\n",
             "t[m]", "u[m][0]", "u[m][1]", "u[m][2]"
@@ -1069,9 +1080,7 @@ mod tests {
         let secx = b"CCC";
 
         // Both aligned (neither is gap)
-        let frag = extract_x_fragment("ACD", "ACD", &xa, seqx, secx, |x, y| {
-            x != b'-' && y != b'-'
-        });
+        let frag = extract_x_fragment("ACD", "ACD", &xa, seqx, secx, |x, y| x != b'-' && y != b'-');
         assert_eq!(frag.coords.len(), 3);
 
         // Only unaligned X (gaps in Y)
