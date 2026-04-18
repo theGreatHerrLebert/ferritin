@@ -23,9 +23,13 @@ Structural bioinformatics toolkit in Rust with Python bindings. Library, not a p
 |---------|---------|
 | `packages/ferritin/` | Pythonic wrapper; one module per subsystem (align, dssp, sasa, hbond, geometry, forcefield, prepare, search, msa, supervision, corpus_release, …). `RustWrapperObject` ABC over `ferritin-connector` types. |
 
-### Docs in repo root
+### Docs
 
-- `README.md` — user-facing
+Top-level:
+- `README.md` — user-facing entry; also referenced via `readme.workspace = true`
+- `CLAUDE.md` — this file
+
+Under `devdocs/`:
 - `ROADMAP.md`, `RELIABILITY_ROADMAP.md`, `SEARCH_ROADMAP.md`, `GEOMETRIC_DL_INFRA_ROADMAP.md` — phased plans
 - `ORACLE.md` — oracle testing strategy (BALL, BALLJL, Biopython, Gemmi, OpenMM, MMseqs2, USAlign)
 - `STRUCTURE_SUPERVISION_SCHEMA.md`, `RUST_BATCH_SUPERVISION_CONTRACT.md` — Layer 5 schemas

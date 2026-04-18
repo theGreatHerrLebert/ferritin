@@ -176,7 +176,7 @@ Ferritin is not just unit-tested on toy inputs.
 - AMBER96 components are checked against **BALL** on a crambin oracle set.
 - Large-scale runs already surfaced and fixed multiple real correctness bugs that smaller tests missed.
 
-For more detail, see the validation and roadmap material under [`validation/`](validation/), [`RELIABILITY_ROADMAP.md`](RELIABILITY_ROADMAP.md), and related docs in the repo root.
+For more detail, see the validation and roadmap material under [`validation/`](validation/), [`devdocs/RELIABILITY_ROADMAP.md`](devdocs/RELIABILITY_ROADMAP.md), and related docs in [`devdocs/`](devdocs/).
 
 ## Repo Shape
 

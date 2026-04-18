@@ -41,7 +41,7 @@ def batch_extract_structure_supervision(
 ):
     """Call the Rust batch supervision extractor.
 
-    The batch contract is defined in `RUST_BATCH_SUPERVISION_CONTRACT.md` and
+    The batch contract is defined in `devdocs/RUST_BATCH_SUPERVISION_CONTRACT.md` and
     returns padded batch-major NumPy arrays.
     """
     if _supervision is None:

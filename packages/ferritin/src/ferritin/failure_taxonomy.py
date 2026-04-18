@@ -73,7 +73,7 @@ def classify_exception(exc: BaseException) -> str:
 
     Pattern matching uses the lowercased exception message plus
     selected exception-type hints. The full class list + rationale
-    lives in GEOMETRIC_DL_INFRA_ROADMAP.md Section 7.
+    lives in devdocs/GEOMETRIC_DL_INFRA_ROADMAP.md Section 7.
     """
     message = str(exc).lower()
 
