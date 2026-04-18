@@ -16,6 +16,8 @@ test**, not just a unit test.
 | `test_io_oracle.py` | Biopython, Gemmi | Atom/residue/chain counts, coordinates, B-factors, hetero flags on 1ubq / 1crn / 4hhb / mmCIF variants |
 | `test_tmscore_oracle.py` | USAlign (C++) | TM-score agreement with the canonical C++ reference across pdbtbx's example set |
 | `test_ball_energy.py` | BALL (Julia) | CHARMM19 / AMBER96 energy components on crambin, per-component tolerances pinned |
+| `test_dssp_oracle.py` | pydssp (NumPy/PyTorch Kabsch-Sander) | Per-residue H/E/loop assignments (3-class) on 1crn / 1ubq / 1enh / 1ake / 4hhb, ≥95% agreement |
+| `test_reduce_hydrogen_oracle.py` | reduce (Richardson Lab, Duke) | Per-atom H placement on the rigid subset (backbone N-H, CA, methylene CH₂, aromatic CH) for 1crn / 1ubq, parametrized over polar-only (CHARMM19) and full-H (AMBER96), ≤0.1 Å after optimal matching |
 | *(CI-only)* MMseqs2 round-trip oracle | MMseqs2 (binary, pinned release) | Byte-exact DB I/O on the vendored 50-seq fixture + end-to-end recall@10 on 20k upstream targets |
 
 Oracles tested in the main test tree but not under `tests/oracle/` (historical,
@@ -92,6 +94,8 @@ upstream binaries.
 | [BALL](https://github.com/hildebrandtlab/BiochemicalAlgorithms.jl) (Julia) | `julia --project=<path>` and `Pkg.add("BiochemicalAlgorithms")` | `ball_energy_raw.jl` / `ball_energy_oracle.jl` shell out; see the scripts in this directory |
 | [BALL C++](https://github.com/BALL-Project/ball) (`libBALL.so`) | Build from source (`cmake + make`); no pip/conda distribution. Used for the CHARMM19 oracle because the SIP Python bindings don't build cleanly on current toolchains. | Standalone C++ binaries under `validation/ball_cpp/` link `libBALL.so` and emit JSON; tests read those |
 | [GROMACS](https://www.gromacs.org) | `conda install -c bioconda gromacs`, `apt install gromacs`, or [build from source](https://manual.gromacs.org/current/install-guide/) | `gmx` / `gmx_mpi` binary on `$PATH`; referenced from `validation/tm_fold_preservation_gromacs.py` as a fold-preservation comparator against ferritin's CHARMM19+EEF1 minimizer |
+| [pydssp](https://github.com/ShintaroMinami/PyDSSP) | `pip install pydssp` | Imported via `pytest.importorskip("pydssp")`; independent NumPy/PyTorch reimplementation of Kabsch-Sander used by `test_dssp_oracle.py` |
+| [reduce](https://github.com/rlabduke/reduce) | `git clone && cmake -S reduce -B reduce/build && make -C reduce/build` | Set `REDUCE_BIN=/path/to/reduce/build/reduce_src/reduce` (and `REDUCE_DB=/path/to/reduce/reduce_wwPDB_het_dict.txt` if the dictionary isn't at the default `/usr/local/` location). The test skips cleanly if `REDUCE_BIN` isn't set. |
 
 Tests that `pytest.importorskip` a missing oracle will **skip** rather than fail,
 so you can run `pytest -m oracle` locally and just see results for the tools
@@ -106,8 +110,7 @@ because no test actually uses them yet. Contributions welcome.
 
 | Tool | Would cover | Why it's the right oracle |
 |---|---|---|
-| [reduce](https://github.com/rlabduke/reduce) (Richardson Lab, Duke) | `add_hydrogens` / protonation placement | Canonical asymmetric hydrogen placer; mature, widely trusted, independent of any MD engine. Current hydrogen placement is only cross-checked against BALL + GROMACS (both also MD-linked), so reduce would give a third voice that doesn't share force-field assumptions. |
-| [DSSP](https://swift.cmbi.umcn.nl/gv/dssp/) (`mkdssp` binary) | Secondary structure assignment | The reference implementation Kabsch & Sander wrote the paper about. Ferritin ships its own DSSP port; agreement on H/E/G/I assignments per residue is a trivially checkable oracle. |
+| [DSSP](https://swift.cmbi.umcn.nl/gv/dssp/) (`mkdssp` binary, C++) | Full 8-class secondary structure assignment | Kabsch & Sander's own reference implementation. pydssp already pins the 3-class call (see installed table); `mkdssp` would additionally pin the helix-flavor (H vs G vs I) and isolated-bridge (B vs E) distinctions that pydssp collapses. Needs a source build — no pip/conda/apt package that ships the current reference. |
 | [MolProbity](http://molprobity.biochem.duke.edu) | Clash detection, rotamer outliers, Ramachandran quality | Community-standard structure-validation suite. Bundles reduce + probe. Useful once ferritin starts producing prepped structures at scale — sanity-check that ferritin-prepped PDBs pass MolProbity at the same rate as OpenMM- or BALL-prepped ones. |
 | [PDB2PQR](https://pdb2pqr.readthedocs.io) | Protonation states, pKa assignment, charge/radius parameters | Standard upstream for electrostatics prep. A natural oracle for anything ferritin does with charges at non-default pH or on titratable residues. |
 
@@ -115,24 +118,22 @@ Each of these is a real gap — the component exists in ferritin, the oracle
 exists in the wild, nobody has wired them up. When one gets wired in, move
 the row up into the main install table and delete it from here.
 
-**Intent — reduce is the next one we plan to wire.** Open design questions
-to resolve before writing the test, so the first PR isn't a false-green:
+**Known convention gaps flagged by the reduce oracle but not asserted**,
+listed here as starter projects for anyone who wants to tighten the H
+placement comparison further:
 
-- Ferritin's `add_hydrogens` does polar-only H for CHARMM19 (united-atom
-  carbons absorb C–H) but a fuller set for AMBER96. reduce places the full
-  set by default. A naive "every H ferritin placed exists in reduce's
-  output" works both ways; "every H reduce placed exists in ferritin's
-  output" only works for AMBER96. Test needs to parametrize over FF.
-- Reduce resolves asymmetric ambiguities (e.g. Asn/Gln/His flips) that
-  ferritin currently doesn't. For an apples-to-apples comparison the test
-  should disable reduce's flip search (`-NOFLIP`) or compare only against
-  the set of H atoms whose placement isn't flip-dependent.
-- Tolerance: coordinate-level RMSD per H across a small curated set
-  (crambin + ubiquitin, no waters) vs. a looser "positional bucket" match.
-  RMSD is tighter and more diagnostic; start there.
-
-Once those three are answered, wiring is a ~100-line
-`test_reduce_hydrogen_oracle.py` + one table-row promotion.
+- **Methyl rotamers** (ALA/VAL/LEU/ILE/THR/MET CH₃): both tools place a
+  valid CH₃ but at different 3-fold orientations; average residual ~0.5 Å
+  after optimal matching. Closing this would need an MD-level rotamer
+  search in ferritin that matches reduce's H-bond scoring.
+- **sp2 amide NH₂** (ASN HD21/HD22, GLN HE21/HE22, ARG NE/NH1/NH2):
+  in-plane placement convention differs by ~120° even after `-NOFLIP`,
+  producing ~1.2 Å residuals. A pair-convention-agnostic test would need
+  a separate comparison mode.
+- **Rotatable polar H** (SER/THR/TYR OH, CYS SH, LYS NH3+, N-terminal
+  NH3+): reduce optimizes rotamer via H-bond scoring; ferritin places at
+  template default. 1.5–2 Å residuals are structural, not bugs — closing
+  requires ferritin gaining rotatable-H optimization.
 
 ## Adding a new oracle
 

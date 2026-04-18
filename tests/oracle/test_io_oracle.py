@@ -10,7 +10,15 @@ Edge cases: tested separately with relaxed expectations.
 import numpy as np
 import pytest
 
-from .conftest import (
+# The conftest's extract_biopython / extract_gemmi helpers import their
+# respective libraries lazily inside the function body. Gate here so the
+# whole module skips cleanly on machines without them, rather than raising
+# ImportError from a fixture — the oracle CI runs with `--tb=short` and a
+# hard import error fails the gated job.
+pytest.importorskip("Bio.PDB")
+pytest.importorskip("gemmi")
+
+from .conftest import (  # noqa: E402  (after importorskip by design)
     available_files,
     extract_biopython,
     extract_ferritin,
