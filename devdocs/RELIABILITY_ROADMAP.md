@@ -17,11 +17,17 @@ This document focuses on one goal:
 
 ## Current Baseline
 
-Observed locally on 2026-04-08:
+Observed locally on 2026-04-19:
 
 - `cargo test --workspace` passes
-- `pytest tests/ -k "not oracle"` passes
-- `pytest tests/oracle` passes
+- `pytest tests/ -m "not slow"` passes (unit + library-parity oracle
+  tests; the library-parity slice of `tests/oracle/` is now exercised
+  inline rather than excluded via `-k "not oracle"`)
+- `pytest tests/oracle/` passes (library-parity tests + self-skip
+  handling when heavier oracles like reduce / USAlign / BALL Julia /
+  OpenMM aren't installed)
+- `pytest -m slow` covers the 19 >10s tests (minimizer sweeps, corpus
+  pipelines); skip in the inner loop with `pytest -m "not slow"`.
 
 Current strengths:
 
@@ -205,28 +211,44 @@ Definition of done:
 - `.github/workflows/test.yml` runs a matrix
 - failures are visible per environment
 
-### 2. Add Scheduled Oracle Workflow
+### 2. Oracle enforcement (shipped 2026-04-19, reshaped from original plan)
 
-Create a new workflow that runs:
+Original plan (early 2026-04): a separate `oracle.yml` workflow on a
+Mon/Wed/Fri cron to run `pytest tests/oracle/` + validation scripts.
 
-- `pytest tests/oracle`
-- selected validation scripts
-- optional larger sample corpus checks
+What shipped: a workflow matching that plan landed in April and ran on
+cron with `|| true` (advisory, not gating). Revisiting it on 2026-04-19
+surfaced two problems:
 
-Schedule:
+1. Cron cadence + advisory mode meant regressions could sit on main
+   for up to 2 days, silently. Removing `|| true` alone wasn't enough —
+   the cadence was also wrong.
+2. More importantly, running "oracle tests" as binary-pass-fail CI
+   gates is a category error. Oracle tests are *measurements*, not
+   assertions — a "failure" can be ferritin regressing, upstream
+   drifting (BALL Julia's numbers shifted between April and 2026-04-18
+   — caught by regeneration, not by reverting ferritin), a newly
+   discovered convention gap, or tolerance miscalibration. None of
+   those are things a green/red check can adjudicate.
 
-- nightly or 2-3 times per week
+What replaced it:
 
-Why:
+- **Library-parity tests** under `tests/oracle/` (ferritin-DSSP vs
+  pydssp, ferritin-I/O vs biopython/gemmi, ferritin-SASA vs freesasa,
+  ferritin-AMBER96 vs BALL-on-crambin) are really unit tests using
+  another library as the ground-truth source. They now run on every
+  PR via `.github/workflows/test.yml` (oracle.yml deleted).
+- **Heavy oracle measurements** (OpenMM 1000-PDB AMBER96 parity,
+  USAlign 4656-pair TM-align, 50K battle test, GPU kernels) live in
+  `validation/`, run off-CI per release, and produce JSON/report
+  artifacts. These are the scientific evidence — not gate-shaped.
+- **When an oracle drifts**: the regeneration workflow is now a named
+  procedure in `docs/ORACLE_SETUP.md §Regenerating reference values`,
+  modelled on the 2026-04-19 BALL Julia regen.
 
-- oracle tests currently exist but are not default gates
-- they are the most important evidence for scientific correctness
-
-Definition of done:
-
-- separate `oracle.yml`
-- publishes artifacts and summary tables
-- can be run manually from GitHub Actions
+The conceptual split (unit-test vs oracle-measurement) is captured in
+the repo's oracle-testing philosophy (`devdocs/ORACLE.md`) and in the
+reproducibility recipe (`docs/ORACLE_SETUP.md`).
 
 ### 3. Add Coverage Reporting
 
