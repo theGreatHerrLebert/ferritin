@@ -85,8 +85,9 @@ repositories, ideas from blog posts and papers, design patterns that someone wor
 and shared openly. By the time any of it reaches your codebase, the original authors are not
 visible. There is no import statement to follow, no citation to add.
 
-The scientific community runs on something less formal than licenses: a shared understanding that
-ideas have origins and that people deserve credit for their contributions. We are a somewhat
+The scientific community runs on something less formal than licenses (but of course licenses are
+still part of it): a shared understanding that ideas have origins and that people deserve credit
+for their contributions. We are a somewhat
 strange family of largely unrelated people, held together more by norms than by contracts (that
 are non-permanent for most of us anyways). Those norms are worth respecting even when nothing
 formally requires it.
