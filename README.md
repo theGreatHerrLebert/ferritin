@@ -176,6 +176,8 @@ Ferritin is not just unit-tested on toy inputs.
 - AMBER96 components are checked against **BALL** on a crambin oracle set.
 - Large-scale runs already surfaced and fixed multiple real correctness bugs that smaller tests missed.
 
+Each of those numbers is produced by an **oracle test**: ferritin's output compared against an independent, externally-implemented tool (OpenMM, BALL, MMseqs2, USAlign, Biopython, Gemmi, FreeSASA) at a documented tolerance. Every new numerical claim in the codebase lands with an oracle test next to it. The pattern and the index of current oracles live in [`tests/oracle/README.md`](tests/oracle/README.md); the full philosophy — why oracles over unit tests, how to pick tolerances, what to do when the oracle is also wrong — is in [`devdocs/ORACLE.md`](devdocs/ORACLE.md).
+
 For more detail, see the validation and roadmap material under [`validation/`](validation/), [`devdocs/RELIABILITY_ROADMAP.md`](devdocs/RELIABILITY_ROADMAP.md), and related docs in [`devdocs/`](devdocs/).
 
 ## Repo Shape

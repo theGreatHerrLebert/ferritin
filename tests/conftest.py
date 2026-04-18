@@ -197,3 +197,30 @@ ENERGY_COMPONENTS = (
     "electrostatic",
     "solvation",
 )
+
+
+# ---------------------------------------------------------------------------
+# Oracle marker
+# ---------------------------------------------------------------------------
+#
+# Every externally-anchored test ("does ferritin agree with OpenMM / BALL /
+# Biopython / MMseqs2 / …?") is tagged with @pytest.mark.oracle("<tool>"),
+# so you can run just the oracle layer with:
+#
+#     pytest -m oracle                       # all oracles
+#     pytest -m oracle -k usalign            # tool filter via test-id keyword
+#
+# and inspect the coverage with:
+#
+#     pytest --collect-only -m oracle -q
+#
+# See `tests/oracle/README.md` for the conventions and `devdocs/ORACLE.md`
+# for the full philosophy.
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "oracle(tool): test compares ferritin against an independent "
+        "external implementation (BALL, OpenMM, Biopython, Gemmi, "
+        "FreeSASA, DSSP, MMseqs2, USAlign, …). Slow and may require "
+        "installing the oracle. Filter with `pytest -m oracle`.",
+    )

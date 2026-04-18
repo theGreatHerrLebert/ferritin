@@ -30,6 +30,8 @@ import os
 import pytest
 import ferritin
 
+pytestmark = pytest.mark.oracle("ball")
+
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CRAMBIN = os.path.join(REPO, "test-pdbs", "1crn.pdb")
 

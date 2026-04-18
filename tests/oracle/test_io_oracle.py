@@ -17,6 +17,11 @@ from .conftest import (
     extract_gemmi,
 )
 
+pytestmark = [
+    pytest.mark.oracle("biopython"),
+    pytest.mark.oracle("gemmi"),
+]
+
 
 @pytest.fixture(params=available_files(), ids=lambda x: x[0])
 def pdb_file(request):

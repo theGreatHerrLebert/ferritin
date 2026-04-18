@@ -12,6 +12,8 @@ import pytest
 
 from ferritin_connector import py_align_funcs, py_io
 
+pytestmark = pytest.mark.oracle("usalign")
+
 # Path to the C++ USAlign binary used as oracle. Override via the
 # USALIGN_BIN env var; defaults to whatever is on $PATH.
 USALIGN_BIN = os.environ.get("USALIGN_BIN", "USalign")
