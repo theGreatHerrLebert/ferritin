@@ -4,8 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ferritin"
-version = "0.1.0"
+version = "0.1.1"
 description = "Rust-first structural bioinformatics toolkit for loading, aligning, analyzing, and preparing structures"
+readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 keywords = ["bioinformatics", "protein", "pdb", "structural-biology", "tmalign", "sasa", "dssp"]
@@ -20,7 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "ferritin-connector>=0.1.0",
+    "ferritin-connector>=0.1.1",
 ]
 
 [project.optional-dependencies]

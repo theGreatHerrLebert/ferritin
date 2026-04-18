@@ -4,8 +4,9 @@ build-backend = "maturin"
 
 [project]
 name = "ferritin-connector"
-version = "0.1.0"
+version = "0.1.1"
 description = "PyO3 bindings for ferritin structural bioinformatics tools"
+readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 keywords = ["bioinformatics", "protein", "pdb", "structural-biology", "rust"]
