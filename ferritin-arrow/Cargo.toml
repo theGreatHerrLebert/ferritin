@@ -12,6 +12,9 @@ keywords.workspace = true
 categories.workspace = true
 description = "Arrow RecordBatch output for ferritin — zero-copy structural data export"
 
+[lints]
+workspace = true
+
 [dependencies]
 ferritin-io = { path = "../ferritin-io" }
 ferritin-align = { path = "../ferritin-align" }

@@ -12,6 +12,9 @@ keywords.workspace = true
 categories.workspace = true
 description = "CLI binaries for TM-align and US-align"
 
+[lints]
+workspace = true
+
 [dependencies]
 ferritin-align = { path = "../ferritin-align" }
 ferritin-arrow = { path = "../ferritin-arrow" }

@@ -12,6 +12,9 @@ keywords.workspace = true
 categories.workspace = true
 description = "Structural alignment algorithms for proteins and nucleic acids (TM-align + US-align)"
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = "1"
 
