@@ -327,7 +327,12 @@ pub fn mmalign_complex(x_chains: &[ChainData], y_chains: &[ChainData]) -> Result
         &tm_mat,
     );
 
-    // Step 7: Build result — final SE alignment for each assigned pair
+    // Step 7: Build result — for each assigned chain pair, run a final
+    // tmalign() to get both the per-chain Transform and a real TM-score.
+    // se_main alone won't work here: it requires pre-superposed coordinates,
+    // and our chains are still in their source frames. We could instead apply
+    // the per-pair transform from ut_mat and then call se_main, but tmalign()
+    // does the full search and gives us the right answer in one step.
     let mut chain_assignments = Vec::new();
     let mut per_chain_results = Vec::new();
     let mut transforms = Vec::new();
@@ -337,12 +342,45 @@ pub fn mmalign_complex(x_chains: &[ChainData], y_chains: &[ChainData]) -> Result
             continue;
         }
         let ju = j as usize;
-        chain_assignments.push((i, ju));
-
         let xc = &x_chains[i];
         let yc = &y_chains[ju];
-        let result = se_main(
+        if xc.is_empty() || yc.is_empty() || xc.len() < 3 || yc.len() < 3 {
+            continue;
+        }
+        chain_assignments.push((i, ju));
+
+        let seqx_chars: Vec<char> = xc.sequence.iter().map(|&b| b as char).collect();
+        let seqy_chars: Vec<char> = yc.sequence.iter().map(|&b| b as char).collect();
+        let secx_chars: Vec<char> = xc.sec_structure.iter().map(|&b| b as char).collect();
+        let secy_chars: Vec<char> = yc.sec_structure.iter().map(|&b| b as char).collect();
+
+        let final_align = tmalign(
             &xc.coords,
+            &yc.coords,
+            &seqx_chars,
+            &seqy_chars,
+            &secx_chars,
+            &secy_chars,
+            &pair_align_opts,
+        )?;
+
+        // Use SE refinement on coords pre-rotated by tmalign's transform to
+        // populate the SeResult fields the CLI prints (n_ali8, rmsd, liden).
+        let xa_rotated: Vec<Coord3D> = xc
+            .coords
+            .iter()
+            .map(|p| {
+                let u = final_align.transform.u;
+                let t = final_align.transform.t;
+                [
+                    t[0] + u[0][0] * p[0] + u[0][1] * p[1] + u[0][2] * p[2],
+                    t[1] + u[1][0] * p[0] + u[1][1] * p[1] + u[1][2] * p[2],
+                    t[2] + u[2][0] * p[0] + u[2][1] * p[1] + u[2][2] * p[2],
+                ]
+            })
+            .collect();
+        let result = se_main(
+            &xa_rotated,
             &yc.coords,
             &xc.sequence,
             &yc.sequence,
@@ -352,7 +390,7 @@ pub fn mmalign_complex(x_chains: &[ChainData], y_chains: &[ChainData]) -> Result
             None,
             0,
         );
-        transforms.push(Transform::default());
+        transforms.push(final_align.transform);
         per_chain_results.push(result);
     }
 

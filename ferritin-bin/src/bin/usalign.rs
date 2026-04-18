@@ -9,6 +9,7 @@ use ferritin_align::core::align::cpalign::cpalign;
 use ferritin_align::core::align::tmalign::tmalign;
 use ferritin_align::core::types::{AlignOptions, AlignResult, StructureData, Transform};
 use ferritin_align::ext::flexalign::{flexalign_main, FlexOptions};
+use ferritin_align::ext::mmalign::{mmalign_complex, ChainData};
 use ferritin_align::ext::soialign::{soialign_main, SoiOptions};
 use ferritin_io::alignment::read_alignment;
 use ferritin_io::chain_list::read_chain_list;
@@ -624,6 +625,181 @@ fn run_soialign_mode(cli: &Cli) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// MM-align mode (-mm 1) — multi-chain complex alignment
+// ---------------------------------------------------------------------------
+
+fn run_mmalign_mode(cli: &Cli) -> Result<()> {
+    let pdb1 = cli.pdb1.as_ref().context("Missing first structure")?;
+    let pdb2 = cli.pdb2.as_ref().context("Missing second structure")?;
+
+    // Force per-chain split regardless of CLI's --split flag — mmalign
+    // operates on a vector of chains, so each StructureData must be one chain.
+    let mut load_opts = make_load_opts(cli);
+    load_opts.split_opt = 2;
+    let load_opts2 = LoadOptions {
+        infmt: parse_input_format(&cli.infmt2),
+        ..load_opts.clone()
+    };
+
+    let structures1 =
+        load_structure(pdb1, &load_opts).with_context(|| format!("Failed to load {pdb1}"))?;
+    let structures2 =
+        load_structure(pdb2, &load_opts2).with_context(|| format!("Failed to load {pdb2}"))?;
+
+    if structures1.is_empty() || structures2.is_empty() {
+        bail!("MM-align needs at least one chain in each structure");
+    }
+
+    let x_chains = structures_to_chains(&structures1);
+    let y_chains = structures_to_chains(&structures2);
+    let result = mmalign_complex(&x_chains, &y_chains)?;
+
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    if cli.outfmt <= 0 {
+        print_version();
+        writeln!(out)?;
+    }
+    write_mmalign_result(&mut out, cli, pdb1, pdb2, &x_chains, &y_chains, &result)?;
+    Ok(())
+}
+
+fn structures_to_chains(structures: &[StructureData]) -> Vec<ChainData> {
+    structures
+        .iter()
+        .map(|s| ChainData {
+            coords: s.coords.clone(),
+            sequence: s.sequence.iter().map(|&c| c as u8).collect(),
+            sec_structure: s.sec_structure.iter().map(|&c| c as u8).collect(),
+            chain_id: s.chain_id.clone(),
+            mol_type: s.mol_type,
+        })
+        .collect()
+}
+
+fn write_mmalign_result<W: Write>(
+    w: &mut W,
+    cli: &Cli,
+    pdb1: &str,
+    pdb2: &str,
+    x_chains: &[ChainData],
+    y_chains: &[ChainData],
+    result: &ferritin_align::ext::mmalign::MMAlignResult,
+) -> Result<()> {
+    let chain_ids = |chains: &[ChainData]| {
+        chains
+            .iter()
+            .map(|c| c.chain_id.clone())
+            .collect::<Vec<_>>()
+            .join(":")
+    };
+    let total_len = |chains: &[ChainData]| chains.iter().map(ChainData::len).sum::<usize>();
+
+    let xlen = total_len(x_chains);
+    let ylen = total_len(y_chains);
+
+    if cli.outfmt <= 0 {
+        writeln!(
+            w,
+            "Name of Structure_1: {pdb1}:{} (to be superimposed onto Structure_2)",
+            chain_ids(x_chains)
+        )?;
+        writeln!(w, "Name of Structure_2: {pdb2}:{}", chain_ids(y_chains))?;
+        writeln!(w, "Length of Structure_1: {xlen} residues")?;
+        writeln!(w, "Length of Structure_2: {ylen} residues")?;
+        writeln!(w)?;
+
+        // Aggregate aligned-pair count + RMSD across the assigned chain pairs.
+        let mut total_n_ali = 0usize;
+        let mut total_sq_dev = 0.0_f64;
+        let mut total_iden = 0.0_f64;
+        for r in &result.per_chain_results {
+            total_n_ali += r.n_ali8;
+            total_sq_dev += r.rmsd * r.rmsd * (r.n_ali8 as f64);
+            total_iden += r.liden;
+        }
+        let rmsd = if total_n_ali == 0 {
+            0.0
+        } else {
+            (total_sq_dev / total_n_ali as f64).sqrt()
+        };
+        let seq_id = if total_n_ali == 0 {
+            0.0
+        } else {
+            total_iden / total_n_ali as f64
+        };
+        writeln!(
+            w,
+            "Aligned length= {total_n_ali}, RMSD= {rmsd:>5.2}, Seq_ID=n_identical/n_aligned= {seq_id:.3}"
+        )?;
+        // Length-weighted mean of per-chain TM-scores (each already normalized
+        // by the chain's reference length). Not identical to C++ `TMave_mat`
+        // output, which re-scores the concatenated aligned pairs against d0
+        // of the whole complex; this is a cheaper proxy in the same [0,1]
+        // range. `total_score` is the chain-assignment search objective and
+        // is reported separately so both views are visible.
+        let mut weighted_tm = 0.0_f64;
+        let mut weight_sum = 0.0_f64;
+        for (&(_, j), r) in result
+            .chain_assignments
+            .iter()
+            .zip(&result.per_chain_results)
+        {
+            let w_j = y_chains[j].len() as f64;
+            weighted_tm += r.tm1 * w_j;
+            weight_sum += w_j;
+        }
+        let tm_complex = if weight_sum > 0.0 {
+            weighted_tm / weight_sum
+        } else {
+            0.0
+        };
+        writeln!(
+            w,
+            "Complex TM-score= {tm_complex:.5} (length-weighted mean over assigned chain pairs)"
+        )?;
+        writeln!(w, "Assignment objective= {:.5}", result.total_score)?;
+        writeln!(w)?;
+
+        writeln!(w, "Chain assignments (Structure_1 → Structure_2):")?;
+        for &(i, j) in &result.chain_assignments {
+            let xc = &x_chains[i];
+            let yc = &y_chains[j];
+            let pair_score = result
+                .per_chain_results
+                .get(
+                    result
+                        .chain_assignments
+                        .iter()
+                        .position(|&p| p == (i, j))
+                        .unwrap_or(0),
+                )
+                .map(|r| r.tm1)
+                .unwrap_or(0.0);
+            writeln!(
+                w,
+                "  {}({}) ↔ {}({})  TM-score= {:.5}",
+                xc.chain_id,
+                xc.len(),
+                yc.chain_id,
+                yc.len(),
+                pair_score
+            )?;
+        }
+    } else {
+        // outfmt >= 2: tabular
+        writeln!(
+            w,
+            "{pdb1}:{}\t{pdb2}:{}\t{xlen}\t{ylen}\t{:.5}",
+            chain_ids(x_chains),
+            chain_ids(y_chains),
+            result.total_score
+        )?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Flex-align mode
 // ---------------------------------------------------------------------------
 
@@ -738,7 +914,7 @@ fn main() -> Result<()> {
     match cli.mm {
         0 if is_batch => run_batch_tmalign(&cli)?,
         0 => run_single_pair(&cli)?,
-        1 => eprintln!("MM-align mode (-mm 1) -- not yet fully wired in Rust port"),
+        1 => run_mmalign_mode(&cli)?,
         2 => eprintln!("MM-dock mode (-mm 2) -- not yet fully wired in Rust port"),
         4 => eprintln!("mTM-align mode (-mm 4) -- not yet fully wired in Rust port"),
         5 | 6 => run_soialign_mode(&cli)?,
