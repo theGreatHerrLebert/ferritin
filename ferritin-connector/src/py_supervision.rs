@@ -1,7 +1,7 @@
 //! PyO3 bindings for structure supervision extraction.
 
 use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rayon::prelude::*;
@@ -455,7 +455,13 @@ fn extract_example_from_pdb(
             if atom_name.is_empty() {
                 continue;
             }
-            let a37 = atom37_index(atom_name).expect("atom14 atom must exist in atom37 table");
+            let a37 = atom37_index(atom_name).ok_or_else(|| {
+                PyRuntimeError::new_err(format!(
+                    "internal invariant violated: atom14 atom {atom_name:?} \
+                     (residue {res_name:?}) is not present in the atom37 table",
+                    res_name = residue.name,
+                ))
+            })?;
             atom14_atom_exists[i * 14 + a14] = 1.0;
             residx_atom14_to_atom37[i * 14 + a14] = a37 as i32;
             residx_atom37_to_atom14[i * 37 + a37] = a14 as i32;
@@ -606,61 +612,67 @@ fn example_to_dict(py: Python<'_>, ex: ExtractedExample) -> PyResult<Bound<'_, P
         "all_atom_positions",
         PyArray1::from_vec(py, ex.all_atom_positions)
             .reshape([ex.length, 37, 3])
-            .expect("reshape all_atom_positions"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape all_atom_positions: {e}")))?,
     )?;
     dict.set_item(
         "all_atom_mask",
         PyArray1::from_vec(py, ex.all_atom_mask)
             .reshape([ex.length, 37])
-            .expect("reshape all_atom_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape all_atom_mask: {e}")))?,
     )?;
     dict.set_item(
         "atom37_atom_exists",
         PyArray1::from_vec(py, ex.atom37_atom_exists)
             .reshape([ex.length, 37])
-            .expect("reshape atom37_atom_exists"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape atom37_atom_exists: {e}")))?,
     )?;
     dict.set_item(
         "atom14_gt_positions",
         PyArray1::from_vec(py, ex.atom14_gt_positions)
             .reshape([ex.length, 14, 3])
-            .expect("reshape atom14_gt_positions"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape atom14_gt_positions: {e}")))?,
     )?;
     dict.set_item(
         "atom14_gt_exists",
         PyArray1::from_vec(py, ex.atom14_gt_exists)
             .reshape([ex.length, 14])
-            .expect("reshape atom14_gt_exists"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape atom14_gt_exists: {e}")))?,
     )?;
     dict.set_item(
         "atom14_atom_exists",
         PyArray1::from_vec(py, ex.atom14_atom_exists)
             .reshape([ex.length, 14])
-            .expect("reshape atom14_atom_exists"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape atom14_atom_exists: {e}")))?,
     )?;
     dict.set_item(
         "residx_atom14_to_atom37",
         PyArray1::from_vec(py, ex.residx_atom14_to_atom37)
             .reshape([ex.length, 14])
-            .expect("reshape residx_atom14_to_atom37"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape residx_atom14_to_atom37: {e}"))
+            })?,
     )?;
     dict.set_item(
         "residx_atom37_to_atom14",
         PyArray1::from_vec(py, ex.residx_atom37_to_atom14)
             .reshape([ex.length, 37])
-            .expect("reshape residx_atom37_to_atom14"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape residx_atom37_to_atom14: {e}"))
+            })?,
     )?;
     dict.set_item(
         "atom14_atom_is_ambiguous",
         PyArray1::from_vec(py, ex.atom14_atom_is_ambiguous)
             .reshape([ex.length, 14])
-            .expect("reshape atom14_atom_is_ambiguous"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape atom14_atom_is_ambiguous: {e}"))
+            })?,
     )?;
     dict.set_item(
         "pseudo_beta",
         PyArray1::from_vec(py, ex.pseudo_beta)
             .reshape([ex.length, 3])
-            .expect("reshape pseudo_beta"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape pseudo_beta: {e}")))?,
     )?;
     dict.set_item("pseudo_beta_mask", ex.pseudo_beta_mask.into_pyarray(py))?;
     dict.set_item("phi", ex.phi.into_pyarray(py))?;
@@ -673,37 +685,41 @@ fn example_to_dict(py: Python<'_>, ex: ExtractedExample) -> PyResult<Bound<'_, P
         "chi_angles",
         PyArray1::from_vec(py, ex.chi_angles)
             .reshape([ex.length, 4])
-            .expect("reshape chi_angles"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape chi_angles: {e}")))?,
     )?;
     dict.set_item(
         "chi_mask",
         PyArray1::from_vec(py, ex.chi_mask)
             .reshape([ex.length, 4])
-            .expect("reshape chi_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape chi_mask: {e}")))?,
     )?;
     dict.set_item(
         "rigidgroups_gt_frames",
         PyArray1::from_vec(py, ex.rigidgroups_gt_frames)
             .reshape([ex.length, 8, 4, 4])
-            .expect("reshape rigidgroups_gt_frames"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape rigidgroups_gt_frames: {e}")))?,
     )?;
     dict.set_item(
         "rigidgroups_gt_exists",
         PyArray1::from_vec(py, ex.rigidgroups_gt_exists)
             .reshape([ex.length, 8])
-            .expect("reshape rigidgroups_gt_exists"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape rigidgroups_gt_exists: {e}")))?,
     )?;
     dict.set_item(
         "rigidgroups_group_exists",
         PyArray1::from_vec(py, ex.rigidgroups_group_exists)
             .reshape([ex.length, 8])
-            .expect("reshape rigidgroups_group_exists"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape rigidgroups_group_exists: {e}"))
+            })?,
     )?;
     dict.set_item(
         "rigidgroups_group_is_ambiguous",
         PyArray1::from_vec(py, ex.rigidgroups_group_is_ambiguous)
             .reshape([ex.length, 8])
-            .expect("reshape rigidgroups_group_is_ambiguous"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape rigidgroups_group_is_ambiguous: {e}"))
+            })?,
     )?;
     Ok(dict)
 }
@@ -790,157 +806,181 @@ fn batch_to_dict(py: Python<'_>, batch: Vec<ExtractedExample>) -> PyResult<Bound
         "aatype",
         PyArray1::from_vec(py, aatype)
             .reshape([b, n_max])
-            .expect("reshape batch aatype"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch aatype: {e}")))?,
     )?;
     dict.set_item(
         "residue_index",
         PyArray1::from_vec(py, residue_index)
             .reshape([b, n_max])
-            .expect("reshape batch residue_index"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch residue_index: {e}")))?,
     )?;
     dict.set_item(
         "seq_mask",
         PyArray1::from_vec(py, seq_mask)
             .reshape([b, n_max])
-            .expect("reshape batch seq_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch seq_mask: {e}")))?,
     )?;
     dict.set_item(
         "all_atom_positions",
         PyArray1::from_vec(py, all_atom_positions)
             .reshape([b, n_max, 37, 3])
-            .expect("reshape batch all_atom_positions"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch all_atom_positions: {e}"))
+            })?,
     )?;
     dict.set_item(
         "all_atom_mask",
         PyArray1::from_vec(py, all_atom_mask)
             .reshape([b, n_max, 37])
-            .expect("reshape batch all_atom_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch all_atom_mask: {e}")))?,
     )?;
     dict.set_item(
         "atom37_atom_exists",
         PyArray1::from_vec(py, atom37_atom_exists)
             .reshape([b, n_max, 37])
-            .expect("reshape batch atom37_atom_exists"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch atom37_atom_exists: {e}"))
+            })?,
     )?;
     dict.set_item(
         "atom14_gt_positions",
         PyArray1::from_vec(py, atom14_gt_positions)
             .reshape([b, n_max, 14, 3])
-            .expect("reshape batch atom14_gt_positions"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch atom14_gt_positions: {e}"))
+            })?,
     )?;
     dict.set_item(
         "atom14_gt_exists",
         PyArray1::from_vec(py, atom14_gt_exists)
             .reshape([b, n_max, 14])
-            .expect("reshape batch atom14_gt_exists"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch atom14_gt_exists: {e}")))?,
     )?;
     dict.set_item(
         "atom14_atom_exists",
         PyArray1::from_vec(py, atom14_atom_exists)
             .reshape([b, n_max, 14])
-            .expect("reshape batch atom14_atom_exists"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch atom14_atom_exists: {e}"))
+            })?,
     )?;
     dict.set_item(
         "residx_atom14_to_atom37",
         PyArray1::from_vec(py, residx_atom14_to_atom37)
             .reshape([b, n_max, 14])
-            .expect("reshape batch residx_atom14_to_atom37"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch residx_atom14_to_atom37: {e}"))
+            })?,
     )?;
     dict.set_item(
         "residx_atom37_to_atom14",
         PyArray1::from_vec(py, residx_atom37_to_atom14)
             .reshape([b, n_max, 37])
-            .expect("reshape batch residx_atom37_to_atom14"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch residx_atom37_to_atom14: {e}"))
+            })?,
     )?;
     dict.set_item(
         "atom14_atom_is_ambiguous",
         PyArray1::from_vec(py, atom14_atom_is_ambiguous)
             .reshape([b, n_max, 14])
-            .expect("reshape batch atom14_atom_is_ambiguous"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch atom14_atom_is_ambiguous: {e}"))
+            })?,
     )?;
     dict.set_item(
         "pseudo_beta",
         PyArray1::from_vec(py, pseudo_beta)
             .reshape([b, n_max, 3])
-            .expect("reshape batch pseudo_beta"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch pseudo_beta: {e}")))?,
     )?;
     dict.set_item(
         "pseudo_beta_mask",
         PyArray1::from_vec(py, pseudo_beta_mask)
             .reshape([b, n_max])
-            .expect("reshape batch pseudo_beta_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch pseudo_beta_mask: {e}")))?,
     )?;
     dict.set_item(
         "phi",
         PyArray1::from_vec(py, phi)
             .reshape([b, n_max])
-            .expect("reshape batch phi"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch phi: {e}")))?,
     )?;
     dict.set_item(
         "psi",
         PyArray1::from_vec(py, psi)
             .reshape([b, n_max])
-            .expect("reshape batch psi"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch psi: {e}")))?,
     )?;
     dict.set_item(
         "omega",
         PyArray1::from_vec(py, omega)
             .reshape([b, n_max])
-            .expect("reshape batch omega"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch omega: {e}")))?,
     )?;
     dict.set_item(
         "phi_mask",
         PyArray1::from_vec(py, phi_mask)
             .reshape([b, n_max])
-            .expect("reshape batch phi_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch phi_mask: {e}")))?,
     )?;
     dict.set_item(
         "psi_mask",
         PyArray1::from_vec(py, psi_mask)
             .reshape([b, n_max])
-            .expect("reshape batch psi_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch psi_mask: {e}")))?,
     )?;
     dict.set_item(
         "omega_mask",
         PyArray1::from_vec(py, omega_mask)
             .reshape([b, n_max])
-            .expect("reshape batch omega_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch omega_mask: {e}")))?,
     )?;
     dict.set_item(
         "chi_angles",
         PyArray1::from_vec(py, chi_angles)
             .reshape([b, n_max, 4])
-            .expect("reshape batch chi_angles"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch chi_angles: {e}")))?,
     )?;
     dict.set_item(
         "chi_mask",
         PyArray1::from_vec(py, chi_mask)
             .reshape([b, n_max, 4])
-            .expect("reshape batch chi_mask"),
+            .map_err(|e| PyRuntimeError::new_err(format!("reshape batch chi_mask: {e}")))?,
     )?;
     dict.set_item(
         "rigidgroups_gt_frames",
         PyArray1::from_vec(py, rigidgroups_gt_frames)
             .reshape([b, n_max, 8, 4, 4])
-            .expect("reshape batch rigidgroups_gt_frames"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch rigidgroups_gt_frames: {e}"))
+            })?,
     )?;
     dict.set_item(
         "rigidgroups_gt_exists",
         PyArray1::from_vec(py, rigidgroups_gt_exists)
             .reshape([b, n_max, 8])
-            .expect("reshape batch rigidgroups_gt_exists"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch rigidgroups_gt_exists: {e}"))
+            })?,
     )?;
     dict.set_item(
         "rigidgroups_group_exists",
         PyArray1::from_vec(py, rigidgroups_group_exists)
             .reshape([b, n_max, 8])
-            .expect("reshape batch rigidgroups_group_exists"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("reshape batch rigidgroups_group_exists: {e}"))
+            })?,
     )?;
     dict.set_item(
         "rigidgroups_group_is_ambiguous",
         PyArray1::from_vec(py, rigidgroups_group_is_ambiguous)
             .reshape([b, n_max, 8])
-            .expect("reshape batch rigidgroups_group_is_ambiguous"),
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "reshape batch rigidgroups_group_is_ambiguous: {e}"
+                ))
+            })?,
     )?;
     Ok(dict)
 }
