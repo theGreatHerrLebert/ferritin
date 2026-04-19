@@ -15,6 +15,7 @@ if str(PACKAGE_SRC) not in sys.path:
     sys.path.insert(0, str(PACKAGE_SRC))
 
 import proteon
+import proteon.corpus_smoke as corpus_smoke
 
 
 STAGE2_FAILURES = ROOT / "validation" / "stage2_1k_postfix.jsonl"
@@ -62,7 +63,7 @@ def main() -> None:
     if TMP_SMOKE.exists():
         shutil.rmtree(TMP_SMOKE)
     try:
-        proteon.build_local_corpus_smoke_release(
+        corpus_smoke.build_local_corpus_smoke_release(
             available_paths,
             TMP_SMOKE,
             release_id="rescue-benchmark-v0",

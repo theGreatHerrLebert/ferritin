@@ -379,7 +379,9 @@ Recommended release wrapper on top of the raw example export:
 Recommended high-level builder:
 
 ```python
-proteon.build_structure_supervision_dataset(
+from proteon import supervision_dataset
+
+supervision_dataset.build_structure_supervision_dataset(
     structures,
     out_dir,
     release_id="...",
@@ -494,7 +496,7 @@ Design intent:
 
 Possible later export API:
 
-- `proteon.export_structure_supervision_examples(examples, out_dir, format=...)`
+- `proteon.supervision_export.export_structure_supervision_examples(examples, out_dir, format=...)`
 
 The first milestone is the in-memory contract, not the final storage engine.
 

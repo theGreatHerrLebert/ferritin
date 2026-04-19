@@ -35,6 +35,11 @@ from pathlib import Path
 import numpy as np
 
 import proteon
+from proteon import corpus_release as corpus_release_mod
+from proteon import corpus_validation as corpus_validation_mod
+from proteon import sequence_release as sequence_release_mod
+from proteon import supervision_dataset as supervision_dataset_mod
+from proteon import training_example as training_example_mod
 from proteon.supervision_constants import residue_to_one_letter
 
 
@@ -73,7 +78,7 @@ def run(inputs, out_dir: Path, release_id: str) -> dict:
     # build_local_corpus_smoke_release so we can layer MSA + templates
     # via the lower-level builders).
     t0 = time.time()
-    struc_root = proteon.build_structure_supervision_dataset_from_prepared(
+    struc_root = supervision_dataset_mod.build_structure_supervision_dataset_from_prepared(
         loaded_structures,
         prep_reports,
         out_dir / "prepared",
@@ -105,7 +110,7 @@ def run(inputs, out_dir: Path, release_id: str) -> dict:
 
     # 5. Sequence release WITH GPU-backed MSA assembly.
     t0 = time.time()
-    sequence_root = proteon.build_sequence_dataset(
+    sequence_root = sequence_release_mod.build_sequence_dataset(
         loaded_structures,
         out_dir / "sequence",
         release_id=f"{release_id}-sequence",
@@ -159,7 +164,7 @@ def run(inputs, out_dir: Path, release_id: str) -> dict:
     t0 = time.time()
     split_assignments = {rid: ("val" if i == len(record_ids) - 1 else "train")
                          for i, rid in enumerate(record_ids)}
-    training_root = proteon.build_training_release(
+    training_root = training_example_mod.build_training_release(
         sequence_root,
         struc_root / "supervision_release",
         out_dir / "training",
@@ -175,7 +180,7 @@ def run(inputs, out_dir: Path, release_id: str) -> dict:
 
     # 8. Corpus release manifest.
     t0 = time.time()
-    corpus_root = proteon.build_corpus_release_manifest(
+    corpus_root = corpus_release_mod.build_corpus_release_manifest(
         out_dir / "corpus",
         release_id=release_id,
         prepared_manifest=struc_root / "prepared_structures.jsonl",
@@ -196,7 +201,7 @@ def run(inputs, out_dir: Path, release_id: str) -> dict:
     timings["corpus_s"] = time.time() - t0
 
     # 9. Validation.
-    proteon.validate_corpus_release(
+    corpus_validation_mod.validate_corpus_release(
         corpus_root / "corpus_release_manifest.json",
         out_path=corpus_root / "validation_report.json",
     )
@@ -245,7 +250,7 @@ def summarize(report: dict) -> None:
     print(f"  supervision tensor_sha256: {sup_mf['tensor_sha256'][:16]}…")
 
     # Load training Parquet + verify shape.
-    trn_examples = proteon.load_training_examples(out_dir / "training")
+    trn_examples = training_example_mod.load_training_examples(out_dir / "training")
     print(f"\n  training examples loaded: {len(trn_examples)}")
     for ex in trn_examples:
         struc = ex.structure

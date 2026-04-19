@@ -8,10 +8,10 @@ placement, MSA/template retrieval, and supervision-tensor export.
 ## Quickstart: generate a training corpus in 5 lines
 
 ```python
-import proteon
 from pathlib import Path
+import proteon.corpus_smoke as corpus_smoke
 
-proteon.build_local_corpus_smoke_release(
+corpus_smoke.build_local_corpus_smoke_release(
     list(Path("my_pdbs/").glob("*.pdb")),
     out_dir="corpus_v0",
     release_id="demo-v0",
@@ -59,7 +59,7 @@ without a proteon-specific adapter.
 Streaming reader for downstream training loops:
 
 ```python
-from proteon import iter_training_examples
+from proteon.training_example import iter_training_examples
 
 for ex in iter_training_examples("corpus_v0/training", split="train"):
     positions = ex.structure.all_atom_positions   # (L, 37, 3) numpy
