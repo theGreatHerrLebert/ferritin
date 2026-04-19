@@ -1,6 +1,5 @@
-import proteon
 import pytest
-from proteon import sequence_release
+import proteon
 
 
 class TestTopLevelExports:
@@ -31,8 +30,7 @@ class TestTopLevelExports:
         }
         assert expected <= set(ns)
 
-    def test_advanced_release_alias_warns_and_is_not_in___all__(self):
+    def test_advanced_release_alias_is_not_available_top_level(self):
         assert "build_sequence_dataset" not in proteon.__all__
-        with pytest.deprecated_call(match=r"proteon\.build_sequence_dataset.*0\.2\.0"):
-            alias = proteon.build_sequence_dataset
-        assert alias is sequence_release.build_sequence_dataset
+        with pytest.raises(AttributeError, match="build_sequence_dataset"):
+            _ = proteon.build_sequence_dataset

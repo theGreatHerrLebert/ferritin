@@ -123,8 +123,7 @@ The curated top-level Python surface is defined by `proteon.__all__`.
   `proteon.supervision_dataset`, `proteon.corpus_release`, and
   `proteon.corpus_validation`.
 - Do not add new advanced dataset/release helpers to the top-level namespace.
-- Existing advanced top-level aliases are deprecated now and scheduled for
-  removal in `0.2.0`.
+- Advanced dataset/release helpers should be imported only from those submodules.
 
 ## Commit messages
 
