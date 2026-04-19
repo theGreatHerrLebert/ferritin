@@ -87,7 +87,7 @@ Proteon already has unusually strong building blocks for this direction.
 
 ### Structure-prep evidence already established
 
-From [validation/report/report.html](./validation/report/report.html):
+From [validation/report/report.html](../validation/report/report.html):
 
 - Proteon CHARMM19+EEF1 minimization preserves fold strongly on the sampled
   corpus:

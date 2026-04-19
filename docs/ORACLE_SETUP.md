@@ -11,7 +11,8 @@ mechanical — copy, paste, run.
 
 ## Scope
 
-Eight external oracles are covered here, split by what runs where:
+This setup recipe covers the external oracles behind proteon's main CI,
+local, and release validation runs, split by what runs where:
 
 - **CI-gated slice** (pip-installable, small, fast — installed by
   `.github/workflows/test.yml` and exercised on every PR): pydssp,
@@ -19,17 +20,20 @@ Eight external oracles are covered here, split by what runs where:
   under `tests/oracle/` — proteon's DSSP vs pydssp, I/O vs
   biopython/gemmi, SASA vs FreeSASA.
 - **Release-quality slice** (pip-installable but heavier — OpenMM alone
-  is ~500 MB — or source-built): OpenMM, reduce, USAlign, BALL Julia
-  (BiochemicalAlgorithms.jl). These are **not** installed in CI. They
-  power the 1000-PDB parity benchmarks under `validation/` (OpenMM),
-  the hydrogen-placement parity tests (reduce), the TM-align pair
-  benchmark (USAlign), and the per-release crambin reference regen
-  (BALL Julia). Install them on your own machine to reproduce the
-  published numbers or regenerate a reference.
+  is ~500 MB — or source-built): OpenMM, reduce, TMalign, USAlign,
+  GROMACS, BALL Julia (BiochemicalAlgorithms.jl). These are **not**
+  installed in CI. They power the 1000-PDB parity benchmarks under
+  `validation/` (OpenMM), the hydrogen-placement parity tests
+  (reduce), monomer TM-align spot-checks and port debugging (TMalign),
+  the pairwise alignment benchmark harness (`validation/bench_alignment.py`,
+  via USAlign's tabular output), the fold-preservation / triangulated
+  AMBER96 comparison runs (GROMACS), and the per-release crambin
+  reference regen (BALL Julia). Install them on your own machine to
+  reproduce the published numbers or regenerate a reference.
 
-MMseqs2 and GROMACS are used for additional benchmark runs under
-`validation/` but are not part of this setup recipe — see their
-dedicated docs.
+MMseqs2 and Foldseek are also used for search/retrieval validation, but
+their install flow lives with the search-specific docs and workflows
+instead of this file.
 
 ## Pinned versions
 
@@ -47,7 +51,9 @@ last section.
 | pydssp | 0.9.1 | `pip install pydssp` |
 | FreeSASA | 2.2.1 | `pip install freesasa` |
 | reduce | 4.16.250520 (commit `d723303`) | source build, see below |
+| TMalign | 20220412 | source build, see below |
 | USAlign | 20260329 | source build, see below |
+| GROMACS | 2026.1 | source build / package install, see below |
 | BALL Julia (BiochemicalAlgorithms.jl) | commit `99e4acb` | `Pkg.instantiate()`, see below |
 | Julia | 1.11.5 | https://julialang.org/downloads/ |
 
@@ -55,9 +61,9 @@ last section.
 
 - A Python venv with proteon installed — `packages/proteon` built via
   `maturin develop --release` and the repo's Python deps on the path.
-  The existing `/scratch/TMAlign/proteon/.venv` on the dev machine is
-  configured this way; on a new machine, see the top-level README's
-  Quick Start.
+  On any machine, set `PROTEON=/path/to/your/proteon/checkout` and use
+  `$PROTEON/.venv`; on a new machine, see the top-level README's Quick
+  Start.
 - A C++ toolchain (`gcc` / `clang`, `cmake` >= 3.12, `make`) for the
   source-build oracles.
 - Julia 1.11.5 or newer for the BALL oracle.
@@ -148,7 +154,34 @@ $REDUCE_BIN -NOFLIP -Quiet -NUClear -DB "$REDUCE_DB" $PROTEON/test-pdbs/1crn.pdb
 # expect 642 (327 heavy + 315 H)
 ```
 
-## Install — USAlign (C++ TM-score reference)
+## Install — TMalign (canonical C++ monomer reference)
+
+Proteon's `tmalign` port follows the original C++ TMalign codepath for
+monomer alignment. We do not currently shell out to the upstream
+`TMalign` binary in `tests/oracle/`, but it is still the right tool for
+spot-checking monomer behavior and debugging drift in the Rust port.
+
+```bash
+cd $HOME/src
+git clone https://github.com/zhanggroup/TM-align.git TMAlign
+cd TMAlign
+g++ -O3 -ffast-math -lm -o TMalign TMalign.cpp
+export TMALIGN_BIN="$HOME/src/TMAlign/TMalign"
+```
+
+Smoke test (should print version `20220412` on the current dev-machine
+checkout):
+
+```bash
+$TMALIGN_BIN -v
+```
+
+## Install — USAlign (C++ alignment oracle harness)
+
+USAlign is the external binary that the current automated alignment
+oracle uses. `tests/oracle/test_tmscore_oracle.py` and
+`validation/bench_alignment.py` both parse its `-outfmt 2` tabular
+output.
 
 ```bash
 cd $HOME/src
@@ -162,6 +195,43 @@ Smoke test (should print version 20260329 or newer):
 
 ```bash
 $USALIGN_BIN | grep "US-align (Version"
+```
+
+## Install — GROMACS (prep + fold-preservation comparator)
+
+GROMACS is part of proteon's release-quality oracle story in two places:
+
+- `validation/tm_fold_preservation_gromacs.py` runs `gmx pdb2gmx`,
+  `grompp`, `mdrun`, and compares TM-score before/after minimization.
+- `validation/amber96_oracle_triangulate.py` uses `gmx pdb2gmx` and a
+  0-step single-point run to triangulate AMBER96 energies against
+  OpenMM.
+
+If you already have `gmx` on `$PATH`, use it. Otherwise build or
+install GROMACS 2026.1 and point proteon's scripts at the binary with
+`GMX`.
+
+```bash
+# package-manager install is fine if it gives you `gmx`
+# apt install gromacs
+# conda install -c bioconda gromacs
+
+# or build from source
+cd $HOME/src
+tar xf gromacs-2026.1.tar.gz   # if using a release tarball
+cd gromacs-2026.1
+mkdir -p build && cd build
+cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=OFF
+make -j$(nproc)
+
+export GMX="$HOME/src/gromacs-2026.1/build/bin/gmx"
+```
+
+Smoke test:
+
+```bash
+$GMX --version
+# expect: GROMACS version: 2026.1
 ```
 
 ## Install — BALL Julia (BiochemicalAlgorithms.jl)
@@ -237,8 +307,16 @@ python $PROTEON/validation/amber96_oracle.py
 # OpenMM CHARMM36+OBC2 on 1000 PDBs).
 python $PROTEON/validation/tm_fold_preservation_amber.py
 
-# TM-align vs USAlign on a curated pair set.
+# Pairwise alignment benchmark (proteon TM-align vs C++ USAlign on a
+# curated pair set).
 python $PROTEON/validation/bench_alignment.py
+
+# Fold-preservation comparison with GROMACS AMBER96.
+python $PROTEON/validation/tm_fold_preservation_gromacs.py
+
+# Three-way AMBER96 spot check: proteon vs OpenMM vs GROMACS.
+python $PROTEON/validation/amber96_oracle_triangulate.py \
+    $PROTEON/test-pdbs/1crn.pdb
 ```
 
 Outputs are JSON / JSONL files; numerical summaries + plots live under

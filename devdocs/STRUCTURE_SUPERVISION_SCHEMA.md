@@ -28,7 +28,7 @@ It should **not** depend on:
 Those adapters can be built later on top of this contract.
 
 The corresponding Rust/PyO3 batch implementation target is defined in
-[RUST_BATCH_SUPERVISION_CONTRACT.md](/scratch/TMAlign/proteon/RUST_BATCH_SUPERVISION_CONTRACT.md).
+[RUST_BATCH_SUPERVISION_CONTRACT.md](./RUST_BATCH_SUPERVISION_CONTRACT.md).
 
 ---
 

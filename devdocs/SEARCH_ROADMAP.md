@@ -6,7 +6,7 @@ Proteon does not have a real Foldseek-equivalent search product yet.
 
 What exists today:
 
-- a substantial structural alphabet prototype in [proteon-align/src/search/alphabet.rs](./proteon-align/src/search/alphabet.rs)
+- a substantial structural alphabet prototype in [proteon-align/src/search/alphabet.rs](../proteon-align/src/search/alphabet.rs)
 - validation scripts that use Foldseek as an oracle / benchmark
 - strong downstream geometric refinement capability via TM-align, SOI-align, FlexAlign, and MM-align
 

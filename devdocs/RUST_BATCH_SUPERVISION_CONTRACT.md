@@ -28,8 +28,8 @@ Proteon should not expose PyTorch, JAX, or framework-native tensors here.
 
 The public semantic contract is defined by:
 
-- [STRUCTURE_SUPERVISION_SCHEMA.md](/scratch/TMAlign/proteon/STRUCTURE_SUPERVISION_SCHEMA.md)
-- [supervision.py](/scratch/TMAlign/proteon/packages/proteon/src/proteon/supervision.py)
+- [STRUCTURE_SUPERVISION_SCHEMA.md](./STRUCTURE_SUPERVISION_SCHEMA.md)
+- [supervision.py](../packages/proteon/src/proteon/supervision.py)
 
 Rust is an implementation backend for that contract, not a second schema.
 
