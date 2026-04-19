@@ -188,6 +188,41 @@ this stage; we need to be *explicit* about where we're worse and
 why. The 5K/50Q retrieval report has a "Worst proteon Deltas"
 table that's explicitly read each release.
 
+### MSA assembly (sequence search → AF2 tensors)
+
+**Oracle:** MMseqs2 `search` + `result2msa` on the same query/target
+corpus, compared field by field against proteon's
+`search_and_build_msa`.
+**Scope:** hit-set overlap, per-shared-hit residue/gap/deletion
+agreement, query-row encoding, MSA depth.
+
+- `validation/msa_oracle.py` — end-to-end oracle (Python). Runs both
+  pipelines, matches hits by target DB key, reports positional and
+  shared-hit metrics with per-query JSON output.
+- `proteon-search/tests/oracle_search.rs` — Rust-side hit-list oracle
+  (search recall, not MSA tensors).
+
+**Tolerance matrix:**
+
+| Component | Target | Why this bound |
+|-----------|--------|----------------|
+| Query row (msa[0]) | byte-exact | Same sequence, same encoding |
+| Shared-hit residue agreement | >= 0.75 | SW extension boundary convention gap on remote homologs (20–39% fident); within overlapping region ~90% agreement |
+| Shared-hit deletion agreement | >= 0.90 | CIGAR→deletion projection nearly identical; median 0.97 |
+| Hit-set Jaccard | (report only) | Proteon prefilter 10–50× more sensitive; low Jaccard is expected |
+
+**Known convention gap: alignment extension boundaries.** Diagnosed
+2026-04-19 on 171 shared hits (A0A0C1M9X2 vs uniref50_1m). 0/171
+had identical CIGARs. Proteon's SW extends further into low-identity
+tails; query-start close (median 4 residues) but query-end diverges
+(62/171 differ by >20). Policy difference, not math error — analogous
+to the AMBER96 cutoff convention gap.
+
+**Benchmark (2026-04-19):** 50 queries × 1M UniRef50, RTX 5090.
+Shared-hit residue median=0.896, deletion median=0.974. All 50 pass.
+Sensitivity-independent (s=5.7 and s=7.5 produce identical shared-hit
+metrics).
+
 ### Supervision tensors (AF2-contract)
 
 **Oracles:**
