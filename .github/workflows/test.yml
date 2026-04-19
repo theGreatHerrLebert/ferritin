@@ -50,13 +50,15 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # Keep normal CI on ubuntu. Release workflow still performs native macOS
+  # arm64 wheel install/import verification, so day-to-day PR coverage does
+  # not need an extra macOS matrix leg burning runner minutes.
   python-tests:
-    name: Python ${{ matrix.python-version }} (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Python ${{ matrix.python-version }} (ubuntu-latest)
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -164,12 +166,8 @@ jobs:
 
   # Smoke test: binaries build and run
   cli-smoke:
-    name: CLI smoke (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+    name: CLI smoke (ubuntu-latest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
