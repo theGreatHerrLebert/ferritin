@@ -5,7 +5,7 @@
 .DS_Store
 
 # Python
-.venv/
+.venv*/
 __pycache__/
 *.pyc
 *.pyo
