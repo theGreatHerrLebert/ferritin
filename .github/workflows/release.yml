@@ -294,6 +294,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          skip-existing: true
 
   publish-proteon:
     name: Publish proteon to PyPI
@@ -313,3 +314,4 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          skip-existing: true
