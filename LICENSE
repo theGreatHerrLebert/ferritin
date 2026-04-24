@@ -38,3 +38,10 @@ References:
   - C Zhang, AM Pyle. iScience 25(10), 105218 (2022)
 
 Original source: https://zhanggroup.org/US-align/
+
+
+--- Third-Party Notices ---
+
+Additional upstream license notices for MMseqs2, BiochemicalAlgorithms.jl,
+OpenMM, pdbtbx, and the paper-inspired components are consolidated in
+THIRD_PARTY_NOTICES.md.

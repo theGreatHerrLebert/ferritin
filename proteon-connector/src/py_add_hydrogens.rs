@@ -232,7 +232,7 @@ pub(crate) fn place_all_hydrogens(
 /// Place hydrogens on all atoms including non-standard residues and ligands.
 ///
 /// Runs Phase 1 (backbone) + Phase 2 (sidechain templates) + Phase 3
-/// (general BALL algorithm for ligands/non-standard residues).
+/// (general placer for ligands/non-standard residues).
 ///
 /// Args:
 ///     pdb: Structure to modify.

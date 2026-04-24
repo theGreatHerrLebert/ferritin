@@ -2,7 +2,13 @@
 //!
 //! Velocity Verlet integrator with optional Berendsen thermostat (NVE/NVT).
 //!
-//! Reference: BALL MolecularDynamics / CanonicalMD (Hildebrandt et al.)
+//! References:
+//! - Verlet, "Computer 'Experiments' on Classical Fluids. I.
+//!   Thermodynamical Properties of Lennard-Jones Molecules",
+//!   *Phys. Rev.* 159(1), 98-103 (1967) — the velocity-form integrator.
+//! - Berendsen, Postma, van Gunsteren, DiNola, Haak, "Molecular dynamics
+//!   with coupling to an external bath", *J. Chem. Phys.* 81(8),
+//!   3684-3690 (1984) — the weak-coupling thermostat.
 
 use super::energy::{compute_energy_and_forces, EnergyResult};
 use super::params::ForceField;

@@ -263,23 +263,20 @@ validation/         benchmarks, reports, and oracle checks
 
 ## Acknowledgements
 
-proteon is only possible because of the work of the groups whose tools
-and papers it builds on. The structure-alignment core is a Rust port of
-Yang Zhang's TM-align and US-align. The search layer is a port of Martin
-Steinegger and Johannes Söding's MMseqs2 — with the GPU path following the
-libmarv kernel design of Felix Kallenborn, the NVIDIA team, Milot Mirdita,
-Bertil Schmidt, Martin Steinegger, and collaborators — and the experimental
-structural alphabet is inspired by Michel van Kempen and Martin Steinegger's
-Foldseek (independently trained, no GPL-licensed code re-used). The force-field
-implementations follow Martin Karplus, Themis Lazaridis, Peter Kollman,
-David Case, and their collaborators (CHARMM19, EEF1, AMBER96, OBC GB).
-OpenMM (Peter Eastman and the Pande Lab), BALL (Andreas Hildebrandt and
-collaborators), Foldseek, MMseqs2, USAlign, Biopython, Gemmi, and FreeSASA
-serve as oracles — proteon's correctness claims are only as strong as
-those reference implementations, and the tolerances in our test suite are
-where that dependency is made explicit. I/O rides on Douwe Schulte's
-pdbtbx. The citations below point at the original work behind each of
-these components — please cite them too when you cite proteon.
+Derived and paper-inspired components (upstream license preserved in each module):
+
+- `proteon-align` — TM-align and US-align, Zhang group; permissive academic license (any-purpose use with attribution).
+- `proteon-search` — MMseqs2, Steinegger & Söding (MIT).
+- `proteon-search/src/gpu/pssm_sw*` — libmarv kernel design, Kallenborn et al. (2025); paper-inspired, no source-code lineage.
+- `proteon-connector/src/reconstruct.rs` — BiochemicalAlgorithms.jl, Hildebrandt et al. (MIT).
+- `proteon-align/src/search/alphabet.rs` — 3Di structural alphabet, van Kempen et al. / Foldseek; paper-inspired, encoder weights independently trained, no GPL-licensed code reused.
+- `proteon-io` — pdbtbx, Schulte (MIT).
+
+Force-field implementations (CHARMM19, EEF1, AMBER96, OBC generalized Born) are derived from the primary literature cited in §References; parameter files are reproduced from the standard distribution of each force field.
+
+Correctness oracles (used for verification; not linked into proteon): OpenMM, BALL, Foldseek, MMseqs2, US-align, Biopython, Gemmi, FreeSASA. The tolerances in the oracle test suite make the dependency on each explicit.
+
+Primary-literature citations for each component are in §References and should be cited alongside proteon.
 
 ## References
 
@@ -314,4 +311,9 @@ Infrastructure:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE) for the proteon license text and the
+TM-align / US-align attribution notice.
+
+Upstream license notices for derived and paper-inspired components
+(MMseqs2, BiochemicalAlgorithms.jl, OpenMM, pdbtbx, and others) are
+consolidated in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).

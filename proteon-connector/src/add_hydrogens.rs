@@ -1268,158 +1268,156 @@ pub(crate) fn place_all_hydrogens(pdb: &mut pdbtbx::PDB, polar_only: bool) -> Ad
 }
 
 // ===========================================================================
-// Phase 3: General-purpose hydrogen placement (BALL algorithm)
+// Phase 3: General-purpose hydrogen placement for non-template atoms
 // ===========================================================================
+//
+// For ligands, modified residues, cofactors, and other heavy atoms not
+// covered by the standard amino-acid templates of Phase 1/2. Dispatches
+// on `(n_heavy_neighbors, h_to_add)` with hybridization inferred from
+// the bond-order sum, using textbook idealized angles (109.47° sp3,
+// 120° sp2, 180° sp). All geometry helpers are independently derived
+// from standard crystallographic geometry.
 
 use crate::bond_order::{self, MolGraph};
 
-/// Place hydrogens on any atom using the BALL general algorithm.
-///
-/// For each heavy atom: compute expected valence from periodic table,
-/// subtract existing bond orders, place remaining H atoms using
-/// geometry from bond count and ring membership.
-///
-/// This handles ligands, non-standard residues, modified amino acids,
-/// and any molecule not covered by the standard AA templates.
-fn general_handle_atom(graph: &MolGraph, atom_idx: usize) -> Vec<(String, [f64; 3])> {
-    let atom = &graph.atoms[atom_idx];
-    let mut results = Vec::new();
+/// Coarse hybridization bucket used to pick placement geometry.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hyb {
+    /// Triple-bonded: linear, 180°.
+    Sp,
+    /// Double-bonded: trigonal planar, 120°.
+    Sp2,
+    /// Single-bonded: tetrahedral, 109.47°.
+    Sp3,
+}
 
-    // Skip hydrogens and metals
+fn hyb_from_sum_orders(sum_orders: f64) -> Hyb {
+    if sum_orders > 2.5 {
+        Hyb::Sp
+    } else if sum_orders > 1.5 {
+        Hyb::Sp2
+    } else {
+        Hyb::Sp3
+    }
+}
+
+/// Place hydrogens on an arbitrary heavy atom from its connectivity.
+///
+/// `deficit = expected_valence - sum_bond_orders - existing_h_neighbors`.
+/// When positive, dispatches on `(n_heavy_neighbors, deficit)` and the
+/// sp/sp2/sp3 bucket to pick the placement geometry. Returns
+/// `(name, position)` pairs named `H1`, `H2`, … in placement order.
+fn place_general_h(graph: &MolGraph, atom_idx: usize) -> Vec<(String, [f64; 3])> {
+    let atom = &graph.atoms[atom_idx];
+
     let valence = bond_order::expected_valence(&atom.element);
     if valence == 0 {
-        return results;
+        return Vec::new();
     }
 
-    // How many H to add?
     let sum_orders = bond_order::sum_bond_orders(graph, atom_idx);
-    let h_to_add = (valence as f64 - sum_orders).round() as i32;
-
-    if h_to_add <= 0 {
-        return results;
-    }
-
-    // Skip if atom already has H neighbors
-    let existing_h_count = atom
+    let existing_h: i32 = atom
         .neighbors
         .iter()
-        .filter(|&&n| graph.atoms[n].element == "H" || graph.atoms[n].element == "D")
+        .filter(|&&n| matches!(graph.atoms[n].element.as_str(), "H" | "D"))
         .count() as i32;
 
-    let h_to_add = h_to_add - existing_h_count;
-    if h_to_add <= 0 {
-        return results;
+    let deficit = (f64::from(valence) - sum_orders).round() as i32 - existing_h;
+    if deficit <= 0 {
+        return Vec::new();
     }
+    let h_to_add = deficit as usize;
 
-    let bond_length = bond_order::mmff94_bond_length(&atom.element);
-    let n_heavy_neighbors = atom
+    let heavy: Vec<[f64; 3]> = atom
         .neighbors
         .iter()
-        .filter(|&&n| graph.atoms[n].element != "H" && graph.atoms[n].element != "D")
-        .count();
-
-    // Get heavy neighbor positions
-    let heavy_nbrs: Vec<[f64; 3]> = atom
-        .neighbors
-        .iter()
-        .filter(|&&n| graph.atoms[n].element != "H" && graph.atoms[n].element != "D")
+        .filter(|&&n| !matches!(graph.atoms[n].element.as_str(), "H" | "D"))
         .map(|&n| graph.atoms[n].pos)
         .collect();
 
-    let atom_nr_start = results.len();
+    let bl = bond_order::mmff94_bond_length(&atom.element);
+    let hyb = hyb_from_sum_orders(sum_orders);
 
-    // Dispatch based on geometry (BALL's _handle_atom! logic)
-    match (h_to_add, n_heavy_neighbors) {
-        // 1 H, 3 heavy neighbors → tetrahedral (HA-like)
-        (1, 3) => {
-            let h = place_tet1h(
-                atom.pos,
-                heavy_nbrs[0],
-                heavy_nbrs[1],
-                heavy_nbrs[2],
-                bond_length,
-            );
-            results.push((format!("H{}", atom_nr_start + 1), h));
+    let positions: Vec<[f64; 3]> = match (heavy.len(), h_to_add) {
+        // No heavy bond axis — orient in an arbitrary frame.
+        (0, 1) => vec![add(atom.pos, [bl, 0.0, 0.0])],
+        (0, n) if n <= 3 => {
+            let anchor = add(atom.pos, [-bl, 0.0, 0.0]);
+            let hs = place_methyl3h(atom.pos, anchor, bl);
+            hs[..n].to_vec()
         }
-        // 1 H, 2 heavy neighbors → bent (water-like or ring)
-        (1, 2) => {
-            if atom.is_ring_atom {
-                // Ring atom: H opposite the two ring neighbors
-                let h = place_aromatic1h(atom.pos, heavy_nbrs[0], heavy_nbrs[1], bond_length);
-                results.push((format!("H{}", atom_nr_start + 1), h));
-            } else {
-                // Bent geometry
-                let h = place_aromatic1h(atom.pos, heavy_nbrs[0], heavy_nbrs[1], bond_length);
-                results.push((format!("H{}", atom_nr_start + 1), h));
+
+        // One heavy neighbor: orient against its bond axis.
+        (1, 1) => match hyb {
+            Hyb::Sp => {
+                let dir = normalize(sub(atom.pos, heavy[0]));
+                vec![add(atom.pos, scale(dir, bl))]
             }
-        }
-        // 1 H, 1 heavy neighbor → linear or sp2
-        (1, 1) => {
-            if sum_orders > 2.0 {
-                // Linear (triple bond): H opposite the neighbor
-                let dir = normalize(sub(atom.pos, heavy_nbrs[0]));
-                let h = add(atom.pos, scale(dir, bond_length));
-                results.push((format!("H{}", atom_nr_start + 1), h));
-            } else {
-                // sp2 or bent: place at angle
-                let h = place_oh1h(atom.pos, heavy_nbrs[0], bond_length);
-                results.push((format!("H{}", atom_nr_start + 1), h));
-            }
-        }
-        // 2 H, 2 heavy neighbors → tetrahedral (CH2-like)
-        (2, 2) => {
-            let hs = place_tet2h(atom.pos, heavy_nbrs[0], heavy_nbrs[1], bond_length);
-            results.push((format!("H{}", atom_nr_start + 1), hs[0]));
-            results.push((format!("H{}", atom_nr_start + 2), hs[1]));
-        }
-        // 2 H, 1 heavy neighbor → NH2 or CH2 with one bond
+            Hyb::Sp2 | Hyb::Sp3 => vec![place_oh1h(atom.pos, heavy[0], bl)],
+        },
+        (1, 2) => match hyb {
+            Hyb::Sp2 => place_vinyl_2h(atom.pos, heavy[0], bl),
+            _ => place_sp3_2h_one_neighbor(atom.pos, heavy[0], bl),
+        },
+        (1, 3) => place_methyl3h(atom.pos, heavy[0], bl).to_vec(),
+
+        // Two heavy neighbors: orient in the (n1, parent, n2) frame.
         (2, 1) => {
-            // Place first H, then recurse-like logic
-            let h1 = place_oh1h(atom.pos, heavy_nbrs[0], bond_length);
-            results.push((format!("H{}", atom_nr_start + 1), h1));
-
-            // Second H: rotate 106° around normal
-            let bv = normalize(sub(atom.pos, heavy_nbrs[0]));
-            let perp = get_perpendicular(bv);
-            let h2_dir = rotate_around_axis(bv, perp, 106.0_f64.to_radians());
-            let h2 = add(atom.pos, scale(h2_dir, bond_length));
-            results.push((format!("H{}", atom_nr_start + 2), h2));
-        }
-        // 3 H, 1 heavy neighbor → methyl (CH3 or NH3)
-        (3, 1) => {
-            let hs = place_methyl3h(atom.pos, heavy_nbrs[0], bond_length);
-            results.push((format!("H{}", atom_nr_start + 1), hs[0]));
-            results.push((format!("H{}", atom_nr_start + 2), hs[1]));
-            results.push((format!("H{}", atom_nr_start + 3), hs[2]));
-        }
-        // 1 H, 0 heavy neighbors → isolated (e.g., H-F)
-        (_, 0) => {
-            let h = add(atom.pos, [bond_length, 0.0, 0.0]);
-            results.push((format!("H{}", atom_nr_start + 1), h));
-        }
-        // 2 H, 0 neighbors (unlikely but handle)
-        (n, _)
-            if n > 0
-            // Fallback: methyl-like arrangement
-            && n_heavy_neighbors >= 1 =>
-        {
-            let anchor = heavy_nbrs[0];
-            let hs = place_methyl3h(atom.pos, anchor, bond_length);
-            for i in 0..(n as usize).min(3) {
-                results.push((format!("H{}", atom_nr_start + i + 1), hs[i]));
+            if atom.is_ring_atom || hyb == Hyb::Sp2 {
+                vec![place_aromatic1h(atom.pos, heavy[0], heavy[1], bl)]
+            } else {
+                vec![place_planar1h_2n(atom.pos, heavy[0], heavy[1], bl, false)]
             }
         }
-        _ => {}
-    }
+        (2, 2) => place_tet2h(atom.pos, heavy[0], heavy[1], bl).to_vec(),
 
-    results
+        // Three heavy neighbors: one H opposite their centroid.
+        (3, 1) => vec![place_tet1h(atom.pos, heavy[0], heavy[1], heavy[2], bl)],
+
+        _ => Vec::new(),
+    };
+
+    positions
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| (format!("H{}", i + 1), p))
+        .collect()
 }
 
-/// Place hydrogens on non-standard residues using the general BALL algorithm.
-///
-/// First runs Phase 1+2 (backbone + sidechain templates), then applies
-/// the general algorithm to any remaining unsaturated heavy atoms
-/// (ligands, modified residues, cofactors).
+/// Place 2 H on an sp2 center with 1 heavy neighbor (terminal CH2= of a vinyl, etc.).
+/// Both H are coplanar with the bond axis, each at 120° from it.
+fn place_vinyl_2h(parent: [f64; 3], nbr: [f64; 3], bl: f64) -> Vec<[f64; 3]> {
+    let bond_dir = normalize(sub(nbr, parent));
+    let perp = get_perpendicular(bond_dir);
+    let angle = 120.0_f64.to_radians();
+    let h1_dir = rotate_around_axis(bond_dir, perp, angle);
+    let h2_dir = rotate_around_axis(bond_dir, perp, -angle);
+    vec![
+        add(parent, scale(h1_dir, bl)),
+        add(parent, scale(h2_dir, bl)),
+    ]
+}
+
+/// Place 2 H on an sp3 center with 1 heavy neighbor (–NH2, –CH2–R, etc.).
+/// Each H makes the tetrahedral 109.47° angle with the bond axis; the
+/// pair is symmetric across an arbitrary plane containing that axis.
+fn place_sp3_2h_one_neighbor(parent: [f64; 3], nbr: [f64; 3], bl: f64) -> Vec<[f64; 3]> {
+    let bond_dir = normalize(sub(nbr, parent));
+    let perp = get_perpendicular(bond_dir);
+    // Decompose each unit H direction in the (-bond_dir, perp) basis:
+    //   axial  = |cos(180° - 109.47°)| = 1/3
+    //   radial = sin(180° - 109.47°)   = sqrt(8/9)
+    let axial = 1.0_f64 / 3.0;
+    let radial = (8.0_f64 / 9.0).sqrt();
+    let anti = scale(bond_dir, -axial);
+    let h1_dir = add(anti, scale(perp, radial));
+    let h2_dir = add(anti, scale(perp, -radial));
+    vec![
+        add(parent, scale(h1_dir, bl)),
+        add(parent, scale(h2_dir, bl)),
+    ]
+}
+
 /// Water residue names. Made `pub(crate)` so other modules (e.g. the
 /// batch_prepare "is this a protein?" heuristic in py_add_hydrogens)
 /// can exclude waters from unassigned-atom counts without duplicating
@@ -1510,7 +1508,7 @@ fn place_water_h(o_pos: [f64; 3]) -> [[f64; 3]; 2] {
     ]
 }
 
-/// Place hydrogens on non-standard residues using the general BALL algorithm.
+/// Place hydrogens on non-standard residues using the general Phase 3 placer.
 ///
 /// If `include_water` is true, also places 2 H on each water molecule.
 /// Standard amino acid hydrogens are placed first via `place_all_hydrogens`
@@ -1622,7 +1620,7 @@ pub(crate) fn place_general_hydrogens(
                     continue;
                 }
 
-                let new_hs = general_handle_atom(&graph, local_idx);
+                let new_hs = place_general_h(&graph, local_idx);
                 for (h_name, pos) in new_hs {
                     max_serial += 1;
                     placements.push((chain_idx, residue_idx, h_name, pos, max_serial));

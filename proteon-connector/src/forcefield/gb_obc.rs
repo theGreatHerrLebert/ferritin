@@ -1,15 +1,18 @@
 //! OBC generalized Born implicit solvent (Onufriev-Bashford-Case 2004).
 //!
-//! This is the Phase A scaffolding. Contract + structure + parameter hooks
-//! are in place; the pair-integral math, Born-radii rescaling, and forces
-//! are marked `todo!()` pending a dedicated math session against:
-//!   - Onufriev, Bashford, Case 2004 (GBOBC paper)
-//!   - OpenMM reference: platforms/reference/src/SimTKReference/ReferenceObc.cpp
+//! References:
+//! - Onufriev, Bashford, Case, "Exploring protein native states and
+//!   large-scale conformational changes with a modified generalized
+//!   Born model", *Proteins* 55(2), 383-394 (2004) — GB-OBC model.
+//! - Hawkins, Cramer, Truhlar, "Parametrized models of aqueous free
+//!   energies of solvation based on pairwise descreening of solute
+//!   atomic charges from a dielectric medium", *J. Phys. Chem.* 100(51),
+//!   19824-19839 (1996) — HCT pair-integral form.
 //!
-//! Rationale for the skeleton-first split: OBC-GB forces (chain rule through
-//! per-pair Born-radii dependence) are where sign errors slip in. Landing the
-//! contract + a failing oracle test first forces the implementation session
-//! to converge against a verified spec rather than "looks right" heuristics.
+//! Derived from OpenMM (MIT; © Stanford University and the Authors),
+//! `platforms/reference/src/SimTKReference/ReferenceObc.cpp`, for the
+//! Born-radii rescaling, pair-integral assembly, and force chain-rule
+//! implementation. See `THIRD_PARTY_NOTICES.md` for the upstream license.
 //!
 //! # Energy terms
 //!

@@ -1,10 +1,13 @@
 //! Missing atom reconstruction using fragment templates.
 //!
-//! Adds missing heavy atoms and hydrogens to standard amino acid residues
-//! by comparing against template structures and placing missing atoms
-//! using 3-point rigid body superposition (BALL algorithm).
+//! Adds missing heavy atoms and hydrogens to standard amino-acid residues
+//! by 3-point rigid-body superposition of a template fragment onto two
+//! placed anchor atoms located via BFS over the template bond graph.
 //!
-//! Reference: BALL ReconstructFragmentProcessor (Hildebrandt et al.)
+//! Derived from BiochemicalAlgorithms.jl (MIT; © Andreas Hildebrandt
+//! and contributors): `match_points` in `src/mappings/rigid_mapping.jl`
+//! and `_get_two_reference_atoms` / `_reconstruct_fragment!` in
+//! `src/preprocessing/reconstruct_fragments.jl`.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -134,7 +137,8 @@ fn rotation_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
 ///
 /// Returns (translation, rotation) such that: v = rotation * w + translation
 ///
-/// Port of BALL's matchPoints / BiochemicalAlgorithms.jl match_points.
+/// Derived from `match_points` in
+/// `BiochemicalAlgorithms.jl/src/mappings/rigid_mapping.jl` (MIT).
 fn match_points(
     w1: [f64; 3],
     w2: [f64; 3],
