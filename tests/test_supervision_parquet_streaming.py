@@ -47,6 +47,8 @@ def _fake_supervision(record_id: str, L: int, seed: int) -> StructureSupervision
         residx_atom14_to_atom37=rng.integers(0, 37, size=(L, 14), dtype=np.int32),
         residx_atom37_to_atom14=rng.integers(0, 14, size=(L, 37), dtype=np.int32),
         atom14_atom_is_ambiguous=rng.random((L, 14), dtype=np.float32),
+        atom14_alt_gt_positions=rng.standard_normal((L, 14, 3), dtype=np.float32),
+        atom14_alt_gt_exists=rng.random((L, 14), dtype=np.float32),
         pseudo_beta=rng.standard_normal((L, 3), dtype=np.float32),
         pseudo_beta_mask=rng.random(L, dtype=np.float32),
         phi=rng.standard_normal(L, dtype=np.float32),
