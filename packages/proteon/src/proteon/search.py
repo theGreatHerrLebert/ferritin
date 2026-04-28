@@ -1152,9 +1152,8 @@ def build_search_db(
     Files that fail to load are skipped using proteon's tolerant batch loader.
 
     Agent Notes:
-        INVARIANT: Residue encoding is Rust-backed; DB materialization and postings persistence are Python/PyArrow today.
+        INVARIANT: DB materialization and postings persistence are Python/PyArrow; residue encoding is Rust-backed.
         PREFER: Build from many paths at once so load + encoding stay batched.
-        PREFER: If you pass out=, the persisted DB also writes the eager compiled serving layout by default.
         WATCH: Only successfully loaded inputs are indexed; source_index preserves the original path position.
     """
     k_values = _normalize_k_values(k)
@@ -1310,8 +1309,7 @@ def load_search_db(
     """Load a search database written by save_search_db().
 
     Agent Notes:
-        PREFER: Keep prefer_compiled=True for repeated query workloads; DBs saved with default settings already include the compiled layout.
-        PREFER: Set auto_compile_missing=True when you want older Parquet-only DBs upgraded in place during load.
+        PREFER: Keep prefer_compiled=True (default) for repeated queries; set auto_compile_missing=True to upgrade older Parquet-only DBs in place on load.
         WATCH: With prefer_compiled=True, lazy older/Parquet-only DBs warn before falling back to Python/PyArrow-backed serving.
     """
     root = Path(path)
@@ -1382,8 +1380,7 @@ def warm_search_db(
     """Warm the postings cache for a lazy Parquet-backed search DB.
 
     Agent Notes:
-        PREFER: Set auto_compile_missing=True when warming a persisted Parquet-only DB that you want upgraded in place first.
-        PREFER: Call this once before latency-sensitive query batches on large lazy DBs.
+        PREFER: Call once before latency-sensitive query batches on large lazy DBs; pass auto_compile_missing=True to upgrade Parquet-only DBs in the same step.
         COST: Warmup reads postings shards into memory and trades startup time for steadier query latency.
     """
     if isinstance(db, (str, Path)):
@@ -1446,11 +1443,9 @@ def search(
     """Search a structural-alphabet DB using a structure or encoded query.
 
     Agent Notes:
-        INVARIANT: Query encoding is Rust-backed; DB serving/caching stays in Python/PyArrow; diagonal rescoring uses Rust when available and otherwise falls back to Python.
-        PREFER: Persisted DBs saved with default settings already include the compiled layout; use compile_search_db() only when upgrading an older Parquet-only DB.
         PREFER: Set auto_compile_missing=True to upgrade a Parquet-only DB in place instead of warning and staying lazy.
         WATCH: Passing an encoded query dict skips TM-align reranking because no original structure is available.
-        COST: Lazy DB search avoids eager materialization but pays extra Parquet reads on first access; path-based loads warn when they fall back there.
+        COST: Lazy DB search pays extra Parquet reads on first access; path-based loads warn when they fall back there.
     """
     if top_k < 1:
         raise ValueError(f"top_k must be >= 1, got {top_k}")
