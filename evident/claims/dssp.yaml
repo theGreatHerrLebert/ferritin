@@ -1,0 +1,120 @@
+claims:
+  - id: proteon-dssp-vs-pydssp-ci
+    title: Proteon DSSP secondary-structure assignments match pydssp on a 5-structure CI corpus
+    kind: measurement
+    subsystem: dssp
+    case: claims/dssp.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    capabilities:
+      - dssp-3class-parity
+      - dssp-helix-fraction-parity
+      - dssp-strand-fraction-parity
+    inputs:
+      corpus: dssp-5-structure-fixtures
+      n: 5
+      class: fixture
+    outputs:
+      residue_count:
+        unit: residues
+        description: >
+          Number of residues seen by each tool on the same input.
+          Asserted as exact equality (a divergence is a fixture
+          problem, not a scoring tolerance).
+      ss_3class_agreement:
+        unit: dimensionless
+        description: >
+          Per-residue agreement rate after collapsing proteon's 8-class
+          alphabet (H/G/I/E/B/T/S/C) to pydssp's 3-class (H/E/-).
+      helix_fraction:
+        unit: dimensionless
+        description: >
+          Fraction of residues classified as helix in the 3-class
+          alphabet (per-tool gross summary).
+      strand_fraction:
+        unit: dimensionless
+        description: >
+          Fraction of residues classified as extended strand in the
+          3-class alphabet (per-tool gross summary).
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      pydssp: "PENDING-PIN-FROM-VENV"
+      python: "3.12"
+    claim: >
+      For each of five reference structures spanning mixed, pure-helix,
+      large alpha/beta, and multi-chain folds (1crn, 1ubq, 1enh, 1ake,
+      4hhb), proteon's DSSP assigns per-residue secondary structure
+      that, after collapsing to pydssp's 3-class alphabet, agrees with
+      pydssp on at least 95% of residues, with helix and strand
+      fractions within 0.10 of pydssp.
+    tolerances:
+      - metric: absolute_error
+        op: "=="
+        value: 0
+        output: residue_count
+        prose: >
+          Residue counts exactly equal between proteon and pydssp on
+          the same input PDB. A divergence indicates a HETATM or chain
+          filter difference and is asserted hard. Source:
+          tests/oracle/test_dssp_oracle.py::TestDsspOracle::test_length_matches.
+      - metric: pass_rate
+        op: ">="
+        value: 0.95
+        output: ss_3class_agreement
+        prose: >
+          (proteon_3class == pydssp_3class).mean() >= 0.95 per
+          structure. Empirically 97-100%; the 95% floor absorbs
+          helix/strand boundary residues whose H-bond energy crosses
+          the -0.5 kcal/mol threshold. Source:
+          tests/oracle/test_dssp_oracle.py::TestDsspOracle::test_3class_agreement.
+      - metric: absolute_error
+        op: "<"
+        value: 0.10
+        output: helix_fraction
+        prose: >
+          |fraction_helix_proteon - fraction_helix_pydssp| < 0.10.
+          Catches systematic H-bond drift that 3-class agreement might
+          mask on structures with very few helices.
+      - metric: absolute_error
+        op: "<"
+        value: 0.10
+        output: strand_fraction
+        prose: >
+          |fraction_strand_proteon - fraction_strand_pydssp| < 0.10.
+          Symmetric counterpart for sheet-rich folds.
+    evidence:
+      oracle:
+        - pydssp
+      command: pytest tests/oracle/test_dssp_oracle.py::TestDsspOracle -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - pydssp's installed version is the same one that produced the
+        cited agreement numbers; an upstream change in pydssp's H-bond
+        thresholds would shift the oracle.
+      - Both tools filter HETATMs and chains identically on each
+        fixture; test_length_matches guards this.
+      - The 8-to-3 class collapse (H/G/I -> H, E/B -> E, T/S/C -> -)
+        is exact and spans pydssp's output exactly.
+      - 95% is a per-structure floor for boundary wobble, not a license
+        for systematic drift; empirical agreement runs 97-100%.
+    failure_modes:
+      - Helix-flavor (alpha vs 3_10 vs pi) and isolated-vs-ladder beta
+        distinctions are lost in the 3-class collapse; a regression
+        affecting only those would be invisible. The candidate mkdssp
+        oracle in tests/oracle/README.md would close this gap.
+      - Single-oracle blind spot — a shared H-bond detection
+        convention between proteon and pydssp would not surface here.
+        mkdssp also addresses this.
+      - corpus_sha unset; STRUCTURES is a Python literal in the test.
+        Replacing or extending the corpus mutates the asserted set
+        without a manifest signal.
+      - The manifest does not record observed agreement numbers; until
+        last_verified.value is populated by the replay runner, a
+        passing claim and a 95.1% claim look identical to a reviewer.

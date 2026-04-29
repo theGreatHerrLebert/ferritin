@@ -1,0 +1,104 @@
+claims:
+  - id: proteon-hydrogens-vs-reduce-ci
+    title: Proteon rigid hydrogen placement matches reduce on 1crn and 1ubq, polar-only and full-H
+    kind: measurement
+    subsystem: prep.hydrogens
+    case: claims/hydrogens.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    capabilities:
+      - hydrogens-rigid-placement-parity
+      - hydrogens-backbone-amide-coverage-parity
+    inputs:
+      corpus: hydrogen-2-structure-fixtures-x-2-modes
+      n: 4
+      class: fixture
+    outputs:
+      rigid_residuals:
+        unit: A
+        description: >
+          Per-rigid-H-atom Euclidean distance to the matched reduce H,
+          after optimal matching within each rigid group (backbone N-H,
+          CA-H, methylene CH2, aromatic CH).
+      backbone_amide_h_count:
+        unit: count
+        description: >
+          Number of backbone amide N-H atoms placed across the chain,
+          per tool. Sanity check on placement coverage.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      reduce: "PENDING-PIN-REDUCE-COMMIT"
+      python: "3.12"
+    claim: >
+      For each of two structures (1crn, 1ubq) under each of two
+      hydrogen-placement regimes (polar-only for CHARMM19, full-H for
+      AMBER96), proteon places rigid hydrogens (backbone N-H, CA-H,
+      methylene CH2, aromatic CH) within 0.1 A of the reduce reference
+      after optimal matching, and produces a backbone amide H count
+      within +/-2 of reduce's count.
+    tolerances:
+      - metric: absolute_error
+        op: "<="
+        value: 0.1
+        output: rigid_residuals
+        prose: >
+          For every rigid H atom, |proteon_pos - reduce_pos| <= 0.1 A
+          after Hungarian-style optimal matching within the rigid
+          group. Rigid groups are backbone N-H, CA-H, methylene CH2,
+          and aromatic CH — positions where bond geometry fixes the
+          H in the heavy-atom frame. Source:
+          tests/oracle/test_reduce_hydrogen_oracle.py::TestReduceHydrogenOracle::test_rigid_parity.
+      - metric: absolute_error
+        op: "<="
+        value: 2
+        output: backbone_amide_h_count
+        prose: >
+          |proteon_amide_H_count - reduce_amide_H_count| <= 2 per
+          structure. Tolerates proline / N-terminal handling
+          differences without asserting them. Source:
+          tests/oracle/test_reduce_hydrogen_oracle.py::TestReduceHydrogenOracle::test_backbone_amide_coverage.
+    evidence:
+      oracle:
+        - reduce
+      command: pytest tests/oracle/test_reduce_hydrogen_oracle.py::TestReduceHydrogenOracle -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - REDUCE_BIN env var points at a working reduce_src/reduce build;
+        the test skips silently when unset, so CI must positively
+        assert presence rather than relying on the skip.
+      - Optional REDUCE_DB env var points at the reduce wwPDB heteroatom
+        dictionary if not at the default /usr/local/ location.
+      - 0.1 A tolerance is a structural floor (heavy-atom geometric
+        ambiguity allows ~0.05 A placement variance); 0.1 A absorbs
+        that with margin.
+      - The Hungarian-style optimal matching in
+        _collect_rigid_residuals is the correct comparison strategy;
+        naive index pairing would fail on methylene CH2 where label
+        ordering may swap with no physical difference.
+      - 1crn and 1ubq cover backbone amides, methylenes, and aromatic
+        CH. They do NOT cover unusual residues, non-standard amino
+        acids, or large-loop disorder.
+    failure_modes:
+      - This claim covers the *rigid* H subset only. Methyl rotamers,
+        sp2 amide NH2 in-plane orientation, and rotatable polar H
+        (Ser/Thr/Tyr/Cys/Lys) are physically real convention gaps
+        documented in tests/oracle/README.md and not asserted here.
+        Tightening would require proteon to gain rotamer optimisation
+        matching reduce's H-bond scoring.
+      - REDUCE_BIN env-gated; a misconfigured CI run can pass the test
+        suite while skipping the entire claim. CI must explicitly
+        check.
+      - 2-structure corpus is small; regressions on membrane proteins,
+        non-standard residues, or high-B-factor disorder would not
+        surface.
+      - Polar-only and full-H modes share most rigid H atoms; a
+        regression affecting only mode-specific placement (a rigid H
+        present in full-H but dropped in polar-only) would be only
+        partly visible.

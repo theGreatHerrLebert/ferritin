@@ -1,0 +1,142 @@
+claims:
+  - id: proteon-amber96-vs-ball-ci
+    title: Proteon AMBER96 energy components agree with BALL on crambin within per-component tolerances
+    kind: measurement
+    subsystem: forcefield.amber96
+    case: claims/forcefield_amber_ball.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    capabilities:
+      - forcefield-energy-component-parity
+    inputs:
+      corpus: crambin-fixture
+      n: 1
+      class: single-chain
+      fixture_path: test-pdbs/1crn.pdb
+    outputs:
+      bond_stretch:
+        unit: kJ/mol
+        description: Sum over harmonic bond-stretch terms.
+      angle_bend:
+        unit: kJ/mol
+        description: Sum over harmonic angle-bend terms.
+      torsion:
+        unit: kJ/mol
+        description: Sum over proper-torsion (cosine series) terms.
+      vdw:
+        unit: kJ/mol
+        description: 12-6 Lennard-Jones non-bonded sum at NoCutoff.
+      electrostatic:
+        unit: kJ/mol
+        description: >
+          Coulomb non-bonded sum at NoCutoff. BALL is known to diverge
+          ~20% from OpenMM-canonical AMBER96 here; tolerance is
+          deliberately wide.
+      improper_torsion:
+        unit: kJ/mol
+        description: >
+          Sum over AMBER improper-torsion terms. Proteon uses double-
+          wildcard matching (AMBER spec); BALL uses single-wildcard
+          and misses ~100 amide-plane impropers on crambin.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      BALL: "PENDING-PIN-BALL-JL-COMMIT-2026-04-18"
+      python: "3.12"
+    claim: >
+      For crambin (1crn) under proteon's AMBER96 force field at
+      NoCutoff, bonded and non-bonded energy components agree with
+      BALL Julia reference values within tolerances reflecting
+      measured BALL-vs-proteon gaps on this structure: 1% for
+      bond_stretch and angle_bend, 2.5% for torsion and vdw, 25% for
+      electrostatic (documenting the BALL convention gap), and a
+      one-sided sanity bound for improper_torsion (proteon >= BALL,
+      magnitude < 20 kJ/mol).
+    tolerances:
+      - metric: relative_error
+        op: "<"
+        value: 0.01
+        output: bond_stretch
+        prose: >
+          |proteon - BALL| / BALL < 1% on bond_stretch. Measured ~0.7%
+          on crambin. Source:
+          tests/oracle/test_ball_energy.py::TestBallEnergyOracle::test_bond_stretch_matches.
+      - metric: relative_error
+        op: "<"
+        value: 0.01
+        output: angle_bend
+        prose: >
+          |proteon - BALL| / BALL < 1% on angle_bend. Measured ~0.5%.
+      - metric: relative_error
+        op: "<"
+        value: 0.025
+        output: torsion
+        prose: >
+          |proteon - BALL| / BALL < 2.5% on torsion. Looser than
+          bonded; proper torsion is sensitive to phase-angle and
+          multiplicity differences in the parameter file.
+      - metric: relative_error
+        op: "<"
+        value: 0.025
+        output: vdw
+        prose: >
+          |proteon - BALL| / |BALL| < 2.5% on vdW at NoCutoff.
+      - metric: relative_error
+        op: "<"
+        value: 0.25
+        output: electrostatic
+        prose: >
+          |proteon - BALL| / |BALL| < 25% on electrostatic at
+          NoCutoff. Wide by design — BALL diverges ~20% from
+          OpenMM-canonical AMBER96 (likely partial-charge dictionary
+          or 1-4 scaling). Proteon matches OpenMM. The 25% band
+          catches a catastrophic charge-set regression without
+          breaking on the known BALL gap.
+      - output: improper_torsion
+        prose: >
+          One-sided sanity: 0 < proteon_improper < 20 kJ/mol and
+          proteon_improper >= BALL_improper. Proteon's double-
+          wildcard improper lookup catches ~100 amide-plane impropers
+          BALL's single-wildcard implementation misses; pre-2026-04-13
+          fix proteon was ~2.2 kJ/mol (close to BALL), post-fix it is
+          ~8.1 kJ/mol (matches OpenMM canonical). No structured
+          metric/op/value because the assertion is interval +
+          inequality, not a single-threshold comparison.
+    evidence:
+      oracle:
+        - BALL
+      command: pytest tests/oracle/test_ball_energy.py::TestBallEnergyOracle -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - The BALL_CRAMBIN_RAW reference values in the test file were
+        produced by the BALL Julia commit dated 2026-04-18; a newer
+        BALL release would move the reference and invalidate the
+        cited percentages.
+      - BALL outputs in kJ/mol; a unit regression there would
+        systematically skew every comparison.
+      - proteon's nonbonded_cutoff=1e6 and BALL's NoCutoff produce
+        mathematically identical no-cutoff long-range evaluation.
+      - Crambin's coverage of standard-residue bond/angle/torsion
+        classes plus amide-plane impropers is sufficient for
+        component-level claims; non-standard residues and unusual
+        terminus handling fall under the OpenMM release claim.
+    failure_modes:
+      - Single fixture. Crambin only; a regression on non-standard
+        residues or large-loop conformations would not surface.
+      - BALL is not the canonical AMBER96 oracle; OpenMM is. The
+        wide electrostatic band and one-sided improper assertion are
+        concessions to BALL's own divergence from canonical AMBER96
+        and could mislead a reviewer who reads "agrees with BALL" as
+        "agrees with the AMBER96 spec".
+      - BALL reference values are baked into the test file. A re-run
+        of ball_energy_raw.jl against a newer BALL is a manual,
+        ungated step; nothing in CI catches a stale reference.
+      - corpus_sha is omitted; crambin in the source tree is pinned
+        by the proteon source SHA transitively, but a source-tree
+        reorganisation would silently move the fixture.

@@ -1,0 +1,141 @@
+claims:
+  - id: proteon-sasa-vs-biopython-ci
+    title: Proteon SASA agrees with Biopython on a fixed CI fixture
+    kind: measurement
+    subsystem: sasa
+    case: claims/sasa.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    capabilities:
+      - sasa-accuracy-pointwise
+    inputs:
+      corpus: 1crn-fixture
+      n: 1
+      class: single-chain
+      fixture_path: tests/fixtures/1crn.pdb
+    outputs:
+      total_sasa:
+        unit: A^2
+        description: Per-structure total solvent-accessible surface area.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      Biopython: "PENDING-PIN-FROM-VENV"
+      python: "3.12"
+    claim: >
+      Proteon's Shrake-Rupley solvent-accessible surface area agrees with
+      Biopython's reference Shrake-Rupley implementation on the crambin
+      (1crn) fixture to within 2% relative difference on total SASA, on
+      every CI run.
+    tolerances:
+      - metric: relative_error
+        op: "<"
+        value: 0.02
+        prose: >
+          |proteon_total - biopython_total| / biopython_total < 0.02 on 1crn
+          at the proteon and Biopython defaults (probe radius 1.4 A, default
+          sphere discretisation). Asserted in
+          tests/test_sasa.py::TestBiopythonOracle::test_total_sasa_matches_biopython.
+    evidence:
+      oracle:
+        - Biopython
+      command: pytest tests/test_sasa.py::TestBiopythonOracle -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - Biopython's Bio.PDB.SASA.ShrakeRupley uses the same probe radius
+        (1.4 A) class as proteon's default call.
+      - The vendored 1crn PDB is parsed equivalently by both stacks
+        (atom set, altloc, hetero handling).
+      - The 2% tolerance encodes Shrake-Rupley sphere-discretisation noise
+        and float-reordering between proteon and Biopython, not a license
+        to ship larger drifts.
+    failure_modes:
+      - Single-oracle agreement can mask a shared Shrake-Rupley convention
+        choice (probe radius, atomic-radii table); the release-tier claim
+        plus the FreeSASA gap below addresses Rule 5 "Use Independent
+        Validation".
+      - Crambin is small and dense; tolerances that pass on 1crn need not
+        survive on large multi-chain assemblies. The release-tier claim
+        covers that distribution.
+      - A regression in Biopython's atomic-radii table would shift the
+        oracle without proteon changing, and would be observed as a drift
+        bug here.
+
+  - id: proteon-sasa-vs-biopython-release-1k-pdbs
+    title: Proteon SASA tracks Biopython on 1000 random PDBs at <0.5% median
+    kind: measurement
+    subsystem: sasa
+    case: claims/sasa.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+    capabilities:
+      - sasa-accuracy-distributional
+    inputs:
+      corpus: validation-pdbs-1k
+      n: 1000
+      class: random-sample
+      corpus_sha: "PENDING-PIN-VALIDATION-PDBS-TARBALL"
+    outputs:
+      total_sasa:
+        unit: A^2
+        description: Per-structure total solvent-accessible surface area.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      Biopython: "PENDING-PIN-FROM-VENV"
+      python: "3.12"
+    claim: >
+      Across a 1000-PDB validation corpus, proteon total SASA agrees with
+      Biopython Shrake-Rupley at median relative deviation below 0.5%,
+      with at least 95% of loadable structures classified 'pass' by
+      validation/run_validation.py::test_sasa.
+    tolerances:
+      - metric: median_relative_error
+        op: "<"
+        value: 0.005
+        prose: >
+          Median(|proteon_total - biopython_total| / biopython_total) < 0.005
+          across the 1000-structure validation/pdbs corpus.
+      - metric: pass_rate
+        op: ">="
+        value: 0.95
+        prose: >
+          sasa.pass / (sasa.pass + sasa.warn + sasa.fail - loading.fail) >= 0.95
+          when load failures are excluded. Per-structure status is decided in
+          validation/run_validation.py::test_sasa.
+    evidence:
+      oracle:
+        - Biopython
+      command: >
+        python validation/run_validation.py --n-structures 1000
+        --pdb-dir validation/pdbs/ --output validation/results.json
+      artifact: validation/results.json
+    last_verified:
+      commit: null
+      date: null
+      value: 0.0017
+      corpus_sha: null
+    assumptions:
+      - validation/pdbs/ is a representative sample of intended deployment
+        input; bias toward small soluble proteins is a known limitation.
+      - Loading-stage failures cascade into SASA status fail; they
+        bound recall, not precision, of the SASA claim.
+      - The pinned Biopython version remains the community Shrake-Rupley
+        reference for the lifetime of the cited result.
+    failure_modes:
+      - Only Biopython is exercised at release tier; FreeSASA is in the
+        oracle install table (tests/oracle/README.md) but not yet wired in,
+        so cross-tool agreement is a known gap.
+      - inputs.corpus_sha is currently a placeholder; until pinned to a
+        real sha or tarball hash, the cited 0.17% number is reproducible
+        only against a corpus that hasn't been regenerated.
+      - results.json records summary counts and relative diffs but not the
+        absolute SASA values; full forensic replay requires the corpus PDBs
+        to be preserved alongside the JSON.

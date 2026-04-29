@@ -1,0 +1,141 @@
+claims:
+  - id: proteon-io-vs-biopython-gemmi-ci
+    title: Proteon PDB/mmCIF loader matches Biopython and Gemmi on a 4-fixture CI corpus
+    kind: measurement
+    subsystem: io
+    case: claims/io.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    capabilities:
+      - io-counts-parity
+      - io-coords-parity
+      - io-metadata-parity
+    inputs:
+      corpus: io-standard-fixtures
+      n: 4
+      class: fixture
+    outputs:
+      counts:
+        unit: count
+        description: >
+          Bundle of model_count, chain_count, residue_count,
+          atom_count. Asserted as exact equality across proteon,
+          Biopython, and Gemmi.
+      chain_ids:
+        unit: identifier
+        description: Per-chain identifier list. Exact equality vs Gemmi.
+      coordinates:
+        unit: A
+        description: Per-atom (x, y, z) coordinates.
+      b_factors:
+        unit: A^2
+        description: Per-atom isotropic B-factor.
+      occupancies:
+        unit: dimensionless
+        description: Per-atom occupancy.
+      string_metadata:
+        unit: identifier
+        description: >
+          Per-atom name, residue name, and chain id. Asserted as exact
+          equality vs Gemmi.
+      elements:
+        unit: symbol
+        description: Per-atom element symbol.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      Biopython: "PENDING-PIN-FROM-VENV"
+      Gemmi: "PENDING-PIN-FROM-VENV"
+      python: "3.12"
+    claim: >
+      Across a 4-fixture CI corpus (1ubq.pdb, 1ubq.cif, 4hhb.pdb,
+      1crn.pdb), proteon's PDB/mmCIF loader agrees with Biopython and
+      Gemmi on hierarchy counts, chain identifiers, coordinates, B-
+      factors, occupancies, atom and residue names, and element symbols
+      within format-precision tolerances.
+    tolerances:
+      - metric: absolute_error
+        op: "=="
+        value: 0
+        output: counts
+        prose: >
+          model_count, chain_count, atom_count, and residue_count are
+          exactly equal across proteon, Biopython, and Gemmi. Asserted
+          in tests/oracle/test_io_oracle.py::TestCounts.
+      - metric: absolute_error
+        op: "=="
+        value: 0
+        output: chain_ids
+        prose: >
+          chain_ids list exactly equal between proteon and Gemmi.
+      - metric: absolute_error
+        op: "<"
+        value: 0.001
+        output: coordinates
+        prose: >
+          Per-atom |proteon.{x,y,z} - oracle.{x,y,z}| < 0.001 A vs
+          Gemmi (always) and vs Biopython (when atom counts agree).
+          0.001 A is the PDB format's 3-decimal-place precision floor.
+      - metric: absolute_error
+        op: "<"
+        value: 0.01
+        output: b_factors
+        prose: >
+          Per-atom |proteon.b_factor - gemmi.b_factor| < 0.01.
+      - metric: absolute_error
+        op: "<"
+        value: 0.01
+        output: occupancies
+        prose: >
+          Per-atom |proteon.occupancy - gemmi.occupancy| < 0.01.
+      - metric: absolute_error
+        op: "=="
+        value: 0
+        output: string_metadata
+        prose: >
+          atom_name, residue_name, and chain_id_per_atom exactly equal
+          between proteon and Gemmi.
+      - metric: pass_rate
+        op: ">="
+        value: 0.99
+        output: elements
+        prose: >
+          Element-mismatch count <= max(1, n_atoms / 100) vs Gemmi —
+          a per-structure 1% ceiling with a floor of 1, absorbing
+          Gemmi's heavier element-guessing on records that omit the
+          column.
+    evidence:
+      oracle:
+        - Biopython
+        - Gemmi
+      command: pytest tests/oracle/test_io_oracle.py -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - Biopython's PDBParser / MMCIFParser and Gemmi's read_structure
+        are byte-stable across the lifetime of the cited result.
+      - The 4 fixture files in tests/oracle/conftest.py::STANDARD_FILES
+        do not change without a regenerated test run; corpus_sha is
+        omitted because the corpus spans two locations and the proteon
+        repo SHA pins only one.
+      - The coordinate tolerance reflects the PDB format precision
+        floor, not a real numerical gap.
+      - Element-mismatch tolerance absorbs Gemmi's element-guessing on
+        records that omit the element column; it is not a license for
+        proteon to mislabel elements at scale.
+    failure_modes:
+      - corpus_sha unset; STANDARD_FILES additions or replacements
+        would mutate the asserted set without a manifest signal.
+      - Biopython and Gemmi share the wwPDB / mmCIF specification;
+        a spec-level convention shift could move both oracles in
+        lockstep without proteon changing, and would not surface here.
+      - Edge-case fixtures (multi-model NMR, insertion codes, alt-
+        conformer files) are explicitly out of scope; a regression
+        affecting only those formats would not be caught.
+      - mmCIF coverage is one fixture (1ubq.cif). Asymmetric-unit-only
+        and large mmCIF-only structures are not exercised.

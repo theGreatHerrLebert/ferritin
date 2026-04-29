@@ -1,0 +1,39 @@
+# Build artifacts and dev environment
+target/
+.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+.git/
+.github/
+**/.DS_Store
+
+# Validation corpora and run artifacts — too large to bake into the
+# image (12GB+ in pdbs_10k alone). Release-tier replay must mount
+# these at runtime; manifest case writeups document the mount paths.
+# The validation/ Python scripts themselves are kept (they are the
+# runners).
+validation/pdbs/
+validation/pdbs_*/
+validation/*.jsonl
+validation/*.json
+validation/gmx_fold_preservation/
+validation/report/
+validation/report.html
+validation/stage*.log
+
+# Documentation site build artifacts (regenerable from docs/)
+site/
+
+# Test corpora
+tests/corpus/
+
+# Local distribution artifacts
+dist-claim/
+proteon.lock
+report.html
+
+# Editor / OS junk
+*.swp
+.idea/
+.vscode/

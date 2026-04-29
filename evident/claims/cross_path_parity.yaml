@@ -1,0 +1,107 @@
+claims:
+  - id: proteon-cross-path-parity-nbl-ci
+    title: Proteon NBL energy path matches the exact O(N^2) path on every component, structure, and FF
+    kind: measurement
+    subsystem: energy.cross-path
+    case: claims/cross_path_parity.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    capabilities:
+      - energy-path-parity
+    inputs:
+      corpus: cross-path-parity-4-structures-x-2-ff
+      n: 4
+      class: fixture
+    outputs:
+      component_divergence:
+        unit: kJ/mol
+        description: >
+          Per-component absolute |E_exact - E_nbl| on every energy
+          component (bond_stretch, angle_bend, torsion,
+          improper_torsion, vdw, electrostatic, solvation) and on
+          total. Asserted per (structure, force-field) cell.
+      default_path_divergence:
+        unit: kJ/mol
+        description: >
+          |E_default - E_forced_path| where forced_path is exact for
+          structures <=2000 atoms or NBL for >2000 atoms. Pins the
+          NBL_AUTO_THRESHOLD heuristic as a contract.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      proteon-slow-path: "PENDING-PIN-AT-NEXT-RELEASE"
+      python: "3.12"
+    claim: >
+      For each of four reference structures spanning the
+      NBL_AUTO_THRESHOLD (1crn 327, 1bpi 454, 1ubq 602, 1ake 3317
+      atoms) and for each of two force fields (amber96,
+      charmm19_eef1), proteon's neighbour-list energy path agrees
+      with the exact O(N^2) reference path on every energy component
+      (and total) within 1e-6 kcal/mol absolute or 1e-9 relative,
+      whichever is larger. The default path-selection heuristic
+      additionally matches whichever forced path corresponds to the
+      structure size, to the same tolerance.
+    tolerances:
+      - metric: absolute_error
+        op: "<="
+        value: 4.184e-06
+        output: component_divergence
+        prose: >
+          |E_exact - E_nbl| <= max(1e-6 kcal/mol = 4.184e-6 kJ/mol,
+          1e-9 * |E_exact|) per component. Strict enough to catch any
+          real bug (NBL-vs-exact drift is either zero or O(10^0+)
+          kcal/mol — there is no physical process producing drift in
+          between), loose enough to tolerate FP reassociation across
+          the two code paths. Source:
+          tests/test_cross_path_parity.py::test_nbl_matches_exact_all_components.
+      - metric: absolute_error
+        op: "<="
+        value: 4.184e-06
+        output: default_path_divergence
+        prose: >
+          |E_default - E_forced| <= max(1e-6 kcal/mol, 1e-9 * |E|)
+          where forced_path is the exact path for <=2000-atom
+          structures and the NBL path for >2000-atom structures.
+          Pins NBL_AUTO_THRESHOLD = 2000 as a test-enforced contract.
+          Source:
+          tests/test_cross_path_parity.py::test_default_path_matches_one_of_the_forced_paths.
+    evidence:
+      oracle:
+        - proteon-slow-path
+      command: pytest tests/test_cross_path_parity.py -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - 1e-6 kcal/mol is the right strictness floor; tighter would be
+        flaky on FP reassociation, looser would mask real bugs. The
+        2026-04-11 EEF1 incident produced O(10^3) kcal/mol divergence,
+        well above this floor.
+      - compute_energy_impl (exact O(N^2)) is the simpler reference;
+        bugs in it would invalidate the parity direction but are
+        guarded independently by the invariant test suite (sign,
+        finiteness, total = sum components).
+      - The 4-structure corpus spans both regimes of the default
+        heuristic. A heuristic change away from 2000 atoms would
+        surface immediately on at least one structure.
+    failure_modes:
+      - Symmetric bugs are invisible. If both paths share the same
+        wrong formula, the parity test passes. The
+        invariant tests (sign, magnitude) plus the BALL and OpenMM
+        oracle claims close this gap.
+      - Covers only NBL-vs-exact CPU parity. GPU parity (memory cites
+        CPU<->GPU 1e-11 on crambin), SIMD parity, and rayon-vs-serial
+        parity each need separate cross-path claims.
+      - NBL_AUTO_THRESHOLD = 2000 is contract-pinned only at the
+        corpus boundary (largest <=2000 fixture is 602 atoms; the
+        only >2000 fixture is 3317). A threshold change to e.g.
+        1500 would not surface unless a new fixture lands in the
+        1500-2000 range.
+      - oracle = proteon-slow-path is a self-reference; the schema
+        enforces oracle vocabulary membership for composability but
+        a reviewer should read this as Reference Shadowing, not as
+        independent validation.
