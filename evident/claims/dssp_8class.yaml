@@ -1,0 +1,56 @@
+claims:
+  - id: proteon-dssp-8class-vs-mkdssp-reference
+    title: Proteon 8-class DSSP output should agree with the mkdssp C++ reference on helix-flavor and isolated-bridge distinctions (reference — no asserting test yet)
+    kind: reference
+    case: claims/dssp_8class.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    claim: >
+      Proteon emits 8-class DSSP labels (H, G, I, E, B, T, S, C) in
+      production; the existing pydssp claim covers only the 3-class
+      collapse (H, E, -). Helix-flavor (alpha vs 3_10 vs pi) and
+      isolated-bridge (B vs E) distinctions are silently lost in the
+      collapsed claim. The mkdssp C++ binary (Kabsch-Sander reference
+      implementation) would close this gap by asserting per-residue
+      8-class agreement at >=95% on the same 5-structure corpus.
+      No asserting test currently exists.
+    evidence:
+      oracle:
+        - mkdssp
+      command: pytest tests/oracle/test_dssp_mkdssp_oracle.py -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    assumptions:
+      - The proposed test path tests/oracle/test_dssp_mkdssp_oracle.py
+        does NOT exist at the cited commit. The command is the target
+        invocation; running it today would yield a collection error.
+      - mkdssp is not pip/conda-installable on most modern toolchains;
+        the test must build from source under a sibling path
+        (e.g. /scratch/TMAlign/dssp/) and gate on a MKDSSP_BIN env var.
+        This is the same install-difficulty pattern as `reduce`.
+      - The mkdssp output format is DSSP plain text; the test must
+        parse it into an 8-class array compatible with proteon's
+        emission format.
+      - The 5-structure corpus from the existing pydssp claim
+        (1crn, 1ubq, 1enh, 1ake, 4hhb) is sufficient for 8-class
+        coverage; helix-flavor and isolated-bridge calls are present
+        across these folds.
+    failure_modes:
+      - No asserting test exists yet. This is a kind=reference claim
+        pointing at the gap. It becomes kind=measurement the day a
+        wired test lands.
+      - Without this gap closed, downstream consumers indexing on
+        helix flavor (alpha/3_10/pi) or isolated-vs-ladder beta have
+        no manifest-visible correctness assertion, only the dominant
+        3-class collapse.
+      - mkdssp itself is end-of-life-adjacent (last upstream commit
+        is older than pydssp); a future world without a maintained
+        mkdssp would force the gap closed by a different oracle
+        (potentially BioPython's mkdssp wrapper, or another team's
+        port).
+      - Closing the gap will likely surface a small per-residue
+        disagreement at helix-flavor boundaries (alpha-to-3_10
+        transitions) that is real Kabsch-Sander tie-breaking, not
+        a proteon bug. The tolerance must be calibrated against
+        that, mirroring the 95% pydssp threshold.

@@ -1,0 +1,106 @@
+claims:
+  - id: proteon-amber96-vs-openmm-release-1k-pdbs
+    title: Proteon AMBER96 single-point total energy tracks OpenMM at <0.5% median across 1000 PDBs
+    kind: measurement
+    subsystem: forcefield.amber96
+    case: claims/forcefield_amber_openmm.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+    capabilities:
+      - forcefield-total-energy-parity
+    inputs:
+      corpus: amber96-oracle-1k-from-50k-pool
+      n: 1000
+      class: random-sample
+      corpus_sha: "PENDING-PIN-50K-PDB-POOL-TARBALL"
+    outputs:
+      e_total:
+        unit: kJ/mol
+        description: Single-point AMBER96 total energy (vacuum, NoCutoff).
+      abs_diff:
+        unit: kJ/mol
+        description: Per-structure |E_proteon - E_openmm|.
+      rel_diff:
+        unit: dimensionless
+        description: >
+          Per-structure |E_proteon - E_openmm| / (|E_openmm| + 1.0
+          kJ/mol). The +1 in the denominator stabilises the ratio for
+          near-zero energies.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      OpenMM: "PENDING-PIN-OPENMM-VERSION"
+      python: "3.12"
+    claim: >
+      Across 1000 PDBs sampled (seed=42) from the
+      proteon-benchmark/pdbs_50k pool, proteon's AMBER96 single-point
+      total energy at NoCutoff agrees with OpenMM's at a median
+      relative difference below 0.5%, with a per-structure target of
+      |E_proteon - E_openmm| / |E_openmm| < 1e-3 on total. Both tools
+      load PDBFixer-prepped structures so they see identical atoms
+      and hydrogen positions.
+    tolerances:
+      - metric: median_relative_error
+        op: "<="
+        value: 0.005
+        output: rel_diff
+        prose: >
+          Median(|E_proteon - E_openmm| / (|E_openmm| + 1.0)) <= 0.005
+          across 1000 PDBs. Memory cites 0.2% achieved median;
+          tightening the structured tolerance to that level requires
+          first confirming the per-structure tail behaviour from the
+          JSONL artifact.
+      - output: rel_diff
+        prose: >
+          Per-structure target from validation/amber96_oracle.py
+          docstring: rel_diff < 1e-3 on total. Not currently gated
+          per-structure by the runner — the JSONL artifact lets a
+          reviewer verify compliance. last_verified.value should
+          record the observed >=95% pass rate once the replay runner
+          is wired.
+    evidence:
+      oracle:
+        - OpenMM
+      command: python validation/amber96_oracle.py
+      artifact: /globalscratch/dateschn/proteon-benchmark/amber96_oracle.jsonl
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - PDBFixer prep is deterministic enough that proteon and OpenMM
+        see byte-identical atoms and positions on each structure.
+      - The 50K PDB pool at /globalscratch/dateschn/proteon-benchmark/
+        is the corpus the cited result was produced against; the
+        corpus_sha placeholder will be resolved to a tarball hash or
+        git-LFS pin at first replay.
+      - OpenMM's amber96.xml is the parameter file proteon's AMBER96
+        targets; a unit-conversion or partial-charge difference
+        would systematically skew every structure.
+      - NoCutoff on both sides; the comparison is independent of
+        proteon's 15 A default cutoff policy, which is a separate
+        performance-vs-accuracy claim not asserted here.
+      - The script writes its artifact to a /globalscratch/ path
+        outside the source tree; CI must mount or relocate this for
+        replay to succeed.
+    failure_modes:
+      - Per-structure pass rate is not gated by the runner. Until
+        last_verified.value records the observed >=95% pass rate, a
+        reader cannot distinguish "median 0.2%, all <1e-3" from
+        "median 0.2%, 5% of structures at 5%".
+      - The corpus is external and unpinned. A regenerated pool with
+        subtly different chain filtering would produce different
+        numbers without any manifest signal.
+      - PDBFixer is part of the trust chain. A PDBFixer regression
+        would shift both proteon and OpenMM in lockstep — invisible
+        here. Pinning the PDBFixer version in pinned_versions is a
+        reasonable tightening.
+      - Per-component partitioning differs between tools (OpenMM per
+        ForceGroup, proteon per component). The script captures both
+        in JSONL but the structured tolerance gates only the total;
+        a compensating-component regression would be visible in the
+        artifact but not asserted.
+      - NoCutoff only. Proteon's production 15 A cutoff path is not
+        exercised here.

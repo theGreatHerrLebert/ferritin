@@ -1,0 +1,141 @@
+claims:
+  - id: proteon-50k-battle-test-release
+    title: Proteon GPU CHARMM19+EEF1 minimisation pipeline produces physically-consistent output on 99.1% of 47183 random PDBs
+    kind: measurement
+    subsystem: pipeline.batch
+    case: claims/scale_50k_battle_test.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+    capabilities:
+      - pipeline-survives-at-scale
+      - pipeline-physics-consistent-at-scale
+    inputs:
+      corpus: 50k-pdb-pool
+      n: 47183
+      class: random-sample
+      corpus_sha: "PENDING-PIN-50K-PDB-POOL-TARBALL"
+    outputs:
+      coverage_rate:
+        unit: dimensionless
+        description: >
+          Fraction of input PDBs that finish with status=ok
+          (no exception, not pre-skipped). Reported but not gated
+          in the structured tolerance.
+      negative_energy_rate:
+        unit: dimensionless
+        description: >
+          Among status=ok structures, fraction with final_energy < 0
+          after CHARMM19+EEF1 minimisation. Physics-consistency
+          proxy for "minimisation did the right thing".
+      throughput:
+        unit: structures/s
+        description: >
+          Wall-time throughput on RTX 5090 + 128 cores. Reported
+          context, not gated.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      physics-invariant: "PENDING-PIN-CHARMM19-EEF1-CONVENTION"
+      python: "3.12"
+    claim: >
+      Across 47,183 random PDBs from the proteon-benchmark/pdbs_50k
+      pool, proteon's GPU-accelerated CHARMM19+EEF1 pipeline (50
+      minimisation steps, 500-PDB chunks, RTX 5090) reaches a
+      negative final total energy on at least 95% of structures
+      that finish with status=ok, in a single 3.5-hour run on a
+      RTX 5090 + 128 CPU cores. Documented status: 99.1% achieved
+      (44,837 / 45,242 ok structures), 95.9% coverage (45,242 /
+      47,183 input PDBs).
+    tolerances:
+      - metric: pass_rate
+        op: ">="
+        value: 0.95
+        output: negative_energy_rate
+        prose: >
+          (n_negative / n_ok) >= 0.95. Documented run achieved
+          0.991 on the 50K pool (44,837 / 45,242). The 0.95
+          threshold absorbs tail cases (small peptides, severe
+          steric clash unresolvable in 50 steps, unusual oligomers)
+          without letting a systematic minimisation regression
+          ship. Source: validation/stage3_50k_gpu.log summary block,
+          line 'Negative: 44837/45242 (99.1%)'.
+      - output: coverage_rate
+        prose: >
+          n_ok / n_input is reported but not gated. Documented run
+          achieved 0.959 (45,242 / 47,183). A loader or pre-process
+          regression that pushed structures from status=ok into
+          status=error or status=skipped would show in the log but
+          not break this structured tolerance — flagged as a
+          failure mode for the next iteration.
+      - output: throughput
+        prose: >
+          Documented throughput 3.6 structures/s on RTX 5090 + 128
+          cores. Reported as run-cost context for replay budgeting,
+          not as a gated capability.
+    evidence:
+      oracle:
+        - physics-invariant
+      command: >
+        python benchmark/stage3_50k_gpu.py
+        --pdb-dir /globalscratch/dateschn/proteon-benchmark/pdbs_50k
+        --minimize-steps 50 --chunk 500 --gpu --threads 128 --seed 42
+        --out validation/stage3_50k_gpu_results.jsonl
+        --log validation/stage3_50k_gpu.log
+      artifact: validation/stage3_50k_gpu_results.jsonl
+    last_verified:
+      commit: null
+      date: "2026-04-12"
+      value: 0.991
+      corpus_sha: null
+    assumptions:
+      - The 50k-pdb-pool is the corpus the cited 99.1% number was
+        produced against; pool drift between runs would invalidate
+        the rate. corpus_sha is currently a PENDING-PIN placeholder.
+      - 47,183 != 50,000; the pool is named '50k' but actually holds
+        fewer files (acquisition-time filtering). Manifest n
+        reflects pool size, not marketing name.
+      - final_energy < 0 is a meaningful proxy for 'minimisation did
+        the right thing' on folded proteins under CHARMM19+EEF1 at
+        reasonable parameters. Does not generalise to unfolded
+        peptides, designed proteins, or unusual oligomers.
+      - 50 minimise steps is enough on most reasonable inputs at
+        50K scale; Stage-1 smoke uses 100 steps as default. The
+        50-step choice is a performance-vs-coverage tradeoff
+        deliberately made for the production run.
+      - The GPU code path (CHARMM19+EEF1 energy + SASA on CUDA) is
+        what was exercised. CPU correctness is covered by the
+        per-component oracle claims.
+    failure_modes:
+      - The driver script is not in the source tree at the cited
+        commit. Artifact is preserved
+        (validation/stage3_50k_gpu_results.jsonl,
+        stage3_50k_gpu.log) but the driver that produced them is
+        not currently committed. The command field above is a
+        RECONSTRUCTED invocation matching the log header, not a
+        literal script path that exists today. Replay before the
+        next release requires re-creating the driver as
+        benchmark/stage3_50k_gpu.py.
+      - Survival is not correctness. A pipeline that produces
+        plausible-but-wrong energies on every structure could pass
+        this claim. The per-component oracle claims (SASA, AMBER96,
+        OBC GB, etc.) cover correctness; this claim covers survival.
+        Both are needed.
+      - Physics invariant has legitimate tail cases. Small peptides,
+        designed proteins, severe-clash inputs, and unusual oligomeric
+        states may end at positive energy without indicating a bug.
+        The 0.95 floor absorbs these; a regression that pushed
+        structurally fine PDBs into the positive-energy bucket would
+        drop below 0.95.
+      - Single-hardware claim (RTX 5090). A regression specific to
+        older CUDA compute capabilities (sm_70, sm_80) or to CPU
+        fallback would not surface here. The cross-path-parity
+        claim addresses CPU; a separate GPU-vs-CPU parity claim is
+        the right place to gate against hardware-specific
+        regressions.
+      - 3.5 h on RTX 5090 + 128 cores is the literal cost of
+        replaying this claim. Release-tier replay needs a budgeted
+        compute slot.
+      - Coverage rate (status=ok / input) is reported but not
+        gated. A loader regression on edge-case PDBs would show in
+        the log but not break the structured tolerance.

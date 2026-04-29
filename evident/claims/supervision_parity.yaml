@@ -1,0 +1,133 @@
+claims:
+  - id: proteon-supervision-rust-vs-python-ci
+    title: Proteon Rust supervision batch extractor matches Python reference bit-exact on coords/masks and to 1e-5 on angles/frames
+    kind: measurement
+    subsystem: supervision
+    case: claims/supervision_parity.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    capabilities:
+      - supervision-rust-python-parity
+    inputs:
+      corpus: supervision-2-fixtures-plus-mixed-batch
+      n: 3
+      class: fixture
+    outputs:
+      coord_fields:
+        unit: A
+        description: >
+          Coordinate tensors all_atom_positions, atom14_gt_positions,
+          pseudo_beta. Bit-for-bit identical between Rust and Python
+          paths.
+      mask_fields:
+        unit: bool
+        description: >
+          Mask tensors (10 total) including all_atom_mask,
+          atom14_gt_exists, atom14_atom_exists, atom37_atom_exists,
+          pseudo_beta_mask, rigidgroups_gt_exists, phi_mask, psi_mask,
+          omega_mask, chi_mask. Bit-for-bit identical.
+      angle_fields:
+        unit: rad
+        description: >
+          Dihedral tensors phi, psi, omega, chi_angles. Computed via
+          sqrt and atan2; allowed a tiny float tolerance for sum
+          reordering across Rust and Python.
+      frame_fields:
+        unit: dimensionless
+        description: >
+          rigidgroups_gt_frames — 8 rigid-body frames per residue.
+          Allowed the same float tolerance as angles.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      proteon-slow-path: "PENDING-PIN-AT-NEXT-RELEASE"
+      python: "3.12"
+    claim: >
+      For each of two reference structures (1crn, 1ubq) and for a
+      mixed-length batch of both, proteon's Rust supervision batch
+      extractor produces coord and mask tensors bit-for-bit
+      identical to the Python reference, and angle and frame
+      tensors within 1e-5 absolute or relative — sliced to each
+      example's valid length to absorb Rust's pad-then-slice batch
+      padding semantics.
+    tolerances:
+      - metric: absolute_error
+        op: "=="
+        value: 0
+        output: coord_fields
+        prose: >
+          np.testing.assert_array_equal(rust, python) on
+          all_atom_positions, atom14_gt_positions, pseudo_beta —
+          bit-for-bit identical. Source:
+          tests/test_supervision_rust_parity.py::_compare_single
+          (_COORD_FIELDS).
+      - metric: absolute_error
+        op: "=="
+        value: 0
+        output: mask_fields
+        prose: >
+          assert_array_equal on all 10 mask tensors. Mask
+          divergence corrupts which atoms / residues / groups are
+          treated as present in supervision; bit-exact is the only
+          honest tolerance.
+      - metric: absolute_error
+        op: "<="
+        value: 0.00001
+        output: angle_fields
+        prose: >
+          assert_allclose(atol=1e-5, rtol=1e-5) on phi, psi, omega,
+          chi_angles. Allows sum reordering across Rust and Python
+          dihedral-math implementations; empirical diff was 0 on
+          the cited fixtures (2026-04-14).
+      - metric: absolute_error
+        op: "<="
+        value: 0.00001
+        output: frame_fields
+        prose: >
+          assert_allclose(atol=1e-5, rtol=1e-5) on
+          rigidgroups_gt_frames (8 frames per residue). Same
+          rationale as angle fields.
+    evidence:
+      oracle:
+        - proteon-slow-path
+      command: pytest tests/test_supervision_rust_parity.py -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - assert_array_equal is the right strictness for coords and
+        masks — supervision is deterministic on the same input
+        atoms, so any difference is a real bug.
+      - 1e-5 tolerance on angles and frames absorbs Rust-vs-Python
+        sum reordering in dihedral math without permitting drift;
+        empirical diff is 0 on crambin and ubiquitin.
+      - Crambin and ubiquitin together cover chi-angle atom-lookup
+        for the 20 standard amino acids; non-standard residues
+        (selenomethionine, modified residues) are not exercised.
+      - The 8 rigidgroups per residue are exercised on both
+        fixtures; no fixture-specific rigidgroup gap.
+    failure_modes:
+      - Skip-on-missing-connector. Test pytest.mark.skipifs when
+        rust_supervision_available() is False; a build regression
+        that hides the Rust path would silently green-light the
+        Python fallback. CI must positively assert the Rust
+        connector is importable.
+      - Two-structure corpus. Exotic residues (Sec, Pyl, modified
+        amino acids) are not exercised; a chi-angle lookup
+        regression specific to those would not surface.
+      - Batch padding parity is checked only inside the valid
+        length region (rust[:n] vs python). A zero-bleed bug
+        outside the valid region would not surface.
+      - Single-thread tests only. Rust tensors that look correct
+        on a single-thread call but drift under rayon parallelism
+        (data-race-free but reduction-order-dependent) would not
+        surface here. A separate parametrisation over n_threads>1
+        would close that gap.
+      - oracle = proteon-slow-path repeats the cross-path-parity
+        claim's self-reference convention; reviewer should read
+        as Reference Shadowing on tensors, not independent
+        validation.

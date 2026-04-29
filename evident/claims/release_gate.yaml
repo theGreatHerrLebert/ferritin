@@ -1,0 +1,34 @@
+claims:
+  - id: proteon-oracle-backed-release-gate
+    title: Proteon core numerical claims are release-gated by external oracles
+    kind: policy
+    case: ../devdocs/ORACLE.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+      - understanding
+    claim: >
+      Core Proteon numerical and structural-biology claims should be accepted
+      for release only when they point to an independent oracle, a documented
+      tolerance, a reproducible command, and a recorded artifact for the
+      release commit.
+    evidence:
+      oracle:
+        - OpenMM
+        - BALL
+        - USAlign
+        - Biopython
+        - Gemmi
+        - FreeSASA
+        - pydssp
+        - reduce
+      command: pytest tests/oracle -v
+      artifact: validation/report.html
+    assumptions:
+      - Heavy release oracles may not run in fast CI.
+      - Oracle disagreement is treated as a Proteon bug until a convention gap
+        is demonstrated and documented.
+    failure_modes:
+      - Golden fixtures drift without live oracle regeneration.
+      - Release claims outgrow the checks actually rerun before tagging.

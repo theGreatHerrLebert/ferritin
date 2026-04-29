@@ -1,0 +1,64 @@
+claims:
+  - id: proteon-acceleration-paths-parity-reference
+    title: Proteon SIMD, rayon, and multi-thread supervision paths should each have parity tests vs the slow path (reference — none of the three exist today)
+    kind: reference
+    case: claims/acceleration_paths.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    claim: >
+      Per the cross-path-parity principle in feedback_cross_path_parity
+      memory ("any accelerated code path needs a parity test against
+      the slow path on every component, parametrized over force
+      field"), proteon's SIMD path, rayon-parallel path, and
+      multi-threaded supervision extractor each require structured
+      parity tests at the public Python API. None exist at the
+      cited commit. NBL parity is covered (cross-path-parity
+      claim); GPU parity is its own gap claim; this claim covers
+      the remaining three axes as a single bundled reference.
+    evidence:
+      oracle:
+        - proteon-slow-path
+      command: pytest tests/test_cross_path_parity.py tests/test_supervision_rust_parity.py -k 'simd or rayon or threads' -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    assumptions:
+      - The proposed test parametrisations (-k simd, -k rayon, -k
+        threads) do NOT exist at the cited commit. The command would
+        match zero tests today.
+      - The fixture matrix for SIMD and rayon parity is the same as
+        cross-path-parity (1crn, 1bpi, 1ubq, 1ake x amber96,
+        charmm19_eef1). Tolerance same as NBL parity —
+        max(1e-6 kcal/mol, 1e-9 * |E|) per component.
+      - rayon parity must use n_threads=1 (forces serial) and -1
+        (forces all cores), NOT 0 — proteon's n_threads=0 runs
+        serial, a known trap (feedback_proteon_n_threads_trap memory).
+      - Multi-thread supervision parity tolerance is same as the
+        existing single-thread supervision claim (assert_array_equal
+        on coords/masks; atol=1e-5 rtol=1e-5 on angles/frames).
+      - The Rust supervision extractor is data-race-free; multi-
+        thread tolerance is purely about reduction-order
+        non-determinism, not about correctness under contention.
+    failure_modes:
+      - No asserting tests exist. This is a kind=reference claim
+        bundling three independent gaps. Closing one does not close
+        the others.
+      - The bundle structure is a manifest convenience. When the
+        first closure lands, this claim should split into one
+        measurement claim per axis (rayon, SIMD, multi-thread
+        supervision) and the bundle becomes a smaller reference for
+        the still-open axes, eventually retired entirely.
+      - The 50K battle test exercises rayon (host-side parallel
+        orchestration of GPU minimisation chunks) but does not
+        assert per-component parity vs the serial path. Memory of
+        "99.1% physics-consistent" is survival evidence, not parity.
+      - SIMD path is gated by build flags; some users may already
+        have it disabled by virtue of compilation. Closing the SIMD
+        gap requires a clear story for how the test discovers
+        whether SIMD is enabled in the running build.
+      - Multi-thread supervision parity matters specifically at
+        corpus-build scale (Layer 5 production runs) where reduction
+        order under rayon could silently produce different angle/
+        frame tensors on consecutive runs of the same input. A
+        regression here would corrupt training corpora without
+        crashing.

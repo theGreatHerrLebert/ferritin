@@ -1,0 +1,113 @@
+claims:
+  - id: proteon-tmalign-vs-usalign-ci
+    title: Proteon TM-align matches C++ USAlign on a 7-pair CI fixture set
+    kind: measurement
+    subsystem: align.tmalign
+    case: claims/tmalign.md
+    source: ..
+    tier: ci
+    trust_strategy:
+      - validation
+    capabilities:
+      - alignment-tmscore-parity
+      - alignment-rmsd-parity
+      - alignment-length-parity
+    inputs:
+      corpus: tmalign-7-pair-fixtures
+      n: 7
+      class: single-chain
+    outputs:
+      tm_score_norm_chain1:
+        unit: dimensionless
+        description: >
+          TM-score normalised by chain-1 length, proteon convention. Maps
+          to USAlign TM2 due to a reading-order convention swap — see
+          claims/tmalign.md.
+      tm_score_norm_chain2:
+        unit: dimensionless
+        description: >
+          TM-score normalised by chain-2 length, proteon convention. Maps
+          to USAlign TM1.
+      rmsd:
+        unit: A
+        description: Root-mean-square deviation over aligned residues.
+      n_aligned:
+        unit: residues
+        description: Number of residues in the aligned core.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      USAlign: "PENDING-PIN-USALIGN-COMMIT"
+      python: "3.12"
+    claim: >
+      For each of seven reference PDB pairs in the CI fixture set,
+      proteon's TM-align reports TM-score (both chain normalisations),
+      RMSD, and aligned-residue count that match the canonical C++ USAlign
+      reference within tolerances reflecting -ffast-math reordering and
+      PDB-coordinate-precision-limited RMSD.
+    tolerances:
+      - metric: absolute_error
+        op: "<"
+        value: 0.0005
+        output: tm_score_norm_chain1
+        prose: >
+          rust.tm_score_chain1 within 5e-4 absolute of cpp.tm2 (the
+          chain-2-normalised value, per USAlign's convention). Asserted in
+          tests/oracle/test_tmscore_oracle.py::TestTMScoreVsCpp::test_tm_scores_match.
+      - metric: absolute_error
+        op: "<"
+        value: 0.0005
+        output: tm_score_norm_chain2
+        prose: >
+          rust.tm_score_chain2 within 5e-4 absolute of cpp.tm1 (the
+          chain-1-normalised value). 4-5 decimal-place agreement, limited
+          by C++ -ffast-math reordering that Rust does not permit.
+      - metric: absolute_error
+        op: "<"
+        value: 0.05
+        output: rmsd
+        prose: >
+          RMSD within 0.05 A absolute of the C++ USAlign RMSD. Two-decimal
+          agreement; PDB coordinate precision is the floor.
+      - metric: absolute_error
+        op: "<="
+        value: 2
+        output: n_aligned
+        prose: >
+          Number of aligned residues within +/-2 of the C++ USAlign count.
+          Allows tie-breaking differences in the dynamic-programming path.
+    evidence:
+      oracle:
+        - USAlign
+      command: pytest tests/oracle/test_tmscore_oracle.py::TestTMScoreVsCpp -v
+      artifact: pytest console output (CI-tier; no persisted artifact)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - The USAlign C++ binary is on PATH or located at $USALIGN_BIN; the
+        test skips silently when neither is resolvable, so CI must
+        positively check that the binary is present.
+      - Fixture PDBs at test-pdbs/ (mixed proteon-internal and
+        /scratch/TMAlign/test-pdbs/ on the host) are byte-stable across
+        runs; corpus_sha is omitted because the proteon repo SHA pins
+        only one of the two source locations.
+      - The convention swap (proteon chain1 <-> USAlign tm2) is a
+        reading-order difference, not a numerical one, and is handled
+        explicitly in the test code.
+      - Proteon's PDB parser agrees with USAlign's at the input layer; a
+        separate I/O parity claim covers this.
+    failure_modes:
+      - corpus_sha unset; a regression that adds, removes, or replaces a
+        fixture could silently expand or shrink the asserted set.
+        Tightening would pin fixture SHAs or move all fixtures inside the
+        source tree.
+      - Fast-mode (TestFastMode) is intentionally out of scope here; it is
+        an internal cross-path parity check (fast vs non-fast within
+        proteon) and belongs in a future cross-path-parity claim.
+      - USAlign and proteon TM-align share algorithmic ancestry; this is
+        an independent *implementation*, not an independent oracle. A
+        second comparator (original TMalign C++ binary or a Python re-
+        implementation) would strengthen Rule 5 "Use Independent
+        Validation".

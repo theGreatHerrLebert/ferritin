@@ -1,0 +1,97 @@
+version: 0.1
+project: proteon
+
+# Proteon's EVIDENT manifest. Each claim describes a defensible numerical
+# or structural-biology assertion proteon makes, with an oracle, tolerance,
+# reproducible command, and recorded artifact.
+#
+# Per-component claim files live under claims/ and are merged into a single
+# id namespace by the validator. Validate with:
+#
+#   python -m evident.validate proteon/evident/evident.yaml
+#
+# (or workflow/validate_manifest.py from the EVIDENT framework repo).
+# Path references inside claim files resolve from the directory of this
+# top-level manifest, not from the included file.
+#
+# See evident/workflow/SCHEMA.md (in the framework repo) for the full schema.
+
+vocabularies:
+  subsystem:
+    - io
+    - sasa
+    - dssp
+    - hbond
+    - prep.hydrogens
+    - align.tmalign
+    - align.usalign
+    - forcefield.charmm19
+    - forcefield.amber96
+    - gb.obc
+    - energy.cross-path
+    - minimize
+    - search.mmseqs
+    - supervision
+    - pipeline.batch
+  oracle:
+    - Biopython
+    - FreeSASA
+    - OpenMM
+    - BALL
+    - Gemmi
+    - USAlign
+    - MMseqs2
+    - pydssp
+    - reduce
+    - GROMACS
+    - proteon-slow-path
+    - physics-invariant
+    - mkdssp
+  capability:
+    - sasa-accuracy-pointwise
+    - sasa-accuracy-distributional
+    - alignment-tmscore-parity
+    - alignment-rmsd-parity
+    - alignment-length-parity
+    - io-counts-parity
+    - io-coords-parity
+    - io-metadata-parity
+    - dssp-3class-parity
+    - dssp-helix-fraction-parity
+    - dssp-strand-fraction-parity
+    - hydrogens-rigid-placement-parity
+    - hydrogens-backbone-amide-coverage-parity
+    - forcefield-energy-component-parity
+    - forcefield-total-energy-parity
+    - gb-energy-parity
+    - energy-path-parity
+    - fold-preservation-after-minimization
+    - search-msa-feature-parity
+    - supervision-rust-python-parity
+    - pipeline-survives-at-scale
+    - pipeline-physics-consistent-at-scale
+    - energy-gpu-cpu-parity
+    - dssp-8class-parity
+    - sasa-cross-tool-parity
+    - acceleration-paths-parity
+
+include:
+  - claims/release_gate.yaml
+  - claims/sasa.yaml
+  - claims/tmalign.yaml
+  - claims/io.yaml
+  - claims/dssp.yaml
+  - claims/hydrogens.yaml
+  - claims/forcefield_amber_ball.yaml
+  - claims/forcefield_amber_openmm.yaml
+  - claims/gb_obc.yaml
+  - claims/cross_path_parity.yaml
+  - claims/fold_preservation_charmm.yaml
+  - claims/fold_preservation_amber_gromacs.yaml
+  - claims/msa.yaml
+  - claims/supervision_parity.yaml
+  - claims/scale_50k_battle_test.yaml
+  - claims/gpu_cpu_parity.yaml
+  - claims/dssp_8class.yaml
+  - claims/sasa_freesasa.yaml
+  - claims/acceleration_paths.yaml

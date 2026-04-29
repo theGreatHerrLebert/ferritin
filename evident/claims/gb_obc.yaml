@@ -1,0 +1,105 @@
+claims:
+  - id: proteon-obc-gb-vs-openmm-release
+    title: Proteon AMBER96+OBC GB single-point matches OpenMM on crambin within 1% total / 5% GB
+    kind: measurement
+    subsystem: gb.obc
+    case: claims/gb_obc.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+    capabilities:
+      - gb-energy-parity
+      - forcefield-total-energy-parity
+    inputs:
+      corpus: crambin-fixture
+      n: 1
+      class: single-chain
+      fixture_path: test-pdbs/1crn.pdb
+    outputs:
+      total_kj:
+        unit: kJ/mol
+        description: AMBER96 + OBC1 GB single-point total energy.
+      vacuum_kj:
+        unit: kJ/mol
+        description: AMBER96 vacuum single-point energy (total minus GB).
+      gb_kj:
+        unit: kJ/mol
+        description: OBC1 generalised-Born solvation contribution alone.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      OpenMM: "PENDING-PIN-OPENMM-VERSION"
+      python: "3.12"
+    claim: >
+      For crambin (1crn) with PDBFixer-prepped hydrogens fed
+      identically to both tools, proteon's AMBER96+OBC1 single-point
+      total energy at NoCutoff agrees with OpenMM's
+      (amber96.xml + amber96_obc.xml) within 1% relative on total
+      and within 5% relative on the GB component alone, under a
+      pinned OBC1 parameter set (eps_in=1, eps_out=78.5, offset=0.09
+      A, alpha=0.8, beta=0, gamma=2.909125).
+    tolerances:
+      - metric: relative_error
+        op: "<"
+        value: 0.01
+        output: total_kj
+        prose: >
+          |E_proteon_total - E_openmm_total| / max(|E_openmm_total|,
+          1.0) < 1%. Phase D PASS contract from the script. Memory
+          cites achieved <=1% on crambin.
+      - metric: relative_error
+        op: "<"
+        value: 0.05
+        output: gb_kj
+        prose: >
+          |gb_proteon - gb_openmm| / max(|gb_openmm|, 1.0) < 5%
+          on the GB component alone. Phase D PASS contract. Memory
+          cites achieved <=5%.
+      - output: gb_kj
+        prose: >
+          Honesty guard: gb_kj must be non-zero in the proteon
+          output. The script's Phase A short-circuit returns 0
+          (pass) when proteon GB is essentially zero, so a
+          regression-to-stub would silently look like a pass under
+          the current control flow. CI must explicitly check
+          gb_kj != 0.
+    evidence:
+      oracle:
+        - OpenMM
+      command: python validation/amber96_obc_oracle.py
+      artifact: stdout summary table (Δ total / Δ GB in kJ/mol and %)
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - PDBFixer prep is deterministic so proteon and OpenMM see
+        byte-identical atoms and hydrogen positions on crambin.
+      - proteon's ff="amber96_obc" selects the OBC1 parameter set
+        matching OpenMM's amber96_obc.xml. A different OBC variant
+        (OBC2, GBn, GBn2) would produce 5-15% drift even with
+        correct math.
+      - amber96.xml + amber96_obc.xml together produce the OpenMM
+        reference; loading amber96_obc.xml alone is not equivalent.
+      - The 1% total / 5% GB tolerances are calibrated for crambin's
+        size and dielectric profile; the claim is scoped to crambin
+        only.
+    failure_modes:
+      - Single fixture (crambin, n=1). A regression on larger or
+        more solvent-exposed proteins would not surface. Extending
+        to a small distributional release-tier benchmark
+        (e.g. 100 PDBs) is the natural tightening.
+      - OBC1 only. Proteon may grow OBC2/GBn variants; this claim
+        does not speak to those.
+      - Phase A short-circuit in the script returns 0 on
+        gb_kj < 1e-6, which would mask a regression-to-stub. The
+        honesty-guard tolerance row above is the manifest's record
+        of that obligation; CI must enforce it.
+      - The 5% GB band is wider than ideal. last_verified.value
+        recording the observed rel_gb would let drift inside the
+        band become visible without an assertion change.
+      - Stdout-only artifact. The script does not write a JSON
+        file; CI must capture and archive the printed summary
+        block, or the script should be amended to write a
+        machine-parseable artifact.
