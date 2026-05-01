@@ -46,6 +46,18 @@ pub trait ForceField: Send + Sync {
         -> Option<&Vec<TorsionTerm>>;
     fn is_improper_center(&self, residue: &str, atom: &str) -> bool;
     fn get_lj(&self, atype: &str) -> Option<&LJParam>;
+    /// Special 1-4 LJ parameters, when the force field ships them as a
+    /// separate table. CHARMM19 has a `[LennardJones14]` section in its
+    /// parameter file with different (R, epsilon) for 1-4 pairs from the
+    /// regular `[LennardJones]` values — typically smaller R and larger
+    /// epsilon, the "hydrogen-bond suppression" convention. AMBER does
+    /// NOT use a separate table; it scales regular LJ by `1/scnb` for
+    /// 1-4 pairs. The default `None` impl preserves AMBER behavior; the
+    /// energy compute loops dispatch on `Some` to use these values
+    /// without the `scnb` scaling.
+    fn get_lj_14(&self, _atype: &str) -> Option<&LJParam> {
+        None
+    }
     fn scee(&self) -> f64;
     fn scnb(&self) -> f64;
     /// EEF1 solvation parameters (None for force fields without implicit solvent).
@@ -658,6 +670,11 @@ pub struct CharmmParams {
     pub scnb: f64,
     /// EEF1 solvation parameters per atom type
     pub eef1: HashMap<String, EEF1Param>,
+    /// CHARMM-specific 1-4 LJ parameter table (`[LennardJones14]`
+    /// section). When populated, the energy compute uses these values
+    /// for 1-4 pairs instead of `lj` scaled by `1/scnb`. Empty for
+    /// AMBER-style parameter files. Loaded only by CharmmParams::from_ini.
+    pub lj_14: HashMap<String, LJParam>,
     /// Optional runtime override for the nonbonded cutoff (Å). When
     /// `None`, the canonical CHARMM19+EEF1 cutoff (9 Å, from BALL's
     /// `param19_eef1.ini` `@CTOFNB=9.0`) is used. Override is intended
@@ -681,9 +698,16 @@ impl CharmmParams {
         // Reuse the AMBER INI parser for bonded/nonbonded terms (same format)
         let mut amber = AmberParams::from_ini(content);
         let mut eef1 = HashMap::new();
+        // CHARMM-specific [LennardJones14] table — separate (R, epsilon)
+        // for 1-4 pairs from the regular [LennardJones] values. The AMBER
+        // INI parser leaves this section unhandled; we walk the file
+        // again to pick it up. Same row format as [LennardJones]:
+        //   ver type R epsilon comment
+        let mut lj_14: HashMap<String, LJParam> = HashMap::new();
 
-        // Parse EEF1 solvation section + CHARMM-specific @-directives
-        // (notably @E14FAC, the 1-4 electrostatic scaling).
+        // Parse EEF1 solvation + LennardJones14 + CHARMM-specific
+        // @-directives (notably @E14FAC, the 1-4 electrostatic scaling)
+        // in one pass.
         let mut section = String::new();
         for line in content.lines() {
             let line = line.trim();
@@ -748,6 +772,14 @@ impl CharmmParams {
                         }
                     }
                 }
+            } else if section == "LennardJones14" {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                // format: ver type R epsilon comment
+                if fields.len() >= 4 {
+                    if let (Ok(r), Ok(eps)) = (fields[2].parse::<f64>(), fields[3].parse::<f64>()) {
+                        lj_14.insert(fields[1].to_string(), LJParam { r, epsilon: eps });
+                    }
+                }
             }
         }
 
@@ -763,6 +795,7 @@ impl CharmmParams {
             scee: amber.scee,
             scnb: amber.scnb,
             eef1,
+            lj_14,
             cutoff_override: None,
             switching_on_override: None,
         }
@@ -864,6 +897,9 @@ impl ForceField for CharmmParams {
     }
     fn get_lj(&self, atype: &str) -> Option<&LJParam> {
         self.lj.get(atype)
+    }
+    fn get_lj_14(&self, atype: &str) -> Option<&LJParam> {
+        self.lj_14.get(atype)
     }
     fn scee(&self) -> f64 {
         self.scee

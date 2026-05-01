@@ -165,11 +165,16 @@ claims:
             a term BALL splits separately
           - improper_torsion: 0.0 vs 39.7 kJ/mol (proteon does not
             compute CHARMM impropers; missing pass)
-          - vdw: +618.8 vs -942.7 kJ/mol (sign-flipped; LJ formula or
-            rmin-vs-sigma convention)
+          - vdw: -834.3 vs -942.7 kJ/mol (11.5% rel diff; sign is now
+            correct after the [LennardJones14] table loader landed —
+            CHARMM ships separate 1-4 LJ params (smaller R, larger
+            epsilon) which proteon previously ignored, scaling regular
+            LJ by 1/scnb (AMBER convention) instead. Residual gap is
+            plausibly the inflated CH*E united-atom radii on
+            un-minimized geometry plus NBFIX overrides not yet loaded.)
           - electrostatic: +195.7 vs -2711 kJ/mol (after the
             @E14FAC=0.4 1-4 scaling fix landed; was +5373 before so
-            this fix closed ~5177 kJ/mol of the gap. Sign still
+            that fix closed ~5177 kJ/mol of the gap. Sign still
             wrong; residual ~2900 kJ/mol most likely the N-terminus
             NH3+ uncompensated charge — place_peptide_hydrogens
             leaves residue 0's N at -1.35e with no balancing 3H+.)
