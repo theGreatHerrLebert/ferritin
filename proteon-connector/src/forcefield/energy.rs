@@ -15,7 +15,7 @@
 //!   Gaussian-integral form evaluated alongside the bonded terms.
 
 use super::neighbor_list::NeighborList;
-use super::params::ForceField;
+use super::params::{ForceField, LJParam};
 use super::topology::Topology;
 
 /// Energy breakdown by component.
@@ -227,15 +227,31 @@ fn compute_energy_impl(
 
             let (switch_val, _) = sw.eval(r2);
             let is_14 = topo.pairs_14.contains(&pair);
-            let scale_vdw = if is_14 { 1.0 / params.scnb() } else { 1.0 };
             let scale_es = if is_14 { 1.0 / params.scee() } else { 1.0 };
 
             let r = r2.sqrt();
 
-            // LJ 12-6
+            // LJ 12-6 — for 1-4 pairs prefer the FF's special [LennardJones14]
+            // table when it has one (CHARMM convention: separate (R, eps) per
+            // 1-4 atom-type, no scnb scaling). Fall back to regular LJ scaled
+            // by 1/scnb (AMBER convention) when the table is absent.
             let ti = &topo.atoms[i].amber_type;
             let tj = &topo.atoms[j].amber_type;
-            if let (Some(lj_i), Some(lj_j)) = (params.get_lj(ti), params.get_lj(tj)) {
+            let lj_pair: Option<(&LJParam, &LJParam, f64)> = if is_14 {
+                match (params.get_lj_14(ti), params.get_lj_14(tj)) {
+                    (Some(a), Some(b)) => Some((a, b, 1.0)),
+                    _ => params
+                        .get_lj(ti)
+                        .zip(params.get_lj(tj))
+                        .map(|(a, b)| (a, b, 1.0 / params.scnb())),
+                }
+            } else {
+                params
+                    .get_lj(ti)
+                    .zip(params.get_lj(tj))
+                    .map(|(a, b)| (a, b, 1.0))
+            };
+            if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
                 let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
                 let rmin = lj_i.r + lj_j.r;
                 if eps > 1e-10 && rmin > 1e-10 {
@@ -464,16 +480,31 @@ fn compute_energy_and_forces_impl(
 
             let (switch_val, dsw_dr2) = sw.eval(r2);
             let is_14 = topo.pairs_14.contains(&pair);
-            let scale_vdw = if is_14 { 1.0 / params.scnb() } else { 1.0 };
             let scale_es = if is_14 { 1.0 / params.scee() } else { 1.0 };
 
             let r = r2.sqrt();
             let inv_r = 1.0 / r;
 
             // LJ 12-6: E = eps * [(rmin/r)^12 - 2*(rmin/r)^6]
+            // For 1-4 pairs prefer the FF's [LennardJones14] table when present
+            // (CHARMM); fall back to regular LJ scaled by 1/scnb (AMBER).
             let ti = &topo.atoms[i].amber_type;
             let tj = &topo.atoms[j].amber_type;
-            if let (Some(lj_i), Some(lj_j)) = (params.get_lj(ti), params.get_lj(tj)) {
+            let lj_pair: Option<(&LJParam, &LJParam, f64)> = if is_14 {
+                match (params.get_lj_14(ti), params.get_lj_14(tj)) {
+                    (Some(a), Some(b)) => Some((a, b, 1.0)),
+                    _ => params
+                        .get_lj(ti)
+                        .zip(params.get_lj(tj))
+                        .map(|(a, b)| (a, b, 1.0 / params.scnb())),
+                }
+            } else {
+                params
+                    .get_lj(ti)
+                    .zip(params.get_lj(tj))
+                    .map(|(a, b)| (a, b, 1.0))
+            };
+            if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
                 let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
                 let rmin = lj_i.r + lj_j.r;
                 if eps > 1e-10 && rmin > 1e-10 {
@@ -628,16 +659,31 @@ pub fn compute_energy_and_forces_nbl(
         }
 
         let (switch_val, dsw_dr2) = sw.eval(r2);
-        let scale_vdw = if pair.is_14 { 1.0 / params.scnb() } else { 1.0 };
-        let scale_es = if pair.is_14 { 1.0 / params.scee() } else { 1.0 };
+        let is_14 = pair.is_14;
+        let scale_es = if is_14 { 1.0 / params.scee() } else { 1.0 };
 
         let r = r2.sqrt();
         let inv_r = 1.0 / r;
 
-        // LJ
+        // LJ — for 1-4 pairs prefer the FF's [LennardJones14] table when
+        // present (CHARMM); fall back to regular LJ scaled by 1/scnb (AMBER).
         let ti = &topo.atoms[i].amber_type;
         let tj = &topo.atoms[j].amber_type;
-        if let (Some(lj_i), Some(lj_j)) = (params.get_lj(ti), params.get_lj(tj)) {
+        let lj_pair: Option<(&LJParam, &LJParam, f64)> = if is_14 {
+            match (params.get_lj_14(ti), params.get_lj_14(tj)) {
+                (Some(a), Some(b)) => Some((a, b, 1.0)),
+                _ => params
+                    .get_lj(ti)
+                    .zip(params.get_lj(tj))
+                    .map(|(a, b)| (a, b, 1.0 / params.scnb())),
+            }
+        } else {
+            params
+                .get_lj(ti)
+                .zip(params.get_lj(tj))
+                .map(|(a, b)| (a, b, 1.0))
+        };
+        if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
             let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
             let rmin = lj_i.r + lj_j.r;
             if eps > 1e-10 && rmin > 1e-10 {

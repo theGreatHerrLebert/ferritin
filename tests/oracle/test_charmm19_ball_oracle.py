@@ -146,7 +146,7 @@ class TestCharmm19BallOracle:
         assert rel < 0.025, f"improper torsion relative diff {rel:.3%} exceeds 2.5%"
 
     @pytest.mark.xfail(
-        reason="proteon CHARMM vdw is sign-flipped vs BALL (+618.8 vs -942.7 on crambin); see geometry_charmm19_ball.yaml failure_modes",
+        reason="proteon CHARMM vdw 11.5% off BALL on un-minimized crambin (-834.3 vs -942.7) after [LennardJones14] table fix landed; sign now correct, residual likely inflated CH*E united-atom radii pre-minimization or NBFIX overrides not yet loaded; see geometry_charmm19_ball.yaml failure_modes",
         strict=False,
     )
     def test_vdw(self, reference_energies):
