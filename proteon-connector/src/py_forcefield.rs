@@ -100,15 +100,12 @@ pub(crate) fn compute_energy(
 ) -> PyResult<PyObject> {
     let (topo, result) = match ff {
         "charmm" | "charmm19" | "charmm19_eef1" => {
-            let charmm = params::charmm19_eef1();
+            let mut charmm = params::charmm19_eef1();
+            if let Some(c) = nonbonded_cutoff {
+                charmm.cutoff_override = Some(c);
+            }
             let topo = topology::build_topology(&pdb.inner, &charmm);
             let coords: Vec<[f64; 3]> = topo.atoms.iter().map(|a| a.pos).collect();
-            // Cutoff override not supported for CHARMM19 yet.
-            if nonbonded_cutoff.is_some() {
-                return Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                    "nonbonded_cutoff override is only implemented for ff='amber96'",
-                ));
-            }
             let result = py.allow_threads(|| match nbl_threshold {
                 Some(t) => energy::compute_energy_auto(&coords, &topo, &charmm, t),
                 None => energy::compute_energy(&coords, &topo, &charmm),
