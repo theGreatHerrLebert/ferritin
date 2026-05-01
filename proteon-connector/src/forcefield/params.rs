@@ -658,6 +658,21 @@ pub struct CharmmParams {
     pub scnb: f64,
     /// EEF1 solvation parameters per atom type
     pub eef1: HashMap<String, EEF1Param>,
+    /// Optional runtime override for the nonbonded cutoff (Å). When
+    /// `None`, the canonical CHARMM19+EEF1 cutoff (9 Å, from BALL's
+    /// `param19_eef1.ini` `@CTOFNB=9.0`) is used. Override is intended
+    /// for oracle-style cross-tool comparisons where both tools must
+    /// see the same pair set — e.g. setting this to 1e6 effectively
+    /// disables the cutoff so proteon matches a BALL `nonbonded_cutoff
+    /// =1e6` reference. EEF1 solvation makes CHARMM's energy less
+    /// sensitive to long-range truncation than AMBER, so the production
+    /// 9 Å default is safe; the override is purely an oracle knob.
+    pub cutoff_override: Option<f64>,
+    /// Optional runtime override for the switching-on distance (Å).
+    /// If `cutoff_override` is set but this is not, switching is
+    /// disabled by setting the on-distance to `cutoff_override - 1e-9`,
+    /// matching the AMBER side's convention.
+    pub switching_on_override: Option<f64>,
 }
 
 impl CharmmParams {
@@ -729,6 +744,8 @@ impl CharmmParams {
             scee: amber.scee,
             scnb: amber.scnb,
             eef1,
+            cutoff_override: None,
+            switching_on_override: None,
         }
     }
 }
@@ -844,13 +861,20 @@ impl ForceField for CharmmParams {
     /// CHARMM19+EEF1 canonical cutoff from BALL's param19_eef1.ini:
     /// `@CTOFNB=9.0`. EEF1 solvation makes the energy less sensitive
     /// to long-range truncation, so the short cutoff is safe and gives
-    /// ~4.6× fewer NBL pairs vs the default 15 Å.
+    /// ~4.6× fewer NBL pairs vs the default 15 Å. Override available
+    /// for oracle-style comparisons (see `cutoff_override` doc).
     fn nonbonded_cutoff(&self) -> f64 {
-        9.0
+        self.cutoff_override.unwrap_or(9.0)
     }
-    /// CHARMM19 switching on from BALL: `@CTONNB=7.0`.
+    /// CHARMM19 switching on from BALL: `@CTONNB=7.0`. When the cutoff
+    /// is overridden but switching-on is not, the on-distance is set
+    /// to `cutoff_override - 1e-9` so switching is effectively
+    /// disabled — matches the AMBER side's convention and the typical
+    /// oracle case (e.g. `nonbonded_cutoff=1e6` → no switching).
     fn switching_on(&self) -> f64 {
-        7.0
+        self.switching_on_override
+            .or_else(|| self.cutoff_override.map(|c| c - 1e-9))
+            .unwrap_or(7.0)
     }
 }
 

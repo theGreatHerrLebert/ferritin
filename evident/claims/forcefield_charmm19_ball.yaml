@@ -149,15 +149,43 @@ claims:
         wheel is unavailable — the slim EVIDENT image is expected to
         carry it after first PyPI publish lands.
     failure_modes:
-      - "BLOCKER as of 2026-04-30: proteon.compute_energy raises
-        NotImplementedError('nonbonded_cutoff override is only
-        implemented for ff=amber96') when called with
-        ff='charmm19_eef1' and nonbonded_cutoff=1e6. The whole BALL
-        parity comparison requires NoCutoff on both sides, so the
-        test currently module-skips with a clear reason. Implementing
-        the cutoff override for CHARMM19 in proteon-connector is the
-        prerequisite to activating this claim. Tracked separately
-        from the BALL-side oracle work."
+      - "PARTIAL ACTIVATION as of 2026-05-01: the CHARMM19 cutoff
+        override landed (proteon-connector now accepts
+        nonbonded_cutoff=1e6 for ff='charmm19_eef1', symmetric to
+        AMBER96). Activating the test on crambin with shared
+        polar-H placement (proteon places, BALL reads with
+        add_hydrogens=False) reveals a clean two-tier picture:
+        bond_stretch (0.7%), angle_bend (0.8%), and EEF1 solvation
+        (0.7%) agree well within tolerance and gate live. Four
+        components diverge well past their bands and are xfail-marked
+        in tests/oracle/test_charmm19_ball_oracle.py with strict=False
+        so a future fix surfaces as xpass:
+          - proper_torsion: 610.84 vs 230.0 kJ/mol (proteon ~2.66x
+            BALL); likely parameter-file vintage or summation includes
+            a term BALL splits separately
+          - improper_torsion: 0.0 vs 39.7 kJ/mol (proteon does not
+            compute CHARMM impropers; missing pass)
+          - vdw: +618.8 vs -942.7 kJ/mol (sign-flipped; LJ formula or
+            rmin-vs-sigma convention)
+          - electrostatic: +5373 vs -2711 kJ/mol (sign-flipped;
+            partial-charge sign convention)
+        Each is a separate Rust-side investigation; not blocked by
+        BALL availability anymore. The first 3 PASSING assertions
+        already gate against bonded/solvation regressions live in CI.
+
+        3-way cross-check on the sign question (added 2026-05-01):
+        OpenMM-CHARMM36 + OBC2 on the same crambin fixture at NoCutoff
+        reports NonbondedForce = -2806.3 kJ/mol (LJ + Coulomb combined)
+        and CustomNonbondedForce = -1054.1 kJ/mol — both negative,
+        agreeing with BALL on sign. Proteon is the 1-of-3 outlier.
+        OpenMM uses CHARMM36 (different parameter generation than
+        CHARMM19), so the magnitudes are not directly comparable, but
+        the sign of vdw and electrostatic on a folded protein at
+        equilibrium geometry is a property of the FF formula not the
+        parameters — three independent implementations agreeing that
+        these terms are negative is decisive. Proteon's CHARMM Rust
+        code has a sign-convention bug in the LJ and/or partial-charge
+        loading that does not exist in proteon's AMBER96 path."
       - Single fixture. Crambin only; a regression on non-standard
         residues, terminus handling, or large-loop conformations
         would not surface. A release-tier 1000-PDB version of this
