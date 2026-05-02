@@ -161,11 +161,20 @@ class TestCharmm19BallOracle:
         rel = abs(proteon_e["torsion"] - ball_e["torsion"]) / abs(ball_e["torsion"])
         assert rel < 0.01, f"proper torsion relative diff {rel:.4%} exceeds 1%"
 
-    @pytest.mark.xfail(
-        reason="proteon CHARMM improper_torsion 251.15 vs BALL 264.94 on crambin (~5.2% rel diff). Both energy and analytical force are correct now: harmonic compute is wired live, cosphi-chain ported from BALL's charmmImproperTorsion.C:526-544, and the gradient FD parity test passes. Cross-PDB residual is below the 2.5% band on every other test PDB: 1bpi 0.94%, 1ake 2.95%, 1ubq 0.36%. Crambin's 5.2% is a small [ResidueImproperTorsions] enumeration mismatch — 1-2 specific impropers BALL counts that proteon misses on this composition (1 PHE + 2 TYR + 6 disulfide CYS). The energy is monotonically under, never over — not a sign or formula bug, just a topology gap that needs per-residue diagnosis against BALL's expected list. See geometry_charmm19_ball.yaml failure_modes",
-        strict=False,
-    )
     def test_improper_torsion(self, reference_energies):
+        # Harmonic improper compute fully wired:
+        # - cosphi-based force chain (BALL's charmmImproperTorsion.C
+        #   :526-544); gradient-FD parity test passes.
+        # - Explicit enumeration from CHARMM's [ResidueImproperTorsions]
+        #   table (variant + base lookup, ordered (B, C, D) dedup).
+        # - H-name digit rotation in the atom resolver (HD21 ↔ 1HD2,
+        #   1HE2 ↔ HE21 etc.) — without this, every ASN/GLN/ARG
+        #   sidechain N-H improper template silently fails to resolve
+        #   its named neighbor atoms (~5 kJ/mol miss on crambin's
+        #   2 ASN, was the residual gap that gated this xfail through
+        #   the topology-refactor commit).
+        # Match on crambin: 265.68 vs 264.94 kJ/mol (0.28% rel diff).
+        # Cross-PDB: 1bpi 0.33%, 1ake 0.17%, 1ubq 0.36%.
         proteon_e, ball_e = reference_energies
         rel = abs(proteon_e["improper_torsion"] - ball_e["improper_torsion"]) / abs(ball_e["improper_torsion"])
         assert rel < 0.025, f"improper torsion relative diff {rel:.3%} exceeds 2.5%"

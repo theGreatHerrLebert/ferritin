@@ -149,23 +149,23 @@ claims:
         wheel is unavailable — the slim EVIDENT image is expected to
         carry it after first PyPI publish lands.
     failure_modes:
-      - "ACTIVATION as of 2026-05-02 (late): all 7 CHARMM oracle
-        components compute non-trivially against BALL on crambin
-        with shared polar-H placement (proteon places via
-        place_all_hydrogens(polar_only=True), BALL reads with
+      - "FULL ACTIVATION as of 2026-05-02 (evening): all 7 CHARMM
+        oracle components pass their per-tier tolerance bands live
+        on crambin with shared polar-H placement (proteon places
+        via place_all_hydrogens(polar_only=True), BALL reads with
         add_hydrogens=False, NoCutoff via nonbonded_cutoff=1e6 on
-        both sides). 6 components pass their per-tier tolerance
-        bands live; the 7th (improper_torsion) is xfail at 5.2% on
-        crambin with strict=False, but cross-PDB it lands within
-        band on 1bpi (0.94%), 1ake (2.95%), and 1ubq (0.36%):
+        both sides). NO XFAILS REMAIN.
           bond_stretch  ~0.65% rel diff (passing)
           angle_bend    ~0.60% (passing)
-          proper_torsion < 0.001% (passing, closed 2026-05-02)
+          proper_torsion < 0.001% (passing, closed 2026-05-02 mid)
           vdw           < 0.01% (passing)
           electrostatic < 0.02% (passing)
           EEF1 solvation ~0.73% (passing)
-          improper_torsion 5.2% on crambin (xfail; cross-PDB <3%)
-        Per-component status:
+          improper_torsion 0.28% (passing, closed 2026-05-02 evening)
+        Cross-PDB on improper_torsion: 1bpi 0.33%, 1ake 0.17%,
+        1ubq 0.36%. The compute is now mechanically correct on all
+        components — residuals at the float-accumulation floor.
+        Per-component history:
           - (proper_torsion moved to PASSING tier 2026-05-02:
             994.38 vs 994.37 kJ/mol, < 0.001% rel diff (~7e-3 abs,
             float accumulation floor). Three-step topology fix:

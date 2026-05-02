@@ -832,7 +832,24 @@ pub fn build_topology(pdb: &pdbtbx::PDB, params: &impl ForceField) -> Topology {
             Some(b'=') => (disulfide_partner.get(&center_res_idx).copied(), &name[1..]),
             _ => (Some(center_res_idx), name),
         };
-        atom_lookup.get(&(target_res?, base.to_string())).copied()
+        let target_res = target_res?;
+        // Try literal name first; on miss try digit-rotation alt names
+        // (BALL's `1HD2` template entry maps to proteon's `HD21` atom,
+        // and similar for `2HD2`/`HD22`, `1H`/`H1`, etc.). Without this,
+        // every BALL improper template that names a sidechain N-H atom
+        // (ASN ND2 1HD2 2HD2 CG, GLN NE2 1HE2 2HE2 CD, ARG NH1 1HH1
+        // 2HH1 CZ, ARG NH2 1HH2 2HH2 CZ) silently fails to enumerate
+        // the third improper neighbor and the topology drops the path.
+        // On crambin (2 ASN) that's 2 missing impropers ≈ 5 kJ/mol.
+        if let Some(&idx) = atom_lookup.get(&(target_res, base.to_string())) {
+            return Some(idx);
+        }
+        for alt in alt_h_name_candidates(base) {
+            if let Some(&idx) = atom_lookup.get(&(target_res, alt)) {
+                return Some(idx);
+            }
+        }
+        None
     };
 
     // Determine variant for each residue (terminal/disulfide), reusing
