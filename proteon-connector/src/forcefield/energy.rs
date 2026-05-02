@@ -117,7 +117,12 @@ pub fn compute_energy_auto(
         );
         compute_energy_nbl(coords, topo, params, &nbl)
     } else {
-        compute_energy_impl(coords, topo, params, false)
+        compute_energy_impl(
+            coords,
+            topo,
+            params,
+            params.uses_distance_dependent_dielectric(),
+        )
     }
 }
 
@@ -258,12 +263,17 @@ fn compute_energy_impl(
                     .zip(params.get_lj(tj))
                     .map(|(a, b)| (a, b, 1.0))
             };
-            if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
-                let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
-                let rmin = lj_i.r + lj_j.r;
-                if eps > 1e-10 && rmin > 1e-10 {
-                    let sr6 = (rmin / r).powi(6);
-                    result.vdw += switch_val * scale_vdw * eps * (sr6 * sr6 - 2.0 * sr6);
+            // CHARMM aromatic-ring para-diagonal exclusion: zero LJ
+            // but keep electrostatic. See `Topology::lj_excluded_pairs`.
+            let lj_excluded = topo.lj_excluded_pairs.contains(&pair);
+            if !lj_excluded {
+                if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
+                    let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
+                    let rmin = lj_i.r + lj_j.r;
+                    if eps > 1e-10 && rmin > 1e-10 {
+                        let sr6 = (rmin / r).powi(6);
+                        result.vdw += switch_val * scale_vdw * eps * (sr6 * sr6 - 2.0 * sr6);
+                    }
                 }
             }
 
@@ -336,7 +346,12 @@ pub fn compute_energy_and_forces_auto(
         );
         compute_energy_and_forces_nbl(coords, topo, params, &nbl)
     } else {
-        compute_energy_and_forces_impl(coords, topo, params, false)
+        compute_energy_and_forces_impl(
+            coords,
+            topo,
+            params,
+            params.uses_distance_dependent_dielectric(),
+        )
     }
 }
 
@@ -539,30 +554,35 @@ fn compute_energy_and_forces_impl(
                     .zip(params.get_lj(tj))
                     .map(|(a, b)| (a, b, 1.0))
             };
-            if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
-                let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
-                let rmin = lj_i.r + lj_j.r;
-                if eps > 1e-10 && rmin > 1e-10 {
-                    let sr = rmin * inv_r;
-                    let sr6 = sr.powi(6);
-                    let sr12 = sr6 * sr6;
-                    let e_lj = scale_vdw * eps * (sr12 - 2.0 * sr6);
-                    result.vdw += switch_val * e_lj;
+            // CHARMM aromatic-ring para-diagonal exclusion: zero LJ
+            // (energy + force) but keep electrostatic.
+            let lj_excluded = topo.lj_excluded_pairs.contains(&pair);
+            if !lj_excluded {
+                if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
+                    let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
+                    let rmin = lj_i.r + lj_j.r;
+                    if eps > 1e-10 && rmin > 1e-10 {
+                        let sr = rmin * inv_r;
+                        let sr6 = sr.powi(6);
+                        let sr12 = sr6 * sr6;
+                        let e_lj = scale_vdw * eps * (sr12 - 2.0 * sr6);
+                        result.vdw += switch_val * e_lj;
 
-                    // d(sw*E)/dr = sw * dE/dr + E * dsw/dr
-                    // dsw/dr = dsw/d(r²) * d(r²)/dr = dsw_dr2 * 2r
-                    let de_dr = scale_vdw * eps * (-12.0 * sr12 + 12.0 * sr6) * inv_r;
-                    let total_de_dr = switch_val * de_dr + e_lj * dsw_dr2 * 2.0 * r;
-                    let fx = total_de_dr * dx * inv_r;
-                    let fy = total_de_dr * dy * inv_r;
-                    let fz = total_de_dr * dz * inv_r;
+                        // d(sw*E)/dr = sw * dE/dr + E * dsw/dr
+                        // dsw/dr = dsw/d(r²) * d(r²)/dr = dsw_dr2 * 2r
+                        let de_dr = scale_vdw * eps * (-12.0 * sr12 + 12.0 * sr6) * inv_r;
+                        let total_de_dr = switch_val * de_dr + e_lj * dsw_dr2 * 2.0 * r;
+                        let fx = total_de_dr * dx * inv_r;
+                        let fy = total_de_dr * dy * inv_r;
+                        let fz = total_de_dr * dz * inv_r;
 
-                    forces[i][0] -= fx;
-                    forces[i][1] -= fy;
-                    forces[i][2] -= fz;
-                    forces[j][0] += fx;
-                    forces[j][1] += fy;
-                    forces[j][2] += fz;
+                        forces[i][0] -= fx;
+                        forces[i][1] -= fy;
+                        forces[i][2] -= fz;
+                        forces[j][0] += fx;
+                        forces[j][1] += fy;
+                        forces[j][2] += fz;
+                    }
                 }
             }
 
@@ -723,39 +743,51 @@ pub fn compute_energy_and_forces_nbl(
                 .zip(params.get_lj(tj))
                 .map(|(a, b)| (a, b, 1.0))
         };
-        if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
-            let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
-            let rmin = lj_i.r + lj_j.r;
-            if eps > 1e-10 && rmin > 1e-10 {
-                let sr = rmin * inv_r;
-                let sr6 = sr.powi(6);
-                let sr12 = sr6 * sr6;
-                let e_lj = scale_vdw * eps * (sr12 - 2.0 * sr6);
-                result.vdw += switch_val * e_lj;
+        // CHARMM aromatic-ring para-diagonal exclusion: zero LJ but
+        // keep electrostatic. See `Topology::lj_excluded_pairs`.
+        let lj_excluded = topo.lj_excluded_pairs.contains(&(i.min(j), i.max(j)));
+        if !lj_excluded {
+            if let Some((lj_i, lj_j, scale_vdw)) = lj_pair {
+                let eps = (lj_i.epsilon * lj_j.epsilon).sqrt();
+                let rmin = lj_i.r + lj_j.r;
+                if eps > 1e-10 && rmin > 1e-10 {
+                    let sr = rmin * inv_r;
+                    let sr6 = sr.powi(6);
+                    let sr12 = sr6 * sr6;
+                    let e_lj = scale_vdw * eps * (sr12 - 2.0 * sr6);
+                    result.vdw += switch_val * e_lj;
 
-                let de_dr = scale_vdw * eps * (-12.0 * sr12 + 12.0 * sr6) * inv_r;
-                let total_de_dr = switch_val * de_dr + e_lj * dsw_dr2 * 2.0 * r;
-                let fx = total_de_dr * dx * inv_r;
-                let fy = total_de_dr * dy * inv_r;
-                let fz = total_de_dr * dz * inv_r;
+                    let de_dr = scale_vdw * eps * (-12.0 * sr12 + 12.0 * sr6) * inv_r;
+                    let total_de_dr = switch_val * de_dr + e_lj * dsw_dr2 * 2.0 * r;
+                    let fx = total_de_dr * dx * inv_r;
+                    let fy = total_de_dr * dy * inv_r;
+                    let fz = total_de_dr * dz * inv_r;
 
-                forces[i][0] -= fx;
-                forces[i][1] -= fy;
-                forces[i][2] -= fz;
-                forces[j][0] += fx;
-                forces[j][1] += fy;
-                forces[j][2] += fz;
+                    forces[i][0] -= fx;
+                    forces[i][1] -= fy;
+                    forces[i][2] -= fz;
+                    forces[j][0] += fx;
+                    forces[j][1] += fy;
+                    forces[j][2] += fz;
+                }
             }
         }
 
-        // Coulomb
+        // Coulomb (with optional distance-dependent dielectric ε = r,
+        // CHARMM19+EEF1 convention).
         let qi = topo.atoms[i].charge;
         let qj = topo.atoms[j].charge;
         if qi.abs() > 1e-10 && qj.abs() > 1e-10 {
-            let e_es = scale_es * coulomb_factor * qi * qj * inv_r;
+            let dist_dep = params.uses_distance_dependent_dielectric();
+            let (e_es, de_dr) = if dist_dep {
+                let e = scale_es * coulomb_factor * qi * qj * inv_r * inv_r;
+                (e, -2.0 * e * inv_r)
+            } else {
+                let e = scale_es * coulomb_factor * qi * qj * inv_r;
+                (e, -e * inv_r)
+            };
             result.electrostatic += switch_val * e_es;
 
-            let de_dr = -e_es * inv_r;
             let total_de_dr = switch_val * de_dr + e_es * dsw_dr2 * 2.0 * r;
             let fx = total_de_dr * dx * inv_r;
             let fy = total_de_dr * dy * inv_r;
@@ -1808,7 +1840,8 @@ mod gradient_tests {
             &topo.pairs_14,
         );
 
-        let e_exact = compute_energy_impl(&coords, &topo, ff, false);
+        let e_exact =
+            compute_energy_impl(&coords, &topo, ff, ff.uses_distance_dependent_dielectric());
         let e_nbl = compute_energy_nbl(&coords, &topo, ff, &nbl);
 
         // Component-by-component — if any one drifts, we want to know
@@ -1889,7 +1922,12 @@ mod gradient_tests {
             &topo.pairs_14,
         );
 
-        let (e_exact, f_exact) = compute_energy_and_forces_impl(&coords, &topo, ff, false);
+        let (e_exact, f_exact) = compute_energy_and_forces_impl(
+            &coords,
+            &topo,
+            ff,
+            ff.uses_distance_dependent_dielectric(),
+        );
         let (e_nbl, f_nbl) = compute_energy_and_forces_nbl(&coords, &topo, ff, &nbl);
 
         // Energy components first (same scaffolding as the energy-only guard).
@@ -2131,7 +2169,12 @@ mod gradient_tests {
         let pdb = crambin_with_h();
         let topo = build_topology(pdb, ff);
         let coords = collect_coords(pdb);
-        let (_, forces) = compute_energy_and_forces_impl(&coords, &topo, ff, false);
+        let (_, forces) = compute_energy_and_forces_impl(
+            &coords,
+            &topo,
+            ff,
+            ff.uses_distance_dependent_dielectric(),
+        );
 
         let mut sum = [0.0_f64; 3];
         for f in &forces {
