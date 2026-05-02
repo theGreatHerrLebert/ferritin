@@ -64,3 +64,7 @@ validation/report/figures/11_corpus_*.png
 validation/report/figures/12_corpus_*.png
 validation/report/figures/13_corpus_*.html
 evident/reports/_figures/
+
+# Local lock smoke-tests (release bundles are committed only at tag time
+# and live under evident/reports/v*/ — `dev*/` is for local dry runs)
+evident/reports/dev*/
