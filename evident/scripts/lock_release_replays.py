@@ -122,6 +122,78 @@ def _resolve_artifact(claim: dict) -> pathlib.Path | None:
     return (REPO_ROOT / str(artifact)).resolve()
 
 
+# Literal-string markers that some claims use in `evidence.artifact`
+# to declare "this claim has no persisted artifact by design" — most
+# CI-tier oracle claims fall into this bucket because their command
+# is a pytest invocation whose verdict is the exit code, not a file.
+# Treating these as `missing` would inflate the index's coverage-gap
+# column with claims that *correctly* don't produce files; mark them
+# `ci-only` instead so the index can show real gaps separately.
+_NON_PERSISTED_PREFIXES = (
+    "pytest console output",
+    "stdout summary",
+)
+
+
+def _is_persisted_artifact(claim: dict) -> bool:
+    """True if the claim is supposed to produce a file we can sha256-pin."""
+    artifact = (claim.get("evidence") or {}).get("artifact")
+    if not artifact:
+        return False
+    s = str(artifact).strip().lower()
+    return not any(s.startswith(p) for p in _NON_PERSISTED_PREFIXES)
+
+
+def _capture_environment() -> dict[str, Any]:
+    """Snapshot the lock-time runtime + dependency state.
+
+    Embedded under ``manifest["environment"]`` so a reviewer downloading
+    the bundle can pin not just the source commit and artifact sha256,
+    but the exact wheels that produced the artifact. Best-effort:
+    failures degrade individual fields to ``null`` rather than failing
+    the lock.
+    """
+    import platform
+
+    env: dict[str, Any] = {
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "pip_freeze": None,
+        "cargo_metadata_sha256": None,
+    }
+    try:
+        out = subprocess.run(
+            [sys.executable, "-m", "pip", "freeze", "--all"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if out.returncode == 0:
+            lines = [l for l in out.stdout.splitlines() if l.strip()]
+            env["pip_freeze"] = sorted(lines)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    try:
+        out = subprocess.run(
+            ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if out.returncode == 0:
+            env["cargo_metadata_sha256"] = (
+                "sha256:" + hashlib.sha256(out.stdout.encode()).hexdigest()
+            )
+    except (OSError, subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return env
+
+
 def _classify_record(rec: dict) -> str:
     """Map a JSONL record to ok|skipped|failed|unknown.
 
@@ -243,6 +315,14 @@ def _row_for(
         "claim_yaml": str(claim_yaml.relative_to(REPO_ROOT)),
         "artifact": evidence.get("artifact"),
     }
+    # CI-tier and other claims that declare "pytest console output" /
+    # "stdout summary" as their artifact don't produce a file we could
+    # sha256-pin, by design. Mark them `ci-only` so the index can
+    # report real coverage gaps without inflating the count with
+    # claims that correctly don't have a persisted artifact.
+    if not _is_persisted_artifact(claim):
+        row["status"] = "ci-only"
+        return row
     if artifact is None:
         row["status"] = "no-artifact"
         return row
@@ -310,7 +390,10 @@ def _render_index(release_tag: str, manifest: dict, out_dir: pathlib.Path) -> No
 <h1>Proteon EVIDENT — {release_tag}</h1>
 <p class="meta">
   Locked at <code>{manifest["locked_at_utc"]}</code> from commit <code>{manifest["commit"]}</code>.<br>
-  {len(manifest["claims"])} claims surveyed, {sum(1 for r in manifest["claims"] if r.get("status") == "locked")} with artifacts.
+  {len(manifest["claims"])} claims surveyed:
+  {sum(1 for r in manifest["claims"] if r.get("status") == "locked")} locked,
+  {sum(1 for r in manifest["claims"] if r.get("status") == "ci-only")} CI-only (no persisted artifact),
+  {sum(1 for r in manifest["claims"] if r.get("status") == "missing")} missing artifact.
 </p>
 <table>
   <thead>
@@ -407,6 +490,7 @@ def main() -> int:
         "release": args.release,
         "commit": commit,
         "locked_at_utc": locked_at,
+        "environment": _capture_environment(),
         "claim_count": len(rows),
         "claims": rows,
     }
