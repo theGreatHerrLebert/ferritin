@@ -296,7 +296,16 @@ COPY README.md THIRD_PARTY_NOTICES.md LICENSE VERSION ./
 RUN install -m 0755 /workspace/proteon/evident/tools/evident.py \
                     /usr/local/bin/evident \
     && install -m 0644 /workspace/proteon/evident/tools/validate_manifest.py \
-                    /usr/local/lib/python3.11/dist-packages/validate_manifest.py
+                    /usr/local/lib/python3.11/dist-packages/validate_manifest.py \
+    && install -m 0755 /workspace/proteon/evident/scripts/docker-entrypoint.sh \
+                    /usr/local/bin/evident-docker-entrypoint
 
-ENTRYPOINT ["evident"]
-CMD ["list", "evident/evident.yaml"]
+# Entrypoint dispatch:
+#
+#   replay <claim-id>     run the claim's evidence.command in /workspace/proteon
+#   render <release-tag>  lock the EVIDENT bundle + render reports under
+#                         evident/reports/<release-tag>/
+#   list | validate | …   pass-through to the vendored `evident` CLI
+#   (no args)             default: list claims in the manifest
+ENTRYPOINT ["evident-docker-entrypoint"]
+CMD []
