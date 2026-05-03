@@ -53,11 +53,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH=/root/.cargo/bin:/opt/build-venv/bin:${PATH}
 
+# Vendored deadsnakes signing key + manual sources.list entry, so the
+# build never calls `add-apt-repository` (which talks to api.launchpad.net
+# for PPA metadata and is intermittently 504-ing on GHA runners). The
+# package downloads still come from launchpadcontent.net (Cloudflare-fronted),
+# which has been reliable; only the metadata API was the flake source.
+COPY evident/keys/deadsnakes.asc /etc/apt/keyrings/deadsnakes.asc
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        software-properties-common \
         ca-certificates curl gnupg \
         build-essential pkg-config git \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.asc] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy main" \
+        > /etc/apt/sources.list.d/deadsnakes.list \
     && apt-get update && apt-get install -y --no-install-recommends \
         python3.11 python3.11-dev python3.11-venv \
     && curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3.11 \
@@ -123,10 +129,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # libcifpp HEAD uses C++20 <format>, available only in libstdc++-13+;
 # jammy's default g++-11 fails to compile it. Runtime stage below
 # pulls the same libstdc++6 from this PPA so the binaries can load.
+COPY evident/keys/ubuntu-toolchain-r.asc /etc/apt/keyrings/ubuntu-toolchain-r.asc
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        software-properties-common \
         ca-certificates gnupg \
-    && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+    && echo "deb [signed-by=/etc/apt/keyrings/ubuntu-toolchain-r.asc] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" \
+        > /etc/apt/sources.list.d/ubuntu-toolchain-r.list \
     && apt-get update && apt-get install -y --no-install-recommends \
         git wget tar xz-utils make pkg-config \
         libboost-program-options-dev libboost-iostreams-dev libboost-date-time-dev \
@@ -230,11 +237,14 @@ LABEL org.opencontainers.image.title="proteon-evident-cuda" \
 # GLIBCXX_3.4.32+ symbols the C++20-<format>-using libcifpp.so was
 # linked against. Without this PPA, jammy's default libstdc++6
 # (g++-11 era) lacks those symbols and mkdssp fails to load.
+COPY evident/keys/deadsnakes.asc          /etc/apt/keyrings/deadsnakes.asc
+COPY evident/keys/ubuntu-toolchain-r.asc  /etc/apt/keyrings/ubuntu-toolchain-r.asc
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        software-properties-common \
         ca-certificates wget gnupg \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+    && echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.asc] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy main" \
+        > /etc/apt/sources.list.d/deadsnakes.list \
+    && echo "deb [signed-by=/etc/apt/keyrings/ubuntu-toolchain-r.asc] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" \
+        > /etc/apt/sources.list.d/ubuntu-toolchain-r.list \
     && apt-get update && apt-get install -y --no-install-recommends \
         python3.11 python3.11-dev python3.11-venv \
         gcc \
