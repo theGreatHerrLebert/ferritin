@@ -58,6 +58,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 CLAIMS_DIR = REPO_ROOT / "evident" / "claims"
 REPORTS_DIR = REPO_ROOT / "evident" / "reports"
 RENDER_CORPUS = REPO_ROOT / "validation" / "report" / "render_corpus_oracle.py"
+RENDER_SASA = REPO_ROOT / "validation" / "report" / "render_sasa_release.py"
 
 CHUNK = 1 << 16
 
@@ -202,8 +203,27 @@ def _render_corpus_oracle(
     subprocess.run(cmd, check=True)
 
 
+def _render_sasa_release(
+    claim_yaml: pathlib.Path,
+    artifact: pathlib.Path,
+    out_html: pathlib.Path,
+) -> None:
+    cmd = [
+        sys.executable,
+        str(RENDER_SASA),
+        "--claim",
+        str(claim_yaml),
+        "--artifact",
+        str(artifact),
+        "--output",
+        str(out_html),
+    ]
+    subprocess.run(cmd, check=True)
+
+
 RENDERERS: dict[tuple[str, str], Any] = {
     ("forcefield.charmm19", ".jsonl"): _render_corpus_oracle,
+    ("sasa", ".json"): _render_sasa_release,
 }
 
 
