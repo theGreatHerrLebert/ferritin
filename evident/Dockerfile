@@ -257,6 +257,7 @@ RUN pip install --no-cache-dir \
         pydssp \
         openmm \
         pdbfixer \
+        ball-py \
         numpy \
         pyyaml \
         pytest \
