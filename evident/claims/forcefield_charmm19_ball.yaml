@@ -149,7 +149,8 @@ claims:
         wheel is unavailable — the slim EVIDENT image is expected to
         carry it after first PyPI publish lands.
     failure_modes:
-      - "FULL ACTIVATION as of 2026-05-02 (evening): all 7 CHARMM
+      - |
+        FULL ACTIVATION as of 2026-05-02 (evening): all 7 CHARMM
         oracle components pass their per-tier tolerance bands live
         on crambin with shared polar-H placement (proteon places
         via place_all_hydrogens(polar_only=True), BALL reads with
@@ -299,7 +300,7 @@ claims:
         Conclusion: the residual 2.81x factor against BALL is a
         proteon bug, not BALL idiosyncrasy. Future PR's investigation
         target is in proteon's electrostatic compute path
-        (energy.rs), not in shaving BALL-specific tolerances."
+        (energy.rs), not in shaving BALL-specific tolerances.
       - Single fixture. Crambin only; a regression on non-standard
         residues, terminus handling, or large-loop conformations
         would not surface. A release-tier 1000-PDB version of this
