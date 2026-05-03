@@ -99,4 +99,6 @@ include:
   - claims/forcefield_charmm19_internal.yaml
   - claims/usalign_mm.yaml
   - claims/forcefield_charmm19_ball.yaml
+  - claims/forcefield_charmm19_ball_corpus.yaml
+  - claims/forcefield_charmm19_ball_corpus_50k.yaml
   - claims/geometry_rmsd_ball.yaml
