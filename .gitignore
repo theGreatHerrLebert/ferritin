@@ -68,3 +68,9 @@ evident/reports/_figures/
 # Local lock smoke-tests (release bundles are committed only at tag time
 # and live under evident/reports/v*/ — `dev*/` is for local dry runs)
 evident/reports/dev*/
+
+# The top-level release index is regenerated from committed bundles by
+# CI (docs.yml) before the GH Pages deploy, so the locally-generated
+# copy is ephemeral and would otherwise show dev*/ entries that aren't
+# in the repo.
+evident/reports/index.html
