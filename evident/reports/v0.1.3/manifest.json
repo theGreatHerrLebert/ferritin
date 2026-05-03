@@ -1,0 +1,514 @@
+{
+  "release": "v0.1.3",
+  "commit": "c814fd00394d49bd29eef1d2928c78d1158de397",
+  "locked_at_utc": "2026-05-03",
+  "environment": {
+    "python": "3.12.13",
+    "platform": "Linux-5.15.0-176-generic-x86_64-with-glibc2.35",
+    "pip_freeze": [
+      "-e git+https://github.com/theGreatHerrLebert/proteon-graphein.git@65550ccfd5f459de2e4abf94e0074a272dd0f825#egg=proteon_graphein",
+      "-e git+https://github.com/theGreatHerrLebert/proteon.git@c814fd00394d49bd29eef1d2928c78d1158de397#egg=proteon&subdirectory=packages/proteon",
+      "-e git+https://github.com/theGreatHerrLebert/proteon.git@c814fd00394d49bd29eef1d2928c78d1158de397#egg=proteon_connector&subdirectory=proteon-connector",
+      "Cython==3.2.4",
+      "OpenMM==8.5.1",
+      "PyYAML==6.0.3",
+      "Pygments==2.20.0",
+      "SecretStorage==3.5.0",
+      "annotated-types==0.7.0",
+      "appdirs==1.4.4",
+      "attrs==26.1.0",
+      "ball-py==0.1.0a4",
+      "beautifulsoup4==4.14.3",
+      "biopandas==0.5.1",
+      "biopython==1.87",
+      "bioservices==1.16.0",
+      "build==1.4.3",
+      "cattrs==26.1.0",
+      "certifi==2026.2.25",
+      "cffi==2.0.0",
+      "charset-normalizer==3.4.7",
+      "click==8.3.3",
+      "colorama==0.4.6",
+      "colorlog==6.10.1",
+      "contourpy==1.3.3",
+      "cpdb-protein==0.2.0",
+      "cryptography==46.0.7",
+      "cycler==0.12.1",
+      "deepdiff==9.0.0",
+      "docutils==0.22.4",
+      "easydev==0.13.3",
+      "fonttools==4.62.1",
+      "gevent==26.4.0",
+      "graphein==1.7.8",
+      "greenlet==3.5.0",
+      "grequests==0.7.0",
+      "id==1.6.1",
+      "idna==3.11",
+      "iniconfig==2.3.0",
+      "jaraco.classes==3.4.0",
+      "jaraco.context==6.1.2",
+      "jaraco.functools==4.4.0",
+      "jaxtyping==0.3.9",
+      "jeepney==0.9.0",
+      "joblib==1.5.3",
+      "keyring==25.7.0",
+      "kiwisolver==1.5.0",
+      "line_profiler==4.2.0",
+      "loguru==0.7.3",
+      "looseversion==1.1.2",
+      "lxml==5.4.0",
+      "markdown-it-py==4.0.0",
+      "matplotlib==3.10.9",
+      "maturin==1.13.1",
+      "mdurl==0.1.2",
+      "mmtf-python==1.1.3",
+      "more-itertools==11.0.2",
+      "msgpack==1.1.2",
+      "multipledispatch==1.0.0",
+      "narwhals==2.20.0",
+      "networkx==3.6.1",
+      "nh3==0.3.4",
+      "numpy==1.26.4",
+      "orderly-set==5.5.0",
+      "packaging==26.1",
+      "pandas==3.0.2",
+      "pdbfixer==1.12.0",
+      "pexpect==4.9.0",
+      "pillow==12.2.0",
+      "pip==26.0.1",
+      "platformdirs==4.9.6",
+      "plotly==6.7.0",
+      "pluggy==1.6.0",
+      "ptyprocess==0.7.0",
+      "pyarrow==23.0.1",
+      "pycparser==3.0",
+      "pydantic==2.13.3",
+      "pydantic_core==2.46.3",
+      "pyparsing==3.3.2",
+      "pyproject_hooks==1.2.0",
+      "pytest==9.0.3",
+      "python-dateutil==2.9.0.post0",
+      "readme_renderer==44.0",
+      "requests-cache==1.3.1",
+      "requests-toolbelt==1.0.0",
+      "requests==2.33.1",
+      "rfc3986==2.0.0",
+      "rich-click==1.9.7",
+      "rich==15.0.0",
+      "scikit-learn==1.8.0",
+      "scipy==1.17.1",
+      "seaborn==0.13.2",
+      "setuptools==82.0.1",
+      "six==1.17.0",
+      "soupsieve==2.8.3",
+      "threadpoolctl==3.6.0",
+      "tqdm==4.67.3",
+      "twine==6.2.0",
+      "typing-inspection==0.4.2",
+      "typing_extensions==4.15.0",
+      "url-normalize==3.0.0",
+      "urllib3==2.6.3",
+      "wadler_lindig==0.1.7",
+      "wget==3.2",
+      "wrapt==1.17.3",
+      "xarray==2026.4.0",
+      "xmltodict==0.14.2",
+      "zope.event==6.2",
+      "zope.interface==8.4"
+    ],
+    "cargo_metadata_sha256": "sha256:9761b87632474b53a59c5c7ad8a52a09afd60049ac4c594fe176d2d92fe48905"
+  },
+  "claim_count": 26,
+  "claims": [
+    {
+      "id": "proteon-acceleration-paths-parity-reference",
+      "title": "Proteon SIMD, rayon, and multi-thread supervision paths should each have parity tests vs the slow path (reference \u2014 none of the three exist today)",
+      "tier": "ci",
+      "subsystem": null,
+      "oracles": [
+        "proteon-slow-path"
+      ],
+      "command": "pytest tests/test_cross_path_parity.py tests/test_supervision_rust_parity.py -k 'simd or rayon or threads' -v",
+      "claim_yaml": "evident/claims/acceleration_paths.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-cross-path-parity-nbl-ci",
+      "title": "Proteon NBL energy path matches the exact O(N^2) path on every component, structure, and FF",
+      "tier": "ci",
+      "subsystem": "energy.cross-path",
+      "oracles": [
+        "proteon-slow-path"
+      ],
+      "command": "pytest tests/test_cross_path_parity.py -v",
+      "claim_yaml": "evident/claims/cross_path_parity.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-dssp-vs-pydssp-ci",
+      "title": "Proteon DSSP secondary-structure assignments match pydssp on a 5-structure CI corpus",
+      "tier": "ci",
+      "subsystem": "dssp",
+      "oracles": [
+        "pydssp"
+      ],
+      "command": "pytest tests/oracle/test_dssp_oracle.py::TestDsspOracle -v",
+      "claim_yaml": "evident/claims/dssp.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-dssp-8class-vs-mkdssp-reference",
+      "title": "Proteon 8-class DSSP output should agree with the mkdssp C++ reference on helix-flavor and isolated-bridge distinctions (reference \u2014 no asserting test yet)",
+      "tier": "ci",
+      "subsystem": null,
+      "oracles": [
+        "mkdssp"
+      ],
+      "command": "pytest tests/oracle/test_dssp_mkdssp_oracle.py -v",
+      "claim_yaml": "evident/claims/dssp_8class.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-fold-preservation-amber-vs-gromacs-release",
+      "title": "Proteon AMBER96 minimisation preserves fold comparably to GROMACS AMBER96 L-BFGS on a 1000-PDB corpus",
+      "tier": "release",
+      "subsystem": "minimize",
+      "oracles": [
+        "GROMACS"
+      ],
+      "command": "python validation/tm_fold_preservation_amber.py && python validation/tm_fold_preservation_gromacs.py",
+      "claim_yaml": "evident/claims/fold_preservation_amber_gromacs.yaml",
+      "artifact": "validation/gmx_fold_preservation/tm_fold_gromacs.jsonl",
+      "status": "locked",
+      "artifact_size": 188670,
+      "artifact_sha256": "bf1cd3faee1392c8a43b5176b65a945a750b548b7e0f870f60628a6a7a6b0a6e",
+      "summary": {
+        "n_total": 1000,
+        "n_ok": 0,
+        "n_skipped": 0,
+        "n_failed": 637
+      },
+      "verdict": "0/1000 ok (0.0%)"
+    },
+    {
+      "id": "proteon-fold-preservation-charmm-vs-openmm-release",
+      "title": "Proteon CHARMM19+EEF1 minimisation preserves fold (median TM>=0.99) on 1000 PDBs, within 0.01 of OpenMM CHARMM36+OBC2 SOTA",
+      "tier": "release",
+      "subsystem": "minimize",
+      "oracles": [
+        "OpenMM"
+      ],
+      "command": "python validation/tm_fold_preservation.py && python validation/tm_fold_preservation_openmm.py",
+      "claim_yaml": "evident/claims/fold_preservation_charmm.yaml",
+      "artifact": "/globalscratch/dateschn/proteon-benchmark/tm_fold_preservation_openmm.jsonl",
+      "status": "missing"
+    },
+    {
+      "id": "proteon-amber96-vs-ball-ci",
+      "title": "Proteon AMBER96 energy components agree with BALL on crambin within per-component tolerances",
+      "tier": "ci",
+      "subsystem": "forcefield.amber96",
+      "oracles": [
+        "BALL"
+      ],
+      "command": "pytest tests/oracle/test_ball_energy.py::TestBallEnergyOracle -v",
+      "claim_yaml": "evident/claims/forcefield_amber_ball.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-amber96-vs-openmm-release-1k-pdbs",
+      "title": "Proteon AMBER96 single-point total energy tracks OpenMM at <0.5% median across 1000 PDBs",
+      "tier": "release",
+      "subsystem": "forcefield.amber96",
+      "oracles": [
+        "OpenMM"
+      ],
+      "command": "python validation/amber96_oracle.py",
+      "claim_yaml": "evident/claims/forcefield_amber_openmm.yaml",
+      "artifact": "/globalscratch/dateschn/proteon-benchmark/amber96_oracle.jsonl",
+      "status": "missing"
+    },
+    {
+      "id": "proteon-charmm19-vs-ball-ci",
+      "title": "Proteon CHARMM19+EEF1 energy components agree with BALL on crambin within per-component tolerances",
+      "tier": "ci",
+      "subsystem": "forcefield.charmm19",
+      "oracles": [
+        "BALL"
+      ],
+      "command": "pytest tests/oracle/test_charmm19_ball_oracle.py::TestCharmm19BallOracle -v",
+      "claim_yaml": "evident/claims/forcefield_charmm19_ball.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-charmm19-vs-ball-corpus-1k-pdbs",
+      "title": "Proteon CHARMM19+EEF1 per-component energies track BALL across 1000 PDBs (5 of 7 gates passing on a curated subset)",
+      "tier": "release",
+      "subsystem": "forcefield.charmm19",
+      "oracles": [
+        "BALL"
+      ],
+      "command": "python validation/charmm19_eef1_ball_oracle.py",
+      "claim_yaml": "evident/claims/forcefield_charmm19_ball_corpus.yaml",
+      "artifact": "validation/charmm19_eef1_ball_oracle.jsonl",
+      "status": "locked",
+      "artifact_size": 514412,
+      "artifact_sha256": "ff96c75922f4907202a696e79a83a6a2138cad4f51da9adbb2a3015960e6025b",
+      "summary": {
+        "n_total": 662,
+        "n_ok": 223,
+        "n_skipped": 347,
+        "n_failed": 92
+      },
+      "verdict": "223/662 ok (33.7%)",
+      "report_html": "proteon-charmm19-vs-ball-corpus-1k-pdbs.html"
+    },
+    {
+      "id": "proteon-charmm19-vs-ball-corpus-50k-pdbs",
+      "title": "Proteon CHARMM19+EEF1 per-component energies track BALL across a 44 210-PDB protein-only corpus (n_ok=807; 6 of 7 components meeting the per-tier band on the median)",
+      "tier": "release",
+      "subsystem": "forcefield.charmm19",
+      "oracles": [
+        "BALL"
+      ],
+      "command": "PROTEON_PDB_LIST=validation/protein_only_50k.txt PROTEON_CHARMM_ORACLE_OUT=validation/charmm19_eef1_ball_oracle_50k.jsonl N_PDBS=50000 N_WORKERS=32 SEED=42 python validation/charmm19_eef1_ball_oracle.py",
+      "claim_yaml": "evident/claims/forcefield_charmm19_ball_corpus_50k.yaml",
+      "artifact": "validation/charmm19_eef1_ball_oracle_50k.jsonl",
+      "status": "locked",
+      "artifact_size": 2641798,
+      "artifact_sha256": "05c72b7a20b33fc499ec508bdd6f34fd13ee22459f18e5631f34111559573202",
+      "summary": {
+        "n_total": 2924,
+        "n_ok": 807,
+        "n_skipped": 2084,
+        "n_failed": 33
+      },
+      "verdict": "807/2924 ok (27.6%)",
+      "report_html": "proteon-charmm19-vs-ball-corpus-50k-pdbs.html"
+    },
+    {
+      "id": "proteon-charmm19-component-external-oracle-gap-reference",
+      "title": "CHARMM19+EEF1 per-component validation today is internal-parity only; an external per-component oracle is a v1.1 gap",
+      "tier": "ci",
+      "subsystem": "forcefield.charmm19",
+      "oracles": [
+        "proteon-slow-path"
+      ],
+      "command": "pytest tests/test_cross_path_parity.py -k \"charmm19_eef1\" -v",
+      "claim_yaml": "evident/claims/forcefield_charmm19_internal.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-obc-gb-vs-openmm-release",
+      "title": "Proteon AMBER96+OBC GB single-point matches OpenMM on crambin within 1% total / 5% GB",
+      "tier": "release",
+      "subsystem": "gb.obc",
+      "oracles": [
+        "OpenMM"
+      ],
+      "command": "python validation/amber96_obc_oracle.py",
+      "claim_yaml": "evident/claims/gb_obc.yaml",
+      "artifact": "stdout summary table (\u0394 total / \u0394 GB in kJ/mol and %)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-rmsd-vs-ball-ci",
+      "title": "Proteon Kabsch RMSD agrees with BALL RMSDMinimizer on crambin within numerical-precision tolerance",
+      "tier": "ci",
+      "subsystem": "geometry",
+      "oracles": [
+        "BALL"
+      ],
+      "command": "pytest tests/oracle/test_rmsd_ball_oracle.py::TestRmsdBallOracle -v",
+      "claim_yaml": "evident/claims/geometry_rmsd_ball.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-gpu-vs-cpu-energy-parity-reference",
+      "title": "Proteon GPU CHARMM19+EEF1 energy path should match CPU exact path at the public Python API (reference \u2014 no asserting test yet)",
+      "tier": "ci",
+      "subsystem": null,
+      "oracles": [
+        "proteon-slow-path"
+      ],
+      "command": "pytest tests/test_gpu_cpu_energy_parity.py -v",
+      "claim_yaml": "evident/claims/gpu_cpu_parity.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-hydrogens-vs-reduce-ci",
+      "title": "Proteon rigid hydrogen placement matches reduce on 1crn and 1ubq, polar-only and full-H",
+      "tier": "ci",
+      "subsystem": "prep.hydrogens",
+      "oracles": [
+        "reduce"
+      ],
+      "command": "pytest tests/oracle/test_reduce_hydrogen_oracle.py::TestReduceHydrogenOracle -v",
+      "claim_yaml": "evident/claims/hydrogens.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-io-vs-biopython-gemmi-ci",
+      "title": "Proteon PDB/mmCIF loader matches Biopython and Gemmi on a 4-fixture CI corpus",
+      "tier": "ci",
+      "subsystem": "io",
+      "oracles": [
+        "Biopython",
+        "Gemmi"
+      ],
+      "command": "pytest tests/oracle/test_io_oracle.py -v",
+      "claim_yaml": "evident/claims/io.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-msa-vs-mmseqs2-research",
+      "title": "Proteon search+MSA pipeline matches upstream MMseqs2 on shared-hit residue and deletion agreement (50-query smoke)",
+      "tier": "research",
+      "subsystem": "search.mmseqs",
+      "oracles": [
+        "MMseqs2"
+      ],
+      "command": "python validation/msa_oracle.py",
+      "claim_yaml": "evident/claims/msa.yaml",
+      "artifact": "validation/msa_oracle_report.json",
+      "status": "missing"
+    },
+    {
+      "id": "proteon-oracle-backed-release-gate",
+      "title": "Proteon core numerical claims are release-gated by external oracles",
+      "tier": "release",
+      "subsystem": null,
+      "oracles": [
+        "OpenMM",
+        "BALL",
+        "USAlign",
+        "Biopython",
+        "Gemmi",
+        "FreeSASA",
+        "pydssp",
+        "reduce"
+      ],
+      "command": "pytest tests/oracle -v",
+      "claim_yaml": "evident/claims/release_gate.yaml",
+      "artifact": "validation/report.html",
+      "status": "locked",
+      "artifact_size": 33737,
+      "artifact_sha256": "bbaec25d6bff66447804fd0a2828a7cf14db7836fd05756f1a0b330a0dd19bb0"
+    },
+    {
+      "id": "proteon-sasa-vs-biopython-ci",
+      "title": "Proteon SASA agrees with Biopython on a fixed CI fixture",
+      "tier": "ci",
+      "subsystem": "sasa",
+      "oracles": [
+        "Biopython"
+      ],
+      "command": "pytest tests/test_sasa.py::TestBiopythonOracle -v",
+      "claim_yaml": "evident/claims/sasa.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-sasa-vs-biopython-release-1k-pdbs",
+      "title": "Proteon SASA tracks Biopython on 1000 random PDBs at <0.5% median",
+      "tier": "release",
+      "subsystem": "sasa",
+      "oracles": [
+        "Biopython"
+      ],
+      "command": "python validation/run_validation.py --n-structures 1000 --pdb-dir validation/pdbs/ --output validation/results.json\n",
+      "claim_yaml": "evident/claims/sasa.yaml",
+      "artifact": "validation/results.json",
+      "status": "locked",
+      "artifact_size": 33284185,
+      "artifact_sha256": "b319c47c59871ed3990f81fb025c6ae90abba6adcff0b91ff7f118e41c730a53",
+      "report_html": "proteon-sasa-vs-biopython-release-1k-pdbs.html"
+    },
+    {
+      "id": "proteon-sasa-cross-tool-vs-freesasa-reference",
+      "title": "Proteon SASA should additionally agree with FreeSASA, closing the single-oracle gap on Shrake-Rupley convention (reference \u2014 not yet installed or tested)",
+      "tier": "ci",
+      "subsystem": null,
+      "oracles": [
+        "FreeSASA"
+      ],
+      "command": "pytest tests/test_sasa.py -k freesasa -v",
+      "claim_yaml": "evident/claims/sasa_freesasa.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-50k-battle-test-release",
+      "title": "Proteon GPU CHARMM19+EEF1 minimisation pipeline produces physically-consistent output on 99.1% of 47183 random PDBs",
+      "tier": "release",
+      "subsystem": "pipeline.batch",
+      "oracles": [
+        "physics-invariant"
+      ],
+      "command": "python benchmark/stage3_50k_gpu.py --pdb-dir /globalscratch/dateschn/proteon-benchmark/pdbs_50k --minimize-steps 50 --chunk 500 --gpu --threads 128 --seed 42 --out validation/stage3_50k_gpu_results.jsonl --log validation/stage3_50k_gpu.log\n",
+      "claim_yaml": "evident/claims/scale_50k_battle_test.yaml",
+      "artifact": "validation/stage3_50k_gpu_results.jsonl",
+      "status": "locked",
+      "artifact_size": 8485844,
+      "artifact_sha256": "3bb5d22390249f83283cdd9488d9f3d2cfe176307ef98d0f9b7eca0700d2004c",
+      "summary": {
+        "n_total": 47183,
+        "n_ok": 45486,
+        "n_skipped": 0,
+        "n_failed": 0
+      },
+      "verdict": "45486/47183 ok (96.4%)",
+      "report_html": "proteon-50k-battle-test-release.html"
+    },
+    {
+      "id": "proteon-supervision-rust-vs-python-ci",
+      "title": "Proteon Rust supervision batch extractor matches Python reference bit-exact on coords/masks and to 1e-5 on angles/frames",
+      "tier": "ci",
+      "subsystem": "supervision",
+      "oracles": [
+        "proteon-slow-path"
+      ],
+      "command": "pytest tests/test_supervision_rust_parity.py -v",
+      "claim_yaml": "evident/claims/supervision_parity.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-tmalign-vs-usalign-ci",
+      "title": "Proteon TM-align matches C++ USAlign on a 7-pair CI fixture set",
+      "tier": "ci",
+      "subsystem": "align.tmalign",
+      "oracles": [
+        "USAlign"
+      ],
+      "command": "pytest tests/oracle/test_tmscore_oracle.py::TestTMScoreVsCpp -v",
+      "claim_yaml": "evident/claims/tmalign.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    },
+    {
+      "id": "proteon-usalign-mm-vs-cpp-ci",
+      "title": "Proteon MM-align matches C++ USAlign -mm 1 on multi-chain fixtures",
+      "tier": "ci",
+      "subsystem": "align.usalign",
+      "oracles": [
+        "USAlign"
+      ],
+      "command": "pytest tests/oracle/test_usalign_mm_oracle.py -v",
+      "claim_yaml": "evident/claims/usalign_mm.yaml",
+      "artifact": "pytest console output (CI-tier; no persisted artifact)",
+      "status": "ci-only"
+    }
+  ]
+}
