@@ -61,6 +61,7 @@ def _release_summary(manifest: dict) -> dict:
     n_total = len(claims)
     n_locked = sum(1 for c in claims if c.get("status") == "locked")
     n_missing = sum(1 for c in claims if c.get("status") == "missing")
+    n_ci_only = sum(1 for c in claims if c.get("status") == "ci-only")
     n_no_artifact = sum(1 for c in claims if c.get("status") == "no-artifact")
 
     n_ok_total = n_records_total = 0
@@ -73,6 +74,7 @@ def _release_summary(manifest: dict) -> dict:
         "n_total": n_total,
         "n_locked": n_locked,
         "n_missing": n_missing,
+        "n_ci_only": n_ci_only,
         "n_no_artifact": n_no_artifact,
         "n_ok_records": n_ok_total,
         "n_records": n_records_total,
@@ -82,11 +84,20 @@ def _release_summary(manifest: dict) -> dict:
 def _render(reports_dir: pathlib.Path, releases: list[tuple[str, dict, dict]]) -> str:
     rows = []
     for tag, manifest, summary in releases:
-        coverage = (
-            f"{summary['n_locked']}/{summary['n_total']} locked"
-            if summary["n_total"]
-            else "no claims"
-        )
+        # Coverage = locked artifacts / claims that should produce one
+        # (i.e. n_total minus the ci-only bucket, which has no artifact
+        # by design). Avoids inflating the denominator with claims that
+        # correctly don't have a file to pin.
+        denom = summary["n_total"] - summary["n_ci_only"]
+        if summary["n_total"] == 0:
+            coverage = "no claims"
+        elif denom == 0:
+            coverage = f"all {summary['n_ci_only']} claims CI-only"
+        else:
+            coverage = (
+                f"{summary['n_locked']}/{denom} locked "
+                f"+ {summary['n_ci_only']} CI-only"
+            )
         verdict = (
             f"{summary['n_ok_records']}/{summary['n_records']} records ok"
             if summary["n_records"]
