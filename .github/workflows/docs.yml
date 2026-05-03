@@ -55,6 +55,19 @@ jobs:
       - name: Build mkdocs site
         run: mkdocs build
 
+      # Refresh the EVIDENT release index from committed bundles, then
+      # mirror evident/reports/ into the Pages site so reviewers can hit
+      # `<pages-url>/evident/reports/` and walk the per-release HTML
+      # bundles. Locally-generated index.html is gitignored (it can show
+      # dev/* dirs that aren't in the repo); CI regenerates from the
+      # ground truth.
+      - name: Build EVIDENT release index
+        run: python evident/scripts/build_index.py
+      - name: Copy EVIDENT reports into Pages site
+        run: |
+          mkdir -p site/evident/reports
+          cp -r evident/reports/. site/evident/reports/
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

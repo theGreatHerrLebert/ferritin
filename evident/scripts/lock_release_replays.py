@@ -416,6 +416,19 @@ def main() -> int:
     )
     _render_index(args.release, manifest, out_dir)
 
+    # Refresh the top-level evident/reports/index.html so the new
+    # release shows up alongside any existing ones. Best-effort: a
+    # build_index.py failure should not block the lock.
+    build_index = REPO_ROOT / "evident" / "scripts" / "build_index.py"
+    if build_index.is_file():
+        try:
+            subprocess.run(
+                [sys.executable, str(build_index), "--out-dir", str(out_dir.parent)],
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"warning: build_index.py exited {e.returncode}", file=sys.stderr)
+
     n_locked = sum(1 for r in rows if r.get("status") == "locked")
     n_rendered = len(rendered_paths)
     print(
