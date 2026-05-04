@@ -45,6 +45,17 @@ from pathlib import Path
 
 import numpy as np
 
+# Heavy oracle imports at module top-level so each pebble worker pays the
+# proteon / ball-py / openmm load cost ONCE per worker process at startup,
+# not once per task. proteon and ball-py both wrap C++ libraries whose first
+# import is several seconds (Rust .so / CharmmFF parameter parsing); pushing
+# them inside `compare_one()` makes the per-task cold-start cost dominate
+# the legitimate compute on small PDBs.
+import proteon
+import ball  # ball-py — pip install ball-py
+from pdbfixer import PDBFixer
+import openmm.app as openmm_app
+
 PDB_DIR = Path(os.environ.get(
     "PROTEON_PDB_DIR",
     "/scratch/TMAlign/proteon/validation/pdbs_1k_sample",
@@ -95,22 +106,25 @@ def compare_one(pdb_path: str) -> dict:
     Returns a dict with both energy decompositions + per-component
     relative differences. Errors caught and reported under "error".
     """
-    import proteon
-    import ball  # ball-py — pip install ball-py
-    from pdbfixer import PDBFixer
-    import openmm.app as app
-
     rec = {"pdb": Path(pdb_path).name}
     t0 = time.perf_counter()
     tmp_path = clean_pdb_path = None
     try:
         # Step 0: clean the PDB. PDBFixer drops heterogens (water, ligands,
         # ions), replaces non-standard residues with their canonical 20-AA
-        # equivalents, and adds back missing backbone/sidechain heavy atoms.
+        # equivalents, and we DETECT but do NOT add missing heavy atoms —
+        # PDBFixer's addMissingAtoms() hangs deterministically on a non-trivial
+        # fraction of wwPDB inputs (observed during the v0.1.4 50K corpus
+        # re-run on monster3: 70%+ of PDBs hit the per-task timeout because
+        # of this hang, including PDBs with zero missing atoms reported).
+        # Rather than ship a slow / partial run, skip any PDB where PDBFixer
+        # would need to model heavy atoms back. The corpus oracle's
+        # comparison surface is then "well-resolved wwPDB" rather than
+        # "everything PDBFixer can repair", which is the more defensible
+        # claim anyway — modeled-back atoms have ad-hoc geometry that the
+        # downstream BALL / proteon energies are sensitive to.
         # We do NOT call addMissingHydrogens — proteon's polar-H placement
         # is the canonical CHARMM19 prep and goes downstream.
-        # Skip the PDB if it has nucleic-acid residues (CHARMM19 is a
-        # protein-only force field).
         fixer = PDBFixer(filename=pdb_path)
         fixer.findMissingResidues()
         fixer.missingResidues = {}
@@ -118,7 +132,11 @@ def compare_one(pdb_path: str) -> dict:
         fixer.replaceNonstandardResidues()
         fixer.removeHeterogens(keepWater=False)
         fixer.findMissingAtoms()
-        fixer.addMissingAtoms()
+        if fixer.missingAtoms:
+            rec["skipped"] = "missing_heavy_atoms"
+            rec["missing_count"] = len(fixer.missingAtoms)
+            rec["wall_s"] = float(time.perf_counter() - t0)
+            return rec
         # Detect non-AA residues (nucleic acids etc). PDB CHARMM19 is
         # protein-only — skip and report.
         nuc = {"DA", "DC", "DG", "DT", "DI", "A", "C", "G", "U", "I",
@@ -132,7 +150,7 @@ def compare_one(pdb_path: str) -> dict:
             suffix="_clean.pdb", delete=False, mode="w"
         ).name
         with open(clean_pdb_path, "w") as f:
-            app.PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)
+            openmm_app.PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)
 
         # Steps 1-2: load + polar-H prep (same as the unit oracle).
         s = proteon.load(clean_pdb_path)
@@ -236,7 +254,7 @@ def main():
         return _summarize()
 
     n_workers = int(os.environ.get("N_WORKERS", "32"))
-    task_timeout = float(os.environ.get("TASK_TIMEOUT_S", "120"))
+    task_timeout = float(os.environ.get("TASK_TIMEOUT_S", "60"))
     print(
         f"Using {n_workers} pebble workers, "
         f"per-task timeout {task_timeout:.0f}s",
@@ -261,14 +279,20 @@ def main():
     # claims/forcefield_charmm19_ball_corpus_50k.yaml's failure_modes
     # for the full incident notes.
     #
-    # Per-task timeout (TASK_TIMEOUT_S, default 120 s) closes the
+    # Per-task timeout (TASK_TIMEOUT_S, default 60 s) closes the
     # last failure mode left over from the concurrent.futures era:
     # a task that hangs inside BALL never yielded a future, the run
     # stalled, and recovery required a manual kill. pebble raises
     # `TimeoutError` on the task, the worker is terminated, the
-    # next task starts. 120 s covers the largest crambin-class
-    # inputs at NoCutoff with margin; a worker that takes longer
-    # than that is almost certainly stuck in a setup loop.
+    # next task starts. 60 s is generous for the actual compute —
+    # typical wall_s on the in-corpus PDBs is <2s after the
+    # missing-atoms skip path is applied; large multi-chain
+    # structures top out around 30s. A task taking longer is
+    # almost certainly stuck in a setup loop and worth killing.
+    # Heavy library imports (proteon, ball, openmm) live at the
+    # module top level so the per-worker startup cost is paid once,
+    # not once per task — this is critical for the 60 s budget to
+    # be tight without becoming the dominant failure mode.
     with open(OUT, "a") as f:
         with pebble.ProcessPool(max_workers=n_workers) as pool:
             futs = {
