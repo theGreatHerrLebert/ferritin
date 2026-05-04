@@ -54,6 +54,7 @@ NEXT_STEPS.md
 
 # Large corpus oracle outputs (JSONL artifacts; metadata only in claim YAML)
 validation/charmm19_eef1_ball_oracle.jsonl
+validation/charmm19_eef1_ball_oracle_50k.jsonl
 validation/amber96_oracle.jsonl
 validation/amber96_obc_oracle.jsonl
 
