@@ -227,7 +227,7 @@ LABEL org.opencontainers.image.title="proteon-evident" \
 # Boost runtime libraries land at the trixie 1.83 series rather than
 # bookworm's 1.74; the package names track that.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgomp1 libstdc++6 \
+        libgomp1 libstdc++6 libglib2.0-0 \
         gcc python3-dev \
         gromacs \
         libboost-program-options1.83.0 libboost-iostreams1.83.0 libboost-date-time1.83.0 \
