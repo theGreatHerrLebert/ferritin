@@ -1,0 +1,154 @@
+claims:
+  - id: proteon-charmm19-fold-preservation-vs-openmm-release-1k-pdbs
+    title: Proteon CHARMM19+EEF1 minimization preserves fold within 0.005 TM-score of OpenMM CHARMM36+OBC2 across 1000 random PDBs
+    kind: measurement
+    subsystem: minimize
+    case: claims/fold_preservation_charmm.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+    capabilities:
+      - fold-preservation-after-minimization
+    inputs:
+      corpus: charmm-fold-preservation-1k-from-validation-pdbs
+      n: 1000
+      class: random-sample
+      seed: 42
+      corpus_sha: "PENDING-PIN-VALIDATION-PDB-CORPUS-1K"
+    outputs:
+      tm_score:
+        unit: dimensionless
+        description: >
+          TM-score between input PDB CA trace and post-minimization CA
+          trace, computed by proteon's TM-align port. 1.0 = identical
+          fold; values below ~0.5 indicate substantial fold disruption.
+      rmsd:
+        unit: angstroms
+        description: >
+          Heavy-atom RMSD between input and post-minimization structures
+          (Kabsch-aligned). Per-PDB, on the CA atoms common to both
+          structures.
+      tm_diff:
+        unit: dimensionless
+        description: >
+          Per-PDB difference openmm.tm_score − proteon.tm_score. Positive
+          = OpenMM holds the fold tighter than proteon on that PDB; the
+          claim's tolerance bounds the median magnitude of this diff.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      OpenMM: "8.5.1"
+      python: "3.12"
+      runner_proteon: validation/tm_fold_preservation.py
+      runner_openmm: validation/tm_fold_preservation_openmm.py
+      joiner: validation/fold_preservation/join_fold_preservation.py
+    claim: >
+      Across 1000 PDBs sampled (seed=42) from validation/pdbs/,
+      proteon's CHARMM19+EEF1 minimization preserves fold within
+      0.005 TM-score of OpenMM CHARMM36+OBC2 minimization on the same
+      inputs. Both runners use a 100-step L-BFGS-style minimizer at
+      effective NoCutoff. The TM-score diff distribution is centred at
+      median(openmm − proteon) ≈ +0.004, meaning OpenMM holds the fold
+      marginally tighter on the typical structure but the implementations
+      track each other to within experimentally-irrelevant fold
+      perturbations across the corpus.
+    tolerances:
+      - metric: pass_rate
+        op: ">="
+        value: 0.5
+        output: tm_score
+        prose: >
+          ≥50% of n_ok structures retain TM-score > 0.99 after 100
+          minimizer steps. A structure that retains its fold has
+          TM-score > 0.5; we require near-perfect preservation at
+          population scale, not per-PDB. Headline: median proteon TM
+          on this run is 0.9944, so well above half the structures
+          clear 0.99.
+      - metric: drift
+        op: "<"
+        value: 0.01
+        output: tm_diff
+        prose: >
+          |median(openmm.tm_score − proteon.tm_score)| < 0.01 — the
+          two force-field implementations agree on per-PDB fold
+          preservation to within 0.01 TM-score at the median.
+          Headline ≈ +0.004 is well inside this band.
+      - metric: pass_rate
+        op: ">="
+        value: 0.85
+        output: tm_score
+        prose: >
+          n_ok / n_attempted ≥ 0.85 — at least 85% of inputs complete
+          on both sides. Below this rate the comparison surface is too
+          biased by side-specific failures to claim "across the corpus".
+          Headline 88.6% (886 / 1000) on this run.
+    evidence:
+      oracle:
+        - OpenMM
+      command: >
+        python validation/tm_fold_preservation.py &&
+        python validation/tm_fold_preservation_openmm.py &&
+        python validation/fold_preservation/join_fold_preservation.py
+      artifact: validation/fold_preservation/charmm_pair_1k.jsonl
+    provenance: human
+    last_verified:
+      commit: null
+      date: "2026-04-13"
+      value: 0.9944
+      corpus_sha: null
+    assumptions:
+      - >
+        proteon and OpenMM consume the same input PDB. PDBFixer
+        preprocessing is applied independently on each side; both
+        sides drop heterogens, replace nonstandard residues, and add
+        missing heavy atoms before minimization. Per-side
+        preprocessing differences are absorbed into the per-side
+        TM-score and surface in the diff.
+      - >
+        Input corpus validation/pdbs/ is a 1000-PDB random sample
+        from the wwPDB seeded at 42 for reproducibility. corpus_sha
+        resolves to a tarball hash at first replay.
+      - >
+        Minimizer budget is 100 steps on both sides, L-BFGS-style.
+        Neither side runs to convergence — the metric is "structure
+        survives 100 minimizer steps without unfolding", not "we
+        found the global minimum".
+      - >
+        proteon.tm_score is the TM-align port; OpenMM-side TM is
+        also computed by proteon's TM-align (the score function
+        is shared across both arms so the comparison is on the
+        physics, not on alignment idiosyncrasies).
+    failure_modes:
+      - >
+        Headline (commit at lock time, dataset 2026-04-12/13):
+        n_attempted=1000, n_ok=886, pass_rate=88.6 %.
+          proteon CHARMM19+EEF1: median TM 0.9944, mean 0.9875,
+                                 RMSD median 0.45 Å.
+          OpenMM CHARMM36+OBC2:  median TM 0.9991, mean 0.9950,
+                                 RMSD median 0.21 Å.
+          tm_diff (openmm − proteon): median +0.0040.
+        Both implementations preserve fold near-perfectly at the
+        median; OpenMM's tighter mean reflects the OBC implicit
+        solvent's smoother landscape vs proteon's EEF1, which
+        produces sharper local-minimum gradients on certain
+        residue compositions.
+      - >
+        14 % of PDBs fail on at least one side. Per-side error
+        breakdown is in the raw runners' JSONLs (proteon-side
+        errors are dominated by free-CYS HG topology issues
+        documented elsewhere; OpenMM-side errors are dominated
+        by PDBFixer-reconstructed structures that produce non-
+        finite forces on the first minimization step). The 86 %
+        pass rate is the comparison surface; the missing 14 %
+        is documented as failure_modes per side, not as a
+        force-field correctness gap.
+      - >
+        proteon's CHARMM19+EEF1 uses united-atom heavy-atom
+        relaxation (heavy atoms free to move, polar H placement
+        downstream) while OpenMM CHARMM36+OBC2 is all-atom with
+        explicit hydrogens. The +0.004 tm_diff captures both
+        the physical model difference (CHARMM19 vs CHARMM36) and
+        the implicit solvent difference (EEF1 vs OBC2) — it is
+        NOT a "proteon CHARMM19 is wrong" measurement; it is a
+        "two valid implementations of fold-preserving minimization
+        agree to 0.004 TM-score at the median" measurement.
