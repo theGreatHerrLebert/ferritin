@@ -39,7 +39,8 @@ import random
 import tempfile
 import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as _FuturesTimeoutError
+import pebble
 from pathlib import Path
 
 import numpy as np
@@ -235,45 +236,72 @@ def main():
         return _summarize()
 
     n_workers = int(os.environ.get("N_WORKERS", "32"))
-    print(f"Using {n_workers} workers (one task per worker process)", flush=True)
+    task_timeout = float(os.environ.get("TASK_TIMEOUT_S", "120"))
+    print(
+        f"Using {n_workers} pebble workers, "
+        f"per-task timeout {task_timeout:.0f}s",
+        flush=True,
+    )
 
     t0 = time.perf_counter()
     n_ok = n_fail = n_skip = 0
     OUT.parent.mkdir(parents=True, exist_ok=True)
 
-    # Crash isolation via `max_tasks_per_child=1` (Python 3.11+; the
-    # proteon venv is 3.12 per CLAUDE.md). Each task runs in its OWN
-    # worker process, so a BALL segfault or malloc abort can only kill
-    # the worker that triggered it — the next task spawns a fresh one
-    # and the pool stays alive. This drops the chunked-pool design that
-    # PR #25 used; the chunked design lost an entire chunk's in-flight
-    # PDBs every time a single bad input crashed the pool.
+    # Crash isolation via pebble.ProcessPool. Each task runs in its
+    # own subprocess; a BALL segfault, malloc abort, or assertion in
+    # C++ becomes a `pebble.ProcessExpired` exception localised to
+    # that one task — the pool keeps running and the next task gets
+    # a fresh subprocess. Critically, this is NOT what
+    # `concurrent.futures.ProcessPoolExecutor(max_tasks_per_child=1)`
+    # gives you: that interface marks the entire pool "broken" on
+    # any abnormal worker exit and propagates `BrokenProcessPool` to
+    # all in-flight futures, even those running on healthy workers.
+    # The 50K corpus run on monster3 (May 2026, locked into v0.1.3)
+    # hit that cascade behaviour in ~93% of records — see
+    # claims/forcefield_charmm19_ball_corpus_50k.yaml's failure_modes
+    # for the full incident notes.
     #
-    # Per-fork overhead is ~50ms; for 50K PDBs at 32 workers it's ~80s
-    # of fork time spread across the run, dwarfed by the per-PDB
-    # compute cost (~0.4s).
-    #
-    # Hang protection (infinite-loop tasks that as_completed never
-    # yields) is NOT handled here. In the 1k-PDB run we saw 1-2 PDBs
-    # hang; the right fix is a watchdog subprocess per task (e.g. via
-    # `pebble.ProcessPool.schedule(timeout=...)`), but the segfault
-    # case (~14% of inputs) is the dominant failure mode and is
-    # handled cleanly by max_tasks_per_child=1 alone. Hangs can be
-    # killed manually or worked around by Ctrl-C-and-resume.
+    # Per-task timeout (TASK_TIMEOUT_S, default 120 s) closes the
+    # last failure mode left over from the concurrent.futures era:
+    # a task that hangs inside BALL never yielded a future, the run
+    # stalled, and recovery required a manual kill. pebble raises
+    # `TimeoutError` on the task, the worker is terminated, the
+    # next task starts. 120 s covers the largest crambin-class
+    # inputs at NoCutoff with margin; a worker that takes longer
+    # than that is almost certainly stuck in a setup loop.
     with open(OUT, "a") as f:
-        with ProcessPoolExecutor(
-            max_workers=n_workers, max_tasks_per_child=1
-        ) as pool:
-            futs = {pool.submit(compare_one, p): p for p in pending}
-            for fut in as_completed(futs):
-                pdb_path = futs[fut]
+        with pebble.ProcessPool(max_workers=n_workers) as pool:
+            futs = {
+                pool.schedule(compare_one, args=[p], timeout=task_timeout): p
+                for p in pending
+            }
+            for fut, pdb_path in futs.items():
                 pdb_name = Path(pdb_path).name
                 try:
                     rec = fut.result()
+                except pebble.ProcessExpired as ex:
+                    rec = {
+                        "pdb": pdb_name,
+                        "error": (
+                            f"worker subprocess died: exit={ex.exitcode}"
+                            f" (likely BALL SIGSEGV / abort)"
+                        ),
+                    }
+                except _FuturesTimeoutError:
+                    rec = {
+                        "pdb": pdb_name,
+                        "error": (
+                            f"task exceeded {task_timeout:.0f}s timeout "
+                            f"(killed)"
+                        ),
+                    }
                 except Exception as ex:
                     rec = {
                         "pdb": pdb_name,
-                        "error": f"worker crash: {type(ex).__name__}: {str(ex)[:120]}",
+                        "error": (
+                            f"worker exception: {type(ex).__name__}: "
+                            f"{str(ex)[:120]}"
+                        ),
                     }
                 f.write(json.dumps(rec) + "\n"); f.flush()
                 if "rel_diff" in rec:

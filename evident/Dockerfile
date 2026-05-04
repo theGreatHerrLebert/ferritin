@@ -258,6 +258,7 @@ RUN pip install --no-cache-dir \
         openmm \
         pdbfixer \
         ball-py \
+        pebble \
         numpy \
         pyyaml \
         pytest \
