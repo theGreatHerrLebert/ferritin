@@ -151,13 +151,21 @@ RUN wget -q "https://github.com/soedinglab/MMseqs2/releases/download/${MMSEQS_VE
 # tracked separately. Build chain: libmcfp → libcifpp → dssp. CCD
 # download is disabled (-DCIFPP_DOWNLOAD_CCD=OFF) because PDB input
 # does not need the chemistry-component dictionary; mmCIF input would.
-RUN git clone --depth 1 https://github.com/mhekkel/libmcfp.git && \
+#
+# Pinned versions (closes #13). The triple is mutually compatible:
+# dssp v4.6.1 requires `find_package(cifpp 10.0.2)`; libmcfp v1.4.2
+# matches dssp 4.6.1's tested CPMFindPackage GIT_TAG hint. Pinning
+# stops upstream main pushes from breaking the build silently.
+ARG LIBMCFP_VERSION=v1.4.2
+ARG LIBCIFPP_VERSION=v10.0.3
+ARG DSSP_VERSION=v4.6.1
+RUN git clone --depth 1 -b "${LIBMCFP_VERSION}" https://github.com/mhekkel/libmcfp.git && \
     cmake -S libmcfp -B libmcfp/build -DCMAKE_BUILD_TYPE=Release && \
     cmake --build libmcfp/build -j"$(nproc)" && \
     cmake --install libmcfp/build && \
     rm -rf libmcfp
 
-RUN git clone --depth 1 https://github.com/PDB-REDO/libcifpp.git && \
+RUN git clone --depth 1 -b "${LIBCIFPP_VERSION}" https://github.com/PDB-REDO/libcifpp.git && \
     cmake -S libcifpp -B libcifpp/build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCIFPP_DOWNLOAD_CCD=OFF \
@@ -167,7 +175,7 @@ RUN git clone --depth 1 https://github.com/PDB-REDO/libcifpp.git && \
     cmake --install libcifpp/build && \
     rm -rf libcifpp
 
-RUN git clone --depth 1 https://github.com/PDB-REDO/dssp.git && \
+RUN git clone --depth 1 -b "${DSSP_VERSION}" https://github.com/PDB-REDO/dssp.git && \
     cmake -S dssp -B dssp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF && \
     cmake --build dssp/build -j"$(nproc)" && \
     install -m 0755 dssp/build/mkdssp /usr/local/bin/mkdssp && \
@@ -258,6 +266,7 @@ RUN pip install --no-cache-dir \
         openmm \
         pdbfixer \
         ball-py \
+        pebble \
         numpy \
         pyyaml \
         pytest \
