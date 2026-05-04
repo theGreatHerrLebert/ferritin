@@ -60,6 +60,7 @@ REPORTS_DIR = REPO_ROOT / "evident" / "reports"
 RENDER_CORPUS = REPO_ROOT / "validation" / "report" / "render_corpus_oracle.py"
 RENDER_SASA = REPO_ROOT / "validation" / "report" / "render_sasa_release.py"
 RENDER_BATTLE_50K = REPO_ROOT / "validation" / "report" / "render_50k_battle_test.py"
+RENDER_FOLD_PRES = REPO_ROOT / "validation" / "report" / "render_fold_preservation.py"
 
 CHUNK = 1 << 16
 
@@ -312,10 +313,29 @@ def _render_50k_battle_test(
     subprocess.run(cmd, check=True)
 
 
+def _render_fold_preservation(
+    claim_yaml: pathlib.Path,
+    artifact: pathlib.Path,
+    out_html: pathlib.Path,
+) -> None:
+    cmd = [
+        sys.executable,
+        str(RENDER_FOLD_PRES),
+        "--claim",
+        str(claim_yaml),
+        "--artifact",
+        str(artifact),
+        "--output",
+        str(out_html),
+    ]
+    subprocess.run(cmd, check=True)
+
+
 RENDERERS: dict[tuple[str, str], Any] = {
     ("forcefield.charmm19", ".jsonl"): _render_corpus_oracle,
     ("sasa", ".json"): _render_sasa_release,
     ("pipeline.batch", ".jsonl"): _render_50k_battle_test,
+    ("minimize", ".jsonl"): _render_fold_preservation,
 }
 
 

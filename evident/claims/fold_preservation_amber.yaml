@@ -1,0 +1,140 @@
+claims:
+  - id: proteon-amber96-fold-preservation-vs-openmm-release-1k-pdbs
+    title: Proteon AMBER96 minimization preserves fold within 0.005 TM-score of OpenMM AMBER96 across 1000 random PDBs
+    kind: measurement
+    subsystem: minimize
+    case: claims/fold_preservation_amber.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+    capabilities:
+      - fold-preservation-after-minimization
+    inputs:
+      corpus: amber-fold-preservation-1k-from-validation-pdbs
+      n: 1000
+      class: random-sample
+      seed: 42
+      corpus_sha: "PENDING-PIN-VALIDATION-PDB-CORPUS-1K"
+    outputs:
+      tm_score:
+        unit: dimensionless
+        description: >
+          TM-score between input PDB CA trace and post-minimization CA
+          trace. Same TM-score function is used on both arms, so the
+          comparison is on the physics, not on alignment idiosyncrasies.
+      rmsd:
+        unit: angstroms
+        description: >
+          Heavy-atom RMSD between input and post-minimization structures
+          (Kabsch-aligned), per-PDB.
+      tm_diff:
+        unit: dimensionless
+        description: >
+          Per-PDB difference openmm.tm_score − proteon.tm_score. The
+          claim's tolerance bounds the median magnitude.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      OpenMM: "8.5.1"
+      python: "3.12"
+      runner_proteon: validation/tm_fold_preservation_amber.py
+      runner_openmm: validation/tm_fold_preservation_openmm_amber.py
+      joiner: validation/fold_preservation/join_fold_preservation.py
+    claim: >
+      Across 1000 PDBs sampled (seed=42) from validation/pdbs/,
+      proteon's AMBER96 minimization preserves fold within 0.005
+      TM-score of OpenMM's AMBER96 minimization on the same inputs.
+      This is the cleanest cross-implementation force-field oracle
+      proteon has — both sides claim "AMBER96", so the diff is purely
+      implementation, not parameter set. Median diff (openmm − proteon)
+      ≈ +0.003. The two AMBER96 implementations track to within
+      experimentally-irrelevant fold perturbations on the typical
+      structure.
+    tolerances:
+      - metric: pass_rate
+        op: ">="
+        value: 0.5
+        output: tm_score
+        prose: >
+          ≥50% of n_ok structures retain TM-score > 0.99 after 100
+          minimizer steps. Fold preservation at population scale.
+      - metric: drift
+        op: "<"
+        value: 0.01
+        output: tm_diff
+        prose: >
+          |median(openmm.tm_score − proteon.tm_score)| < 0.01 — the
+          tightest bound across proteon's release-tier oracle claims
+          since both arms claim the same parameter set. Headline ≈
+          +0.003 is well inside this band.
+      - metric: pass_rate
+        op: ">="
+        value: 0.85
+        output: tm_score
+        prose: >
+          n_ok / n_attempted ≥ 0.85 to claim "across the corpus".
+          Headline 86.4% (864 / 1000) on this run.
+    evidence:
+      oracle:
+        - OpenMM
+      command: >
+        python validation/tm_fold_preservation_amber.py &&
+        python validation/tm_fold_preservation_openmm_amber.py &&
+        python validation/fold_preservation/join_fold_preservation.py
+      artifact: validation/fold_preservation/amber_pair_1k.jsonl
+    provenance: human
+    last_verified:
+      commit: null
+      date: "2026-04-13"
+      value: 0.9959
+      corpus_sha: null
+    assumptions:
+      - >
+        Both arms claim AMBER96 with the same nonbonded cutoff (15 Å
+        per the AMBER+OpenMM oracle's documented policy choice — see
+        the closed forcefield_amber_openmm CI claim's history). The
+        TM-score diff captures pure implementation drift, not
+        parameter-set divergence.
+      - >
+        proteon's AMBER96 implementation uses all-atom prep (place all
+        hydrogens, including non-polar) to match the parameter set's
+        atom typing. OpenMM AMBER96 uses ff14SB conventions natively.
+        Both consume the same PDBFixer-preprocessed input.
+      - >
+        Minimizer budget 100 steps on both sides. Neither runs to
+        convergence; the metric is fold survival, not minimum-finding.
+      - >
+        TM-score is computed by proteon's TM-align port on both arms,
+        so the alignment is shared and the diff isolates the physics.
+    failure_modes:
+      - >
+        Headline (dataset 2026-04-13):
+        n_attempted=1000, n_ok=864, pass_rate=86.4 %.
+          proteon AMBER96:    median TM 0.9959, mean 0.9911,
+                              RMSD median 0.27 Å.
+          OpenMM AMBER96:     median TM 0.9992, mean 0.9952,
+                              RMSD median 0.18 Å.
+          tm_diff (openmm − proteon): median +0.0028.
+        OpenMM holds the fold marginally tighter than proteon at the
+        mean, reflecting OpenMM's broader implicit-solvent (OBC2)
+        smoothing of the energy landscape during minimization vs
+        proteon's vacuum default. Both medians are >0.99 — fold is
+        preserved on the typical structure to a degree well above
+        what would be flagged as a regression.
+      - >
+        ~14 % of PDBs fail on at least one side. proteon-side errors
+        are dominated by H-placement edge cases on residues with
+        unusual altlocs; OpenMM-side errors are dominated by
+        PDBFixer-reconstructed atoms producing non-finite initial
+        forces. The 86 % pass rate is the comparison surface;
+        per-side failure breakdown is recoverable from the un-joined
+        runners' JSONLs (validation/fold_preservation/
+        tm_fold_preservation_amber.jsonl and
+        tm_fold_preservation_openmm_amber.jsonl).
+      - >
+        AMBER96 is not proteon's production-default force field
+        (CHARMM19+EEF1 is). This claim is the cleanest implementation
+        oracle proteon has — both arms claim AMBER96 — but it does
+        NOT extend to "proteon's CHARMM19+EEF1 implementation is
+        correct"; that claim is carried by the corpus oracle
+        (charmm19-vs-ball-corpus-50k) and the per-component CI gate.

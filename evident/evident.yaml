@@ -86,6 +86,8 @@ include:
   - claims/forcefield_amber_ball.yaml
   - claims/gb_obc.yaml
   - claims/cross_path_parity.yaml
+  - claims/fold_preservation_charmm.yaml
+  - claims/fold_preservation_amber.yaml
   - claims/supervision_parity.yaml
   - claims/scale_50k_battle_test.yaml
   - claims/dssp_8class.yaml
