@@ -170,6 +170,53 @@ def test_charmm_oracle_legacy_env_wins(monkeypatch, tmp_path):
     assert Path(m.OUT) == legacy_out
 
 
+def test_amber96_oracle_v02_synonyms(monkeypatch, tmp_path):
+    """amber96_oracle.py accepts BOTH the legacy PROTEON_PDB_DIR /
+    PROTEON_AMBER_ORACLE_OUT and the new universal PROTEON_CORPUS_DIR /
+    PROTEON_OUTPUT_DIR. Legacy first."""
+    pytest.importorskip("proteon")
+    pytest.importorskip("openmm")
+    pytest.importorskip("pebble")
+    _clear_proteon_env(monkeypatch)
+    pdbs = tmp_path / "pdbs"
+    pdbs.mkdir()
+    out = tmp_path / "out"
+    out.mkdir()
+    monkeypatch.setenv("PROTEON_CORPUS_DIR", str(pdbs))
+    monkeypatch.setenv("PROTEON_OUTPUT_DIR", str(out))
+
+    m = _load_runner(VALIDATION / "amber96_oracle.py")
+
+    assert Path(m.PDB_DIR) == pdbs
+    assert Path(m.OUT) == out / "amber96_oracle.jsonl"
+
+
+def test_amber96_oracle_legacy_env_wins(monkeypatch, tmp_path):
+    """When BOTH legacy and v0.2.0 env vars are set, legacy takes precedence
+    so existing monster3 batch scripts never silently change behaviour."""
+    pytest.importorskip("proteon")
+    pytest.importorskip("openmm")
+    pytest.importorskip("pebble")
+    _clear_proteon_env(monkeypatch)
+    legacy_dir = tmp_path / "legacy_pdbs"
+    legacy_dir.mkdir()
+    v02_dir = tmp_path / "v02_pdbs"
+    v02_dir.mkdir()
+    legacy_out = tmp_path / "legacy.jsonl"
+    v02_out_dir = tmp_path / "v02_out"
+    v02_out_dir.mkdir()
+
+    monkeypatch.setenv("PROTEON_PDB_DIR", str(legacy_dir))
+    monkeypatch.setenv("PROTEON_CORPUS_DIR", str(v02_dir))
+    monkeypatch.setenv("PROTEON_AMBER_ORACLE_OUT", str(legacy_out))
+    monkeypatch.setenv("PROTEON_OUTPUT_DIR", str(v02_out_dir))
+
+    m = _load_runner(VALIDATION / "amber96_oracle.py")
+
+    assert Path(m.PDB_DIR) == legacy_dir
+    assert Path(m.OUT) == legacy_out
+
+
 def test_run_validation_usalign_env(monkeypatch, tmp_path):
     """run_validation.py honours USALIGN_BIN env var (image vendors USAlign
     at /usr/local/bin/USalign; source-tree dev keeps the
