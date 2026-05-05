@@ -22,6 +22,7 @@ on:
       - "evident/Dockerfile"
       - "evident/Dockerfile.cuda"
       - "evident/tools/**"
+      - "evident/scripts/**"
       - "evident/evident.yaml"
       - "evident/claims/**"
       - ".github/workflows/evident-image.yml"

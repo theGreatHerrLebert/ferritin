@@ -24,6 +24,17 @@ set -euo pipefail
 
 cd /workspace/proteon
 
+# v0.2.0 data-mount contract: image bundles tools + executors, user mounts
+# data via --bind. Auto-export the well-known env vars when the convention
+# mounts exist so that `docker run -v ./pdbs:/data/pdbs -v ./out:/data/out
+# <image> replay <claim-id>` works with no -e flags. User-supplied
+# PROTEON_CORPUS_DIR / PROTEON_OUTPUT_DIR override the defaults below.
+: "${PROTEON_CORPUS_DIR:=/data/pdbs}"
+: "${PROTEON_OUTPUT_DIR:=/data/out}"
+if [[ -d "$PROTEON_CORPUS_DIR" ]]; then export PROTEON_CORPUS_DIR; else unset PROTEON_CORPUS_DIR; fi
+if [[ -d "$PROTEON_OUTPUT_DIR" ]]; then export PROTEON_OUTPUT_DIR; else unset PROTEON_OUTPUT_DIR; fi
+if [[ -x /usr/local/bin/USalign && -z "${USALIGN_BIN:-}" ]]; then export USALIGN_BIN=/usr/local/bin/USalign; fi
+
 usage() {
     cat <<USAGE
 Usage:

@@ -56,14 +56,22 @@ import ball  # ball-py — pip install ball-py
 from pdbfixer import PDBFixer
 import openmm.app as openmm_app
 
-PDB_DIR = Path(os.environ.get(
-    "PROTEON_PDB_DIR",
-    "/scratch/TMAlign/proteon/validation/pdbs_1k_sample",
-))
-OUT = Path(os.environ.get(
-    "PROTEON_CHARMM_ORACLE_OUT",
-    "/scratch/TMAlign/proteon/validation/charmm19_eef1_ball_oracle.jsonl",
-))
+# Path resolution: legacy per-runner env vars win, then the v0.2.0 universal
+# data-mount contract (PROTEON_CORPUS_DIR / PROTEON_OUTPUT_DIR) — which the
+# EVIDENT image entrypoint exports when /data/pdbs and /data/out are mounted
+# — and finally a repo-relative fallback for local dev.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+PDB_DIR = Path(
+    os.environ.get("PROTEON_PDB_DIR")
+    or os.environ.get("PROTEON_CORPUS_DIR")
+    or _REPO_ROOT / "validation" / "pdbs_1k_sample"
+)
+_v02_out_dir = os.environ.get("PROTEON_OUTPUT_DIR")
+OUT = Path(
+    os.environ.get("PROTEON_CHARMM_ORACLE_OUT")
+    or (Path(_v02_out_dir) / "charmm19_eef1_ball_oracle.jsonl" if _v02_out_dir else None)
+    or _REPO_ROOT / "validation" / "charmm19_eef1_ball_oracle.jsonl"
+)
 N = int(os.environ.get("N_PDBS", "1000"))
 SEED = int(os.environ.get("SEED", "42"))
 
@@ -209,6 +217,7 @@ def compare_one(pdb_path: str) -> dict:
 
 
 def main():
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     # Two corpus modes:
     # 1. PROTEON_PDB_LIST=path/to/list.txt  — explicit pre-filtered list
     #    (one absolute path per line). Use the protein_only_corpus.py

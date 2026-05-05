@@ -11,30 +11,78 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ## [Unreleased]
 
+### Added
+
+- **v0.2.0 data-mount contract** — every release-tier oracle runner now
+  reads its corpus directory and output directory from
+  `PROTEON_CORPUS_DIR` and `PROTEON_OUTPUT_DIR` environment variables.
+  The EVIDENT image entrypoint auto-exports them when the well-known
+  `/data/pdbs` and `/data/out` bind mounts exist, so the golden replay
+  becomes:
+  ```bash
+  docker run --rm \
+    -v $(pwd)/pdbs:/data/pdbs \
+    -v $(pwd)/out:/data/out \
+    ghcr.io/thegreatherrlebert/proteon-evident:<tag> \
+    replay <claim-id>
+  ```
+  No `-e` flags required. Closes the v0.1.x unreplayability gap (#38)
+  where runners hardcoded monster3-only paths and couldn't be replayed
+  from the image alone.
+- `evident/CAPTURE_SCHEMA.md` gains a "Running in containers" section
+  formalising the contract: which env vars exist, which paths take
+  precedence, and what the runner authoring rule is. Includes an
+  Apptainer / SLURM example for HPC replayability.
+- `tests/test_evident_runner_contract.py` guards every release-tier
+  runner against contract regression — pure path-resolution check,
+  no oracle calls, runs in milliseconds under the existing Python
+  test job.
+- `USALIGN_BIN` env var on the SASA runner (`validation/run_validation.py`)
+  for analogous reasons — image vendors USAlign at
+  `/usr/local/bin/USalign`, source-tree dev keeps the
+  `/scratch/TMAlign/USAlign/` default.
+
 ### Changed
 
+- The four fold-preservation runners
+  (`validation/tm_fold_preservation{,_amber,_openmm,_openmm_amber}.py`)
+  no longer hardcode
+  `/globalscratch/dateschn/proteon-benchmark/pdbs_50k`. Existing monster3
+  invocations stay green (the legacy paths are now the unset-env
+  fallback); the same scripts run cleanly inside the EVIDENT image
+  against any bind-mounted corpus.
+- `validation/fold_preservation/join_fold_preservation.py` reads its
+  per-side JSONLs from `PROTEON_OUTPUT_DIR` (matching where the runners
+  wrote them) when set, falls back to the historical
+  `validation/fold_preservation/` location otherwise.
+- `validation/charmm19_eef1_ball_oracle.py` accepts both the legacy
+  `PROTEON_PDB_DIR` / `PROTEON_CHARMM_ORACLE_OUT` env vars and the new
+  universal `PROTEON_CORPUS_DIR` / `PROTEON_OUTPUT_DIR` synonyms,
+  legacy first.
 - **Skip-missing-atoms fix extended to all PDBFixer-using oracle runners**
-  (#48, follow-up to PR #47). The `addMissingAtoms()` deadlock that bottlenecked
-  the v0.1.3 50K corpus oracle isn't unique to CHARMM — every runner that
-  preprocesses wwPDB inputs through PDBFixer hits it. This change applies
-  the PR #47 skip pattern to:
-  - `validation/amber96_oracle.py` (release-tier 1k AMBER96 vs OpenMM)
-  - `validation/amber96_oracle_triangulate.py` (single-PDB triangulation)
-  - `validation/amber96_obc_oracle.py` (OBC GB diagnostic)
-  - `validation/tm_fold_preservation_openmm.py` (fold-pres CHARMM, OpenMM side)
-  - `validation/tm_fold_preservation_openmm_amber.py` (fold-pres AMBER, OpenMM side)
-  - `validation/diag_obc_params.py` (OBC param diagnostic)
+  (#48, follow-up to PR #47). The `addMissingAtoms()` deadlock that
+  bottlenecked the v0.1.3 50K corpus oracle isn't unique to CHARMM — every
+  runner that preprocesses wwPDB inputs through PDBFixer hits it. This
+  applies the PR #47 skip pattern to `validation/amber96_oracle.py`,
+  `validation/amber96_oracle_triangulate.py`,
+  `validation/amber96_obc_oracle.py`,
+  `validation/tm_fold_preservation_openmm.py`,
+  `validation/tm_fold_preservation_openmm_amber.py`, and
+  `validation/diag_obc_params.py`. Each runner detects missing heavy
+  atoms via `fixer.findMissingAtoms()` and skips rather than invoking
+  the deadlocking `fixer.addMissingAtoms()`. Comparison surface narrows
+  to "well-resolved wwPDB" — the same population the v0.1.4 CHARMM
+  corpus oracle adopted, and the more defensible scientific scope
+  (modeled-back atoms have ad-hoc geometry). Pre-empts v0.2.0 50K
+  extensions (#42) from re-discovering the same 79%-timeout regression
+  class.
 
-  Each runner now detects missing heavy atoms (`fixer.findMissingAtoms()`
-  followed by `if fixer.missingAtoms:`) and skips the PDB rather than
-  invoking the deadlocking `fixer.addMissingAtoms()`. The comparison
-  surface narrows to "well-resolved wwPDB" — the same population definition
-  the v0.1.4 CHARMM corpus oracle adopted, and the more defensible
-  scientific scope (modeled-back atoms have ad-hoc geometry that distorts
-  downstream energies regardless).
+### Compatibility
 
-  Pre-empts the v0.2.0 50K extensions in #42 from re-discovering the same
-  79%-timeout regression class.
+All existing monster3 batch invocations of the release-tier runners
+keep working without any change. The contract is additive: if you set
+`PROTEON_CORPUS_DIR` / `PROTEON_OUTPUT_DIR`, runners use them; if you
+don't, runners use the same paths they always did.
 
 ## [0.1.4] — 2026-05-04
 

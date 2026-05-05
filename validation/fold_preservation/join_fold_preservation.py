@@ -47,11 +47,21 @@ The join itself is O(N) and seconds.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 
 
 HERE = pathlib.Path(__file__).resolve().parent
+
+# v0.2.0 data-mount contract: when PROTEON_OUTPUT_DIR is set the joiner reads
+# the per-side JSONLs from that directory (matching where the runners wrote
+# them) and emits the joined artifacts to the same place. When unset, fall
+# back to the historical HERE-based layout used by the monster3-→-repo scp
+# workflow.
+_OUT = os.environ.get("PROTEON_OUTPUT_DIR")
+SRC_DIR = pathlib.Path(_OUT) if _OUT else HERE
+DEST_DIR = pathlib.Path(_OUT) if _OUT else HERE
 
 
 def _load_by_pdb(path: pathlib.Path) -> dict[str, dict]:
@@ -155,16 +165,16 @@ def _join_pair(
 def main() -> int:
     pairs = [
         (
-            HERE / "tm_fold_preservation.jsonl",
-            HERE / "tm_fold_preservation_openmm.jsonl",
-            HERE / "charmm_pair_1k.jsonl",
+            SRC_DIR / "tm_fold_preservation.jsonl",
+            SRC_DIR / "tm_fold_preservation_openmm.jsonl",
+            DEST_DIR / "charmm_pair_1k.jsonl",
             "proteon CHARMM19+EEF1",
             "OpenMM CHARMM36+OBC2",
         ),
         (
-            HERE / "tm_fold_preservation_amber.jsonl",
-            HERE / "tm_fold_preservation_openmm_amber.jsonl",
-            HERE / "amber_pair_1k.jsonl",
+            SRC_DIR / "tm_fold_preservation_amber.jsonl",
+            SRC_DIR / "tm_fold_preservation_openmm_amber.jsonl",
+            DEST_DIR / "amber_pair_1k.jsonl",
             "proteon AMBER96",
             "OpenMM AMBER96",
         ),
