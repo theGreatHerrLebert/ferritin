@@ -327,6 +327,88 @@ output PNG goes into `evident/reports/<latest-tag>/comparisons/`.
   external URLs (release asset download links) when the user clicks
   through.
 
+## Running in containers (v0.2.0 data-mount contract)
+
+The published EVIDENT image (`ghcr.io/thegreatherrlebert/proteon-evident:<tag>`)
+bundles every reference oracle (`ball-py`, OpenMM, mkdssp, USAlign, GROMACS,
+MMseqs2, …) and every release-tier runner script. **The image deliberately
+does NOT bundle the input corpus** — corpus tarballs balloon image size,
+expire faster than the image (PDB sample SHAs change as wwPDB grows), and
+make the same image less reusable across replay scenarios.
+
+Instead, the image exposes a **bind-mount contract**:
+
+| Mount | Role | Env var the entrypoint sets |
+|---|---|---|
+| `/data/pdbs` | Read-only input corpus directory (PDBs/CIFs) | `PROTEON_CORPUS_DIR` |
+| `/data/out`  | Read-write output directory (per-claim JSONLs)  | `PROTEON_OUTPUT_DIR` |
+
+The image entrypoint (`evident/scripts/docker-entrypoint.sh`) checks for
+these well-known mountpoints at startup. If present, it exports the
+matching env vars before dispatching. If absent, it unsets them — runners
+fall back to their repo-relative defaults (so a smoke run with no mounts
+still does something deterministic on the bundled `tests/fixtures/` data).
+
+User-supplied `-e PROTEON_CORPUS_DIR=...` overrides the convention:
+
+```bash
+# Convention (recommended):
+docker run --rm \
+  -v $(pwd)/my_pdbs:/data/pdbs \
+  -v $(pwd)/my_out:/data/out \
+  ghcr.io/thegreatherrlebert/proteon-evident:v0.2.0 \
+  replay proteon-charmm19-fold-preservation-vs-openmm-release-1k-pdbs
+
+# Explicit (when paths can't follow /data/* — e.g. SLURM / Apptainer):
+apptainer exec \
+  --bind /scratch/dteschner/pdbs:/corpus \
+  --bind /scratch/dteschner/out:/results \
+  --env PROTEON_CORPUS_DIR=/corpus \
+  --env PROTEON_OUTPUT_DIR=/results \
+  proteon-evident_v0.2.0.sif \
+  replay <claim-id>
+```
+
+### Runner contract
+
+Every release-tier runner under `validation/` honors this precedence:
+
+1. Legacy per-runner env var if defined (e.g. `PROTEON_PDB_DIR`,
+   `PROTEON_CHARMM_ORACLE_OUT`) — keeps existing monster3 batch scripts
+   working unchanged.
+2. v0.2.0 universal env vars `PROTEON_CORPUS_DIR` / `PROTEON_OUTPUT_DIR`.
+3. Repo-relative fallback (`validation/pdbs_1k_sample/`,
+   `validation/<runner-canonical-filename>.jsonl`).
+
+Each runner picks a canonical output filename within `PROTEON_OUTPUT_DIR`,
+documented in its module docstring. The joiner
+(`validation/fold_preservation/join_fold_preservation.py`) reads the same
+directory the runners wrote to (also via `PROTEON_OUTPUT_DIR`), so the
+chain stays consistent.
+
+### Auxiliary tool paths
+
+For oracles that ship as vendored binaries inside the image, the
+entrypoint also exports a small set of well-known tool paths so runners
+can locate them without hardcoding `/usr/local/bin/...`:
+
+| Env var | Image default | Used by |
+|---|---|---|
+| `USALIGN_BIN` | `/usr/local/bin/USalign` | `validation/run_validation.py` (SASA-vs-Biopython) |
+
+User overrides take precedence in the same way as the data-mount vars.
+
+### What this contract is NOT
+
+- **Not a configuration system.** Runners take exactly two inputs from
+  the environment: a corpus directory and an output directory. Anything
+  else (worker count, seed, claim-specific knobs) stays in the runner's
+  own argparse / env vars.
+- **Not a substitute for the source-tree replay.** A reviewer who wants
+  to step through the Python source can still `git checkout v0.2.0 &&
+  pip install -e . && python validation/...py` exactly as before. The
+  image is for "I want a verified result, not a development environment".
+
 ## Migration path
 
 Per-claim adoption rolls out incrementally:

@@ -11,6 +11,62 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ## [Unreleased]
 
+### Added
+
+- **v0.2.0 data-mount contract** — every release-tier oracle runner now
+  reads its corpus directory and output directory from
+  `PROTEON_CORPUS_DIR` and `PROTEON_OUTPUT_DIR` environment variables.
+  The EVIDENT image entrypoint auto-exports them when the well-known
+  `/data/pdbs` and `/data/out` bind mounts exist, so the golden replay
+  becomes:
+  ```bash
+  docker run --rm \
+    -v $(pwd)/pdbs:/data/pdbs \
+    -v $(pwd)/out:/data/out \
+    ghcr.io/thegreatherrlebert/proteon-evident:<tag> \
+    replay <claim-id>
+  ```
+  No `-e` flags required. Closes the v0.1.x unreplayability gap (#38)
+  where runners hardcoded monster3-only paths and couldn't be replayed
+  from the image alone.
+- `evident/CAPTURE_SCHEMA.md` gains a "Running in containers" section
+  formalising the contract: which env vars exist, which paths take
+  precedence, and what the runner authoring rule is. Includes an
+  Apptainer / SLURM example for HPC replayability.
+- `tests/test_evident_runner_contract.py` guards every release-tier
+  runner against contract regression — pure path-resolution check,
+  no oracle calls, runs in milliseconds under the existing Python
+  test job.
+- `USALIGN_BIN` env var on the SASA runner (`validation/run_validation.py`)
+  for analogous reasons — image vendors USAlign at
+  `/usr/local/bin/USalign`, source-tree dev keeps the
+  `/scratch/TMAlign/USAlign/` default.
+
+### Changed
+
+- The four fold-preservation runners
+  (`validation/tm_fold_preservation{,_amber,_openmm,_openmm_amber}.py`)
+  no longer hardcode
+  `/globalscratch/dateschn/proteon-benchmark/pdbs_50k`. Existing monster3
+  invocations stay green (the legacy paths are now the unset-env
+  fallback); the same scripts run cleanly inside the EVIDENT image
+  against any bind-mounted corpus.
+- `validation/fold_preservation/join_fold_preservation.py` reads its
+  per-side JSONLs from `PROTEON_OUTPUT_DIR` (matching where the runners
+  wrote them) when set, falls back to the historical
+  `validation/fold_preservation/` location otherwise.
+- `validation/charmm19_eef1_ball_oracle.py` accepts both the legacy
+  `PROTEON_PDB_DIR` / `PROTEON_CHARMM_ORACLE_OUT` env vars and the new
+  universal `PROTEON_CORPUS_DIR` / `PROTEON_OUTPUT_DIR` synonyms,
+  legacy first.
+
+### Compatibility
+
+All existing monster3 batch invocations of the release-tier runners
+keep working without any change. The contract is additive: if you set
+`PROTEON_CORPUS_DIR` / `PROTEON_OUTPUT_DIR`, runners use them; if you
+don't, runners use the same paths they always did.
+
 ## [0.1.4] — 2026-05-04
 
 Second EVIDENT release. Trust pyramid completed: the dropped

@@ -19,8 +19,12 @@ import numpy as np
 
 import proteon
 
-PDB_DIR = Path("/globalscratch/dateschn/proteon-benchmark/pdbs_50k")
-OUT = Path("/globalscratch/dateschn/proteon-benchmark/tm_fold_preservation_amber.jsonl")
+# v0.2.0 data-mount contract: PROTEON_CORPUS_DIR / PROTEON_OUTPUT_DIR override
+# the monster3 defaults. Set by the EVIDENT image entrypoint when the user
+# bind-mounts /data/pdbs and /data/out.
+PDB_DIR = Path(os.environ.get("PROTEON_CORPUS_DIR") or "/globalscratch/dateschn/proteon-benchmark/pdbs_50k")
+OUTPUT_DIR = Path(os.environ.get("PROTEON_OUTPUT_DIR") or "/globalscratch/dateschn/proteon-benchmark")
+OUT = OUTPUT_DIR / "tm_fold_preservation_amber.jsonl"
 N = 1000
 SEED = 42
 CHUNK = 25
@@ -117,6 +121,7 @@ def main():
     rng.shuffle(pdbs)
     sample = [PDB_DIR / name for name in pdbs[:N]]
     print(f"Sampled {len(sample)} PDBs (seed={SEED})", flush=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Writing to {OUT}", flush=True)
 
     t0 = time.perf_counter()

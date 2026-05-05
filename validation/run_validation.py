@@ -49,7 +49,11 @@ try:
 except ImportError:
     HAS_GEMMI = False
 
-HAS_USALIGN = os.path.exists("/scratch/TMAlign/USAlign/USalign")
+# v0.2.0 data-mount contract: USALIGN_BIN env var picks the binary location.
+# EVIDENT image exports USALIGN_BIN=/usr/local/bin/USalign via docker-entrypoint.sh;
+# local dev defaults to the sibling oracle checkout under /scratch/TMAlign/USAlign.
+USALIGN_BIN = os.environ.get("USALIGN_BIN", "/scratch/TMAlign/USAlign/USalign")
+HAS_USALIGN = os.path.exists(USALIGN_BIN)
 
 
 # ---------------------------------------------------------------------------
