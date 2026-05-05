@@ -1,0 +1,118 @@
+claims:
+  - id: proteon-charmm19-fold-preservation-vs-openmm-release-50k-pdbs
+    title: Proteon CHARMM19+EEF1 minimization preserves fold within 0.005 TM-score of OpenMM CHARMM36+OBC2 across 50 000 random PDBs (PENDING — first run scheduled)
+    kind: measurement
+    subsystem: minimize
+    case: claims/fold_preservation_charmm_50k.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+    capabilities:
+      - fold-preservation-after-minimization
+    inputs:
+      corpus: charmm-fold-preservation-50k-from-validation-pdbs
+      n: 50000
+      class: random-sample
+      seed: 42
+      corpus_sha: "PENDING-PIN-VALIDATION-PDB-CORPUS-50K"
+    outputs:
+      tm_score:
+        unit: dimensionless
+        description: TM-score between input PDB CA trace and post-minimization CA trace, computed by proteon's TM-align port (shared between both arms).
+      rmsd:
+        unit: angstroms
+        description: Heavy-atom RMSD between input and post-minimization structures (Kabsch-aligned).
+      tm_diff:
+        unit: dimensionless
+        description: Per-PDB difference openmm.tm_score − proteon.tm_score. Claim's tolerance bounds the median magnitude.
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      OpenMM: "8.5.1"
+      python: "3.12"
+      runner_proteon: validation/tm_fold_preservation.py
+      runner_openmm: validation/tm_fold_preservation_openmm.py
+      joiner: validation/fold_preservation/join_fold_preservation.py
+    claim: >
+      Across 50 000 PDBs sampled (seed=42) from the wwPDB random sample,
+      proteon's CHARMM19+EEF1 minimization preserves fold within 0.005
+      TM-score of OpenMM CHARMM36+OBC2 minimization on the same inputs.
+      Both runners use a 100-step L-BFGS-style minimizer at effective
+      NoCutoff. The 1k version of this claim shipped in v0.1.4 with
+      median(openmm − proteon) tm_diff = +0.0040 (proteon CHARMM19 median
+      TM=0.9944, OpenMM CHARMM36+OBC2 median TM=0.9991); this 50K
+      extension confirms the agreement holds at full corpus scale where
+      sample-noise effects cannot mask population-level drifts.
+      First 50K run scheduled; headline numbers will be filled in at lock
+      time.
+    tolerances:
+      - metric: pass_rate
+        op: ">="
+        value: 0.5
+        output: tm_score
+        prose: >
+          ≥50% of n_ok structures retain TM-score > 0.99 after 100
+          minimizer steps. Fold preservation at population scale; the 1k
+          claim cleared this with proteon median TM=0.9944.
+      - metric: drift
+        op: "<"
+        value: 0.01
+        output: tm_diff
+        prose: >
+          |median(openmm.tm_score − proteon.tm_score)| < 0.01 — the same
+          band as the 1k claim. Tightening to <0.005 (the claim title)
+          conditional on the 1k headline +0.0040 holding at scale; if
+          50K reveals systematic drift, the band stays at 0.01 and the
+          title is rewritten at lock time.
+      - metric: pass_rate
+        op: ">="
+        value: 0.85
+        output: tm_score
+        prose: >
+          n_ok / n_attempted ≥ 0.85. Same threshold as the 1k claim.
+          Most skips on the 50K corpus will be missing-heavy-atoms
+          (OpenMM-side, PR #54) and pdb-load-fail (proteon-side); the
+          85% lower bound assumes the population behaves similarly to
+          the 1k random sample.
+    evidence:
+      oracle:
+        - OpenMM
+      command: >
+        N_PDBS=50000 PROTEON_OUTPUT_DIR=validation/fold_preservation_50k python validation/tm_fold_preservation.py &&
+        N_PDBS=50000 PROTEON_OUTPUT_DIR=validation/fold_preservation_50k python validation/tm_fold_preservation_openmm.py &&
+        PROTEON_OUTPUT_DIR=validation/fold_preservation_50k python validation/fold_preservation/join_fold_preservation.py
+      artifact: validation/fold_preservation_50k/charmm_pair_1k.jsonl
+    provenance: human
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - Both runners consume the same input PDB. PDBFixer preprocessing
+        is applied independently on each side; both sides drop heterogens,
+        replace nonstandard residues, and apply the skip-missing-atoms
+        guard (PR #47/#54) before minimization.
+      - Input corpus validation/pdbs_50k/ is the 50 000-PDB random sample
+        from the wwPDB seeded at 42 for reproducibility. corpus_sha
+        resolves to a tarball hash at first replay.
+      - Minimizer budget is 100 steps on both sides, L-BFGS-style.
+        Neither runs to convergence — the metric is "structure survives
+        100 minimizer steps without unfolding", not "we found the global
+        minimum".
+      - proteon.tm_score is the TM-align port; OpenMM-side TM is also
+        computed by proteon's TM-align (the score function is shared so
+        the comparison is on the physics, not on alignment idiosyncrasies).
+    failure_modes:
+      - >
+          Headline (PENDING) n_attempted, n_ok, pass_rate, per-side
+          median TM, tm_diff distribution. Will be filled at first lock.
+      - >
+          The artifact path is the joiner's output; the per-side JSONLs
+          (tm_fold_preservation.jsonl, tm_fold_preservation_openmm.jsonl)
+          are also under PROTEON_OUTPUT_DIR but aren't sha256-pinned by
+          the manifest.
+      - >
+          The 1k claim's failure_modes (proteon CHARMM19+EEF1 vs OpenMM
+          CHARMM36+OBC2 force-field difference being absorbed into the
+          tm_diff) applies identically here at scale.

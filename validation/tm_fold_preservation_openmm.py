@@ -40,7 +40,7 @@ import os
 PDB_DIR = Path(os.environ.get("PROTEON_CORPUS_DIR") or "/globalscratch/dateschn/proteon-benchmark/pdbs_50k")
 OUTPUT_DIR = Path(os.environ.get("PROTEON_OUTPUT_DIR") or "/globalscratch/dateschn/proteon-benchmark")
 OUT = OUTPUT_DIR / "tm_fold_preservation_openmm.jsonl"
-N = 1000
+N = int(os.environ.get("N_PDBS", "1000"))
 SEED = 42
 
 MIN_TOL = 10.0 * unit.kilojoule_per_mole / unit.nanometer  # ~0.24 kcal/mol/A

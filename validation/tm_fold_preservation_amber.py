@@ -25,7 +25,7 @@ import proteon
 PDB_DIR = Path(os.environ.get("PROTEON_CORPUS_DIR") or "/globalscratch/dateschn/proteon-benchmark/pdbs_50k")
 OUTPUT_DIR = Path(os.environ.get("PROTEON_OUTPUT_DIR") or "/globalscratch/dateschn/proteon-benchmark")
 OUT = OUTPUT_DIR / "tm_fold_preservation_amber.jsonl"
-N = 1000
+N = int(os.environ.get("N_PDBS", "1000"))
 SEED = 42
 CHUNK = 25
 MINIMIZE_STEPS = 100
