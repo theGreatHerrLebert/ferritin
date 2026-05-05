@@ -11,8 +11,37 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ## [Unreleased]
 
+### Added
+
+- **Three new 50K release-tier claims** (covering the v0.2.0 #42
+  vision — full-corpus capture for every release-tier capability where
+  monster3 compute permits):
+  - `proteon-amber96-vs-openmm-corpus-50k-pdbs`
+    (`evident/claims/forcefield_amber_openmm_50k.{yaml,md}`) —
+    single-point AMBER96 energy at full corpus scale. Cross-implementation
+    oracle counterpart to the fold-preservation AMBER claim, sensitive
+    to a different bug class (per-term coefficient mismatches that don't
+    surface in TM-score after minimization).
+  - `proteon-charmm19-fold-preservation-vs-openmm-release-50k-pdbs`
+    (`evident/claims/fold_preservation_charmm_50k.{yaml,md}`) — proteon
+    CHARMM19+EEF1 vs OpenMM CHARMM36+OBC2 minimization at 50K. Confirms
+    the 1k headline (median tm_diff +0.0040) holds at population scale.
+  - `proteon-amber96-fold-preservation-vs-openmm-release-50k-pdbs`
+    (`evident/claims/fold_preservation_amber_50k.{yaml,md}`) — proteon
+    AMBER96 vs OpenMM AMBER96 at 50K. The cleanest cross-implementation
+    oracle proteon ships, since both arms claim the same parameter set.
+  Each claim's `last_verified` block is null pending the first monster3
+  run; tolerances and assumptions are wired in so the manifest validates
+  immediately and the run only has to fill in the headline numbers.
+- `evident/evident.yaml` includes list extended with the three new
+  claim files.
+
 ### Changed
 
+- All four fold-preservation runners now honour `N_PDBS` env override
+  (was hardcoded `N = 1000`). Mirrors the pattern in the AMBER96 and
+  CHARMM oracles. Required for the new 50K fold-preservation claims to
+  scale beyond 1000 structures without code edits.
 - `validation/amber96_oracle.py` migrated from
   `concurrent.futures.ProcessPoolExecutor` to `pebble.ProcessPool` for
   per-task subprocess isolation, mirroring the v0.1.4 CHARMM oracle

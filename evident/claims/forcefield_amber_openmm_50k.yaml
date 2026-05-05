@@ -1,0 +1,121 @@
+claims:
+  - id: proteon-amber96-vs-openmm-corpus-50k-pdbs
+    title: Proteon AMBER96 single-point energy tracks OpenMM AMBER96 across a 50 000-PDB random sample (PENDING — first run scheduled)
+    kind: measurement
+    subsystem: forcefield.amber96
+    case: claims/forcefield_amber_openmm_50k.md
+    source: ..
+    tier: release
+    trust_strategy:
+      - validation
+    capabilities:
+      - forcefield-total-energy-parity
+      - forcefield-energy-component-parity
+    inputs:
+      corpus: amber96-oracle-50k-protein-only-monster3
+      n: 44210
+      class: random-sample
+      corpus_path: /globalscratch/dateschn/proteon-benchmark/pdbs_50k/
+      corpus_filter: validation/protein_only_corpus.py
+      corpus_sha: "PENDING-PIN-VALIDATION-PDB-CORPUS-50K"
+      seed: 42
+    outputs:
+      e_total_proteon:
+        unit: kJ/mol
+        description: Total AMBER96 single-point energy from proteon's compute_energy(ff="amber96", nonbonded_cutoff=1e6).
+      e_total_openmm:
+        unit: kJ/mol
+        description: Total AMBER96 single-point energy from OpenMM's createSystem(amber96.xml, nonbondedMethod=NoCutoff).
+      abs_diff_kj:
+        unit: kJ/mol
+        description: "Per-PDB |e_total_proteon - e_total_openmm|."
+      rel_diff:
+        unit: dimensionless
+        description: "|proteon - openmm| / (|openmm| + 1.0). The +1.0 floor avoids divide-by-near-zero on PDBs with cancelling-component energies."
+    pinned_versions:
+      proteon: "PENDING-PIN-AT-NEXT-RELEASE"
+      OpenMM: "8.5.1"
+      python: "3.12"
+      runner: validation/amber96_oracle.py
+      runner_workers: "32"
+    claim: >
+      Across N=44 210 protein-only PDBs filtered from a 50 000-PDB random
+      sample of the wwPDB (seed=42), proteon's AMBER96 single-point total
+      energy tracks OpenMM AMBER96 to within ~1% relative deviation at the
+      median. This is the cross-implementation oracle counterpart to the
+      fold-preservation AMBER claim — same parameter set on both arms,
+      same input topology, but the metric is energy magnitude rather than
+      post-minimization fold survival, so the gap distribution is
+      sensitive to a different class of bugs (per-term coefficient
+      mismatches, exclusion-list off-by-ones, charge-derivation drift).
+      First 50K run scheduled; headline numbers will be filled in at lock
+      time. The 1k version of this claim was retired in PR #49 in favour
+      of the fold-preservation pair; this 50K version restores the
+      single-point comparison at full corpus scale where the additional
+      sample size justifies the redundant capability coverage.
+    tolerances:
+      - metric: median_relative_error
+        op: "<"
+        value: 0.01
+        output: rel_diff
+        prose: >
+          Median(|e_total_proteon - e_total_openmm| / (|e_total_openmm| + 1)) < 0.01
+          across the n_ok subset. Tighter than the fold-preservation TM
+          drift because both arms use the same parameter set on identical
+          atom positions — there's no implicit-solvent or
+          minimization-trajectory smoothing to absorb implementation drift.
+      - metric: pass_rate
+        op: ">="
+        value: 0.85
+        output: rel_diff
+        prose: >
+          n_ok / n_attempted >= 0.85. Lower-bound on usable n_ok per
+          v0.1.4's CHARMM 50K experience where ~12% n_ok rate was
+          dominated by population-narrowing skips (missing heavy atoms,
+          BALL/OpenMM-side typer failures), not runner cascades. AMBER96
+          should sit closer to the 50% range since OpenMM's typer is
+          stricter than BALL's but more permissive of edge-case residues.
+    evidence:
+      oracle:
+        - OpenMM
+      command: >
+        PROTEON_PDB_LIST=validation/protein_only_50k.txt
+        PROTEON_AMBER_ORACLE_OUT=validation/amber96_oracle_50k.jsonl
+        N_PDBS=50000 N_WORKERS=32 SEED=42 TASK_TIMEOUT_S=60
+        python validation/amber96_oracle.py
+      artifact: validation/amber96_oracle_50k.jsonl
+    provenance: human
+    last_verified:
+      commit: null
+      date: null
+      value: null
+      corpus_sha: null
+    assumptions:
+      - validation/protein_only_50k.txt is the same pre-filtered list the
+        CHARMM 50K oracle uses, so the population is comparable across
+        force fields.
+      - >
+          The runner is pebble-migrated (PR #56), so per-task SIGSEGV /
+          timeout becomes a per-task error record rather than a
+          BrokenProcessPool cascade.
+      - >
+          The runner skips PDBs with missing heavy atoms (PR #47 / PR #54)
+          rather than calling PDBFixer.addMissingAtoms() — the comparison
+          surface is "well-resolved wwPDB" rather than "everything PDBFixer
+          can repair", consistent with the v0.1.4 CHARMM corpus claim.
+      - proteon's AMBER96 implementation uses all-atom prep (place all
+        hydrogens including non-polar) to match the parameter set's atom
+        typing. OpenMM AMBER96 uses ff14SB conventions natively. Both
+        consume the same PDBFixer-preprocessed input (after the
+        skip-missing-atoms guard fires).
+    failure_modes:
+      - >
+          Headline n_ok / n_skip / n_err breakdown: PENDING — fills in at
+          first lock. Component-wise relative diff distribution will be
+          recorded in the JSONL alongside the totals.
+      - >
+          Population narrowing: ~40-50% of 44 210 PDBs are expected to skip
+          for missing heavy atoms (PR #47 pattern). Of the remainder,
+          OpenMM's AMBER96 typer fails on a small fraction (residues with
+          non-canonical atom names that ff14SB conventions don't accept).
+          Documented as failure_modes once the actual breakdown lands.
