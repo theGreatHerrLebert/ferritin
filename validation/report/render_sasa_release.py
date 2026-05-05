@@ -52,6 +52,10 @@ except ImportError as e:
 # Tolerance bands cited in the claim YAML.
 MEDIAN_BAND = 0.005   # 0.5%
 HARD_BAND = 0.02      # 2% (the per-PDB CI tolerance from the sister claim)
+# FreeSASA-side band: looser than the Biopython gate because Biopython
+# and FreeSASA themselves disagree by ~0.5–1% on identical inputs from
+# atom-radius and probe-discretisation conventions.
+FREESASA_BAND = 0.02  # 2%
 
 
 def _sha256_file(path: pathlib.Path) -> str:
@@ -95,12 +99,17 @@ def _load_sasa_records(artifact_path: pathlib.Path) -> list[dict]:
                 "file": entry.get("file"),
                 "status": sasa_t.get("status", "unknown"),
                 "biopython_total": details.get("biopython_total"),
-                "proteon_total": details.get("ferritin_total"),
+                "proteon_total": details.get("ferritin_total")
+                                  or details.get("proteon_total"),
                 "relative_diff": details.get("relative_diff"),
                 "biopython_time_ms": details.get("biopython_time_ms"),
-                "proteon_time_ms": details.get("ferritin_time_ms"),
+                "proteon_time_ms": details.get("ferritin_time_ms")
+                                    or details.get("proteon_time_ms"),
                 "speedup": details.get("speedup"),
                 "n_atoms": details.get("n_atoms"),
+                "freesasa_total": details.get("freesasa_total"),
+                "freesasa_time_ms": details.get("freesasa_time_ms"),
+                "freesasa_relative_diff": details.get("freesasa_relative_diff"),
             }
         )
     return out
@@ -125,6 +134,12 @@ def _summary(records: list[dict]) -> dict[str, Any]:
         dtype=float,
     )
 
+    fs_diffs = np.array(
+        [r["freesasa_relative_diff"]
+         for r in records if r.get("freesasa_relative_diff") is not None],
+        dtype=float,
+    )
+
     return {
         "n_total": n_total,
         "n_pass": n_pass,
@@ -139,6 +154,13 @@ def _summary(records: list[dict]) -> dict[str, Any]:
         "n_under_median_band": int((diffs < MEDIAN_BAND).sum()) if diffs.size else 0,
         "n_under_hard_band": int((diffs < HARD_BAND).sum()) if diffs.size else 0,
         "median_speedup": float(np.median(speedups)) if speedups.size else None,
+        # FreeSASA side: same shape, separate band.
+        "n_with_freesasa_diff": int(fs_diffs.size),
+        "median_freesasa_diff": float(np.median(fs_diffs)) if fs_diffs.size else None,
+        "p95_freesasa_diff": float(np.percentile(fs_diffs, 95)) if fs_diffs.size else None,
+        "p99_freesasa_diff": float(np.percentile(fs_diffs, 99)) if fs_diffs.size else None,
+        "max_freesasa_diff": float(fs_diffs.max()) if fs_diffs.size else None,
+        "n_under_freesasa_band": int((fs_diffs < FREESASA_BAND).sum()) if fs_diffs.size else 0,
     }
 
 
@@ -149,6 +171,36 @@ def _save(fig: matplotlib.figure.Figure, path: pathlib.Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=120, bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_freesasa_distribution(records: list[dict], path: pathlib.Path) -> None:
+    """Histogram of |proteon - FreeSASA| / FreeSASA with the 2% band marker."""
+    diffs = np.array(
+        [r["freesasa_relative_diff"]
+         for r in records if r.get("freesasa_relative_diff") is not None],
+        dtype=float,
+    )
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    if diffs.size == 0:
+        ax.text(0.5, 0.5, "no FreeSASA data", ha="center", va="center",
+                transform=ax.transAxes)
+        _save(fig, path)
+        return
+    upper = max(FREESASA_BAND * 1.5, float(np.percentile(diffs, 99)) * 1.1)
+    bins = np.linspace(0, upper, 60)
+    ax.hist(np.clip(diffs, 0, upper), bins=bins, color="#9c27b0", alpha=0.8,
+            edgecolor="white")
+    ax.axvline(FREESASA_BAND, color="#cb2431", linestyle="--", linewidth=1.5,
+               label=f"FreeSASA band <{FREESASA_BAND*100:.0f}%")
+    median = float(np.median(diffs))
+    ax.axvline(median, color="#0a7e8c", linestyle="-", linewidth=1.5,
+               label=f"median {median*100:.2f}%")
+    ax.set_xlabel("|proteon − FreeSASA| / |FreeSASA|")
+    ax.set_ylabel(f"# structures (n = {diffs.size})")
+    ax.set_title("Per-structure relative difference vs FreeSASA")
+    ax.legend(loc="upper right")
+    ax.grid(alpha=0.3)
+    _save(fig, path)
 
 
 def plot_rel_diff_distribution(records: list[dict], path: pathlib.Path) -> None:
@@ -345,10 +397,12 @@ def render(
     fig_size = fig_dir / "21_sasa_size_scatter.png"
     fig_spd = fig_dir / "22_sasa_speedup.png"
     fig_stat = fig_dir / "23_sasa_status.png"
+    fig_fs = fig_dir / "24_sasa_freesasa_diff.png"
     plot_rel_diff_distribution(records, fig_dist)
     plot_rel_diff_vs_size(records, fig_size)
     plot_speedup_distribution(records, fig_spd)
     plot_status_breakdown(records, fig_stat)
+    plot_freesasa_distribution(records, fig_fs)
 
     artifact_sha = _sha256_file(artifact_path)
     today = datetime.date.today().isoformat()
@@ -479,13 +533,31 @@ footer {{ margin-top: 40px; color: var(--muted); font-size: 12px;
   <table class="kv">
     <tr><th>pass / warn / fail / error</th>
         <td><code>{summary['n_pass']} / {summary['n_warn']} / {summary['n_fail']} / {summary['n_error']}</code></td></tr>
-    <tr><th>median &lt; {MEDIAN_BAND*100:.1f}% band</th>
+    <tr><th>vs Biopython: median &lt; {MEDIAN_BAND*100:.1f}% band</th>
         <td><code>{summary['n_under_median_band']} / {summary['n_with_diff']}</code></td></tr>
-    <tr><th>per-PDB &lt; {HARD_BAND*100:.1f}% band</th>
+    <tr><th>vs Biopython: per-PDB &lt; {HARD_BAND*100:.1f}% band</th>
         <td><code>{summary['n_under_hard_band']} / {summary['n_with_diff']}</code></td></tr>
-    <tr><th>p99 / max rel diff</th>
+    <tr><th>vs Biopython: p99 / max rel diff</th>
         <td><code>{_pct(summary['p99_diff'])} / {_pct(summary['max_diff'])}</code></td></tr>
+    <tr><th>vs FreeSASA: median rel diff</th>
+        <td><code>{_pct(summary['median_freesasa_diff'])} (band &lt;{FREESASA_BAND*100:.0f}%)</code></td></tr>
+    <tr><th>vs FreeSASA: p95 / p99 / max</th>
+        <td><code>{_pct(summary['p95_freesasa_diff'])} / {_pct(summary['p99_freesasa_diff'])} / {_pct(summary['max_freesasa_diff'])}</code></td></tr>
+    <tr><th>vs FreeSASA: per-PDB &lt; {FREESASA_BAND*100:.0f}% band</th>
+        <td><code>{summary['n_under_freesasa_band']} / {summary['n_with_freesasa_diff']}</code></td></tr>
   </table>
+</section>
+
+<section>
+  <h2>Per-structure relative-difference vs FreeSASA</h2>
+  <p class="muted">Histogram of |proteon − FreeSASA| / |FreeSASA| across the
+  {summary['n_with_freesasa_diff']} structures with a usable FreeSASA result.
+  Red dashed line = the {FREESASA_BAND*100:.0f}% release band; the band is looser
+  than the Biopython gate because the two reference Shrake-Rupley
+  implementations disagree by ~0.5–1% on each other from atom-radius
+  conventions. Two-oracle agreement at this level is much stronger evidence
+  of correctness than agreement against either alone.</p>
+  {_embed_png(fig_fs, "Per-structure rel-diff vs FreeSASA")}
 </section>
 
 <section>
