@@ -43,6 +43,12 @@ def compare_one(pdb_path: str) -> dict:
     tmp_path = None
     try:
         # 1. PDBFixer prep — both tools see the same atoms + positions.
+        # We DETECT but do NOT add missing heavy atoms: PDBFixer's
+        # addMissingAtoms() hangs deterministically on a non-trivial fraction
+        # of wwPDB inputs. Skip rather than try to repair (per PR #47); the
+        # comparison surface becomes "well-resolved wwPDB" rather than
+        # "everything PDBFixer can repair" — the more defensible scientific
+        # population anyway, since modeled-back atoms have ad-hoc geometry.
         fixer = PDBFixer(filename=pdb_path)
         fixer.findMissingResidues()
         fixer.missingResidues = {}
@@ -50,7 +56,11 @@ def compare_one(pdb_path: str) -> dict:
         fixer.replaceNonstandardResidues()
         fixer.removeHeterogens(keepWater=False)
         fixer.findMissingAtoms()
-        fixer.addMissingAtoms()
+        if fixer.missingAtoms:
+            rec["skipped"] = "missing_heavy_atoms"
+            rec["missing_count"] = len(fixer.missingAtoms)
+            rec["wall_s"] = float(time.perf_counter() - t0)
+            return rec
         fixer.addMissingHydrogens(7.0)
         rec["n_atoms"] = len(list(fixer.topology.atoms()))
 

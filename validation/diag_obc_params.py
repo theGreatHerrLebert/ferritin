@@ -53,7 +53,14 @@ def pdbfixer_prepped(pdb_path: Path):
     fixer.replaceNonstandardResidues()
     fixer.removeHeterogens(keepWater=False)
     fixer.findMissingAtoms()
-    fixer.addMissingAtoms()
+    if fixer.missingAtoms:
+        # addMissingAtoms() hangs deterministically on a non-trivial fraction
+        # of wwPDB inputs (PR #47). Diagnostic refuses to silently produce
+        # bad geometry; pick a structure that's already complete.
+        raise RuntimeError(
+            f"{Path(str(pdb_path)).name}: {len(fixer.missingAtoms)} missing "
+            "heavy atoms; pre-resolve the structure or pick a different PDB"
+        )
     fixer.addMissingHydrogens(7.0)
     tmp = tempfile.NamedTemporaryFile(suffix=".pdb", delete=False, mode="w")
     app.PDBFile.writeFile(fixer.topology, fixer.positions, tmp, keepIds=True)
