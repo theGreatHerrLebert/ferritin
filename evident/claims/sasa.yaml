@@ -69,7 +69,7 @@ claims:
         bug here.
 
   - id: proteon-sasa-vs-biopython-release-1k-pdbs
-    title: Proteon SASA tracks Biopython on 1000 random PDBs at <0.5% median
+    title: Proteon SASA tracks Biopython AND FreeSASA on 1000 random PDBs
     kind: measurement
     subsystem: sasa
     case: claims/sasa.md
@@ -79,6 +79,7 @@ claims:
       - validation
     capabilities:
       - sasa-accuracy-distributional
+      - sasa-cross-tool-parity
     inputs:
       corpus: validation-pdbs-1k
       n: 1000
@@ -91,29 +92,54 @@ claims:
     pinned_versions:
       proteon: "PENDING-PIN-AT-NEXT-RELEASE"
       Biopython: "PENDING-PIN-FROM-VENV"
+      FreeSASA: "PENDING-PIN-FROM-VENV"
       python: "3.12"
     claim: >
       Across a 1000-PDB validation corpus, proteon total SASA agrees with
-      Biopython Shrake-Rupley at median relative deviation below 0.5%,
-      with at least 95% of loadable structures classified 'pass' by
-      validation/run_validation.py::test_sasa.
+      BOTH Biopython's Shrake-Rupley implementation AND the FreeSASA C
+      library's Shrake-Rupley implementation. Biopython gates the median
+      relative deviation < 0.5%; FreeSASA gates < 2% (looser because
+      Biopython and FreeSASA themselves disagree by ~0.5-1% on identical
+      inputs from atom-radius and probe-discretisation conventions).
+      Two-oracle agreement is a stronger correctness signal than agreement
+      with either alone — see feedback_triangulate_with_two_oracles in
+      memory: a shared bug in any one Shrake-Rupley implementation is
+      unlikely to also exist in the other since they have independent C
+      lineages.
     tolerances:
       - metric: median_relative_error
         op: "<"
         value: 0.005
+        output: total_sasa
         prose: >
           Median(|proteon_total - biopython_total| / biopython_total) < 0.005
           across the 1000-structure validation/pdbs corpus.
+      - metric: median_relative_error
+        op: "<"
+        value: 0.02
+        output: total_sasa
+        prose: >
+          Median(|proteon_total - freesasa_total| / freesasa_total) < 0.02
+          across the same corpus. Looser than the Biopython gate because
+          FreeSASA and Biopython differ from each other by ~0.5-1% on
+          most structures (different atom-radius conventions for the
+          same Shrake-Rupley algorithm); the 2% band absorbs that
+          inter-oracle drift while still catching real proteon
+          regressions.
       - metric: pass_rate
         op: ">="
         value: 0.95
+        output: total_sasa
         prose: >
           sasa.pass / (sasa.pass + sasa.warn + sasa.fail - loading.fail) >= 0.95
-          when load failures are excluded. Per-structure status is decided in
+          when load failures are excluded. A structure is downgraded from
+          'pass' to 'warn' if EITHER oracle's per-structure relative diff
+          exceeds 5%. Per-structure status is decided in
           validation/run_validation.py::test_sasa.
     evidence:
       oracle:
         - Biopython
+        - FreeSASA
       command: >
         python validation/run_validation.py --n-structures 1000
         --pdb-dir validation/pdbs/ --output validation/results.json
@@ -129,15 +155,20 @@ claims:
         input; bias toward small soluble proteins is a known limitation.
       - Loading-stage failures cascade into SASA status fail; they
         bound recall, not precision, of the SASA claim.
-      - The pinned Biopython version remains the community Shrake-Rupley
-        reference for the lifetime of the cited result.
+      - The pinned Biopython and FreeSASA versions remain stable
+        Shrake-Rupley references for the lifetime of the cited result.
+        FreeSASA's `algorithm=ShrakeRupley` is set explicitly at the
+        runner so the comparison is on Shrake-Rupley vs Shrake-Rupley,
+        not vs FreeSASA's L&R default.
     failure_modes:
-      - Only Biopython is exercised at release tier; FreeSASA is in the
-        oracle install table (tests/oracle/README.md) but not yet wired in,
-        so cross-tool agreement is a known gap.
       - inputs.corpus_sha is currently a placeholder; until pinned to a
         real sha or tarball hash, the cited 0.17% number is reproducible
         only against a corpus that hasn't been regenerated.
       - results.json records summary counts and relative diffs but not the
         absolute SASA values; full forensic replay requires the corpus PDBs
         to be preserved alongside the JSON.
+      - Biopython and FreeSASA use slightly different default atomic
+        radii for non-standard / hetero atoms; on PDBs with substantial
+        hetero content, the two oracles disagree more with each other
+        than either does with proteon. The 2% FreeSASA band is sized to
+        accommodate this without being permissive of real bugs.
