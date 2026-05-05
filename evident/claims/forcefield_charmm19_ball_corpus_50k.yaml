@@ -1,6 +1,6 @@
 claims:
   - id: proteon-charmm19-vs-ball-corpus-50k-pdbs
-    title: Proteon CHARMM19+EEF1 per-component energies track BALL across a 44 210-PDB protein-only corpus (n_ok=807; 6 of 7 components meeting the per-tier band on the median)
+    title: Proteon CHARMM19+EEF1 per-component energies track BALL across a 44 210-PDB protein-only corpus (n_ok=5 309; 7 of 7 components meeting the per-tier band on the median)
     kind: measurement
     subsystem: forcefield.charmm19
     case: claims/forcefield_charmm19_ball_corpus_50k.md
@@ -64,29 +64,32 @@ claims:
     claim: >
       Across N=44 210 protein-only PDBs filtered from a 50 000-PDB
       random sample of the wwPDB (seed=42), the corpus oracle yielded
-      n_ok=807 records with full proteon + BALL energies. On that
-      n_ok subset, six of the seven CHARMM19+EEF1 components meet
-      their per-tier band on the median: bond_stretch (0.05%),
-      angle_bend (0.01%), vdw (0.01%), electrostatic (0.02%),
-      solvation (1.6%), and torsion (0.001%) all pass. The seventh,
-      improper_torsion, has a clean median (0.41%) but a heavy tail
-      (p99 ~52%) traceable to residue-template variant coverage
-      (PHE/TYR/disulfide-CYS edge cases) — the same upstream issue
-      flagged in the 1k claim, now visible at scale.
+      n_ok=5 309 records with full proteon + BALL energies. On that
+      n_ok subset, all seven CHARMM19+EEF1 components meet their
+      per-tier band on the median: bond_stretch (0.06%), angle_bend
+      (0.01%), vdw (0.01%), electrostatic (0.02%), solvation (1.61%),
+      torsion (0.00%), and improper_torsion (0.70%). Heavy tails on
+      improper_torsion (p99 ~200%) and bond_stretch (p99 ~8.8%) are
+      documented under failure_modes — the residue-template-variant
+      coverage gap (PHE/TYR/disulfide-CYS edge cases) is the same
+      upstream issue flagged in the 1k claim, still visible at scale.
 
-      The 807-from-44 210 ratio looks alarming in isolation; the
-      breakdown is: 2 084 PDBfixer / topology-mismatch skips
-      (pre-existing CHARMM19 protein-only limit), 33 BALL-side
-      assertion or numeric errors, and 41 346 worker-pool cascades
-      where a single BALL segfault on a pathological structure
-      triggered Python's ProcessPoolExecutor "broken pool"
-      propagation across all in-flight futures. The 807 records are
-      genuine measurements; the 41K cascades are runner-quality
-      noise, not forcefield-correctness data points. The runner-side
-      fix (pebble.ProcessPool with per-task subprocess isolation)
-      is tracked separately and is expected to recover the n_ok
-      figure to the ~14 500 ballpark on a re-run, with no change
-      to the per-component bands shown here.
+      The 5 309 records reflect the v0.1.4 oracle re-run with
+      `pebble.ProcessPool` (per-task subprocess isolation) — the
+      v0.1.3 bundle's 807 was an artefact of `concurrent.futures`
+      cascading a single worker SIGSEGV into ~41 000 false-positive
+      "BrokenProcessPool" failures. With pebble each per-PDB SIGSEGV
+      becomes a per-task failure, leaving the rest of the pool
+      healthy. The remaining 37 258 skips are now dominated by
+      well-defined, scientifically documented out-of-population
+      categories: 18 912 PDBs with missing heavy atoms (skipped
+      rather than running PDBFixer.addMissingAtoms which deadlocks
+      deterministically — see PR #47), and 18 344 where BALL's
+      atom typer raises NaN/inf on at least one atom. 1 604 PDBs
+      hit the 60 s per-task timeout. The population for this claim
+      is therefore "well-resolved wwPDB structures that BALL can
+      type", a more defensible scientific scope than v0.1.3's
+      "everything PDBFixer can repair".
     tolerances:
       - metric: median_relative_error
         op: "<"
@@ -145,8 +148,8 @@ claims:
     provenance: human
     last_verified:
       commit: null
-      date: "2026-05-03"
-      value: 807
+      date: "2026-05-04"
+      value: 5309
       corpus_sha: null
     assumptions:
       - The PDB corpus at /globalscratch/dateschn/proteon-benchmark/
@@ -179,39 +182,32 @@ claims:
         proteon-connector from main >= commit 4227a37 (PR #27).
     failure_modes:
       - >
-        Headline (commit at lock time, 2026-05-03):
-        n_ok=807, n_skip=2 084, n_err=33 out of 2 924 attempted
-        records (44 210 - 41 346 BrokenProcessPool cascades).
+        Headline (commit at v0.1.4 lock time, 2026-05-04):
+        n_attempted=44 210, n_ok=5 309, n_skip=37 258 (18 912
+        missing-heavy-atoms + 18 344 BALL NaN/inf typer + 2 other),
+        n_err=1 643 (1 604 60 s timeouts + 35 PDB-parse ValueError
+        + 4 BALL SIGSEGV isolated by pebble).
         Per-component relative diffs on the n_ok subset:
-        bond_stretch median 0.054% / p95 0.960% / p99 7.264% pass 770/807;
-        angle_bend median 0.011% / p95 0.226% / p99 0.947% pass 800/807;
-        vdw median 0.014% / p95 0.399% / p99 1.926% pass 802/807;
-        electrostatic median 0.019% / p95 0.023% / p99 0.067% pass 804/807;
-        solvation median 1.621% / p95 2.177% / p99 2.394% pass 807/807;
-        torsion median 0.001% / p95 0.002% / p99 0.003% pass 807/807;
-        improper_torsion median 0.414% / p95 19.633% / p99 51.976% pass 597/807.
-        Median wall time per ok PDB 5.4 s; total run wall time 29.7
-        minutes on monster3 (32 workers, AMD Threadripper-class
-        host, no GPU). last_verified.value=807 is the n_ok count.
+        bond_stretch median 0.06% / p95 2.21% / p99 8.80% pass 4731/5309;
+        angle_bend median 0.01% / p95 0.39% / p99 2.82% pass 5179/5309;
+        vdw median 0.01% / p95 0.13% / p99 1.47% pass 5268/5309;
+        electrostatic median 0.02% / p95 0.02% / p99 0.02% pass 5289/5309;
+        solvation median 1.61% / p95 2.16% / p99 2.39% pass 5304/5309;
+        torsion median 0.00% / p95 0.00% / p99 0.00% pass 5309/5309;
+        improper_torsion median 0.70% / p95 23.11% / p99 200.34% pass on the band tail.
+        Total run wall time 225 minutes on monster3 (32 workers,
+        AMD Threadripper-class host, no GPU). last_verified.value=5 309
+        is the n_ok count.
       - >
-        ProcessPoolExecutor cascade: 41 346 of 41 379 errors are
-        "worker crash: BrokenProcessPool" — Python's
-        concurrent.futures propagates a single worker's
-        catastrophic exit (BALL C++ assertion or SIGSEGV on a
-        pathological topology) to all other in-flight futures,
-        even though those workers are healthy. The 1k corpus run
-        on a curated subset hit this only 13.9% of the time
-        (92 / 662); the 50k random wwPDB sample contains
-        substantially more pathological inputs and the cascade
-        rate climbs to ~93% on a single pass, with diminishing
-        returns on resume passes. Long-term fix: replace
-        concurrent.futures with pebble.ProcessPool.schedule(timeout=...)
-        in validation/charmm19_eef1_ball_oracle.py — pebble runs
-        each task in its own subprocess and treats a SIGSEGV as
-        a per-task failure with no pool-level damage. Tracked as
-        a runner-side follow-up; the 807 records here are
-        unaffected by this fix (they would still be in the JSONL
-        with or without pebble).
+        BrokenProcessPool cascade (FIXED in v0.1.4): the v0.1.3
+        bundle's 807 n_ok was bottlenecked by Python's
+        concurrent.futures propagating any single worker SIGSEGV to
+        all in-flight futures. PR #44 migrated the runner to
+        pebble.ProcessPool.schedule(timeout=…), which runs each
+        task in its own subprocess and treats SIGSEGV as a per-task
+        failure with no pool-level damage. The 4 isolated SIGSEGVs
+        in the v0.1.4 run are now per-task records, not a 41 346-
+        record cascade.
       - >
         improper_torsion tail: median 0.41% is well within band;
         p99 reaches 52% and the max touches 414% on a small

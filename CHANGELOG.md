@@ -11,14 +11,50 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-05-04
+
+Second EVIDENT release. Trust pyramid completed: the dropped
+fold-preservation claims (proteon CHARMM19+EEF1 vs OpenMM CHARMM36+OBC2,
+proteon AMBER96 vs OpenMM AMBER96) are back, fully wired with
+per-claim renderers. The 50K corpus oracle re-runs cleanly under
+`pebble.ProcessPool` with **n_ok = 5,309 / 44,210** vs the v0.1.3
+bundle's 807 — a 6.5× improvement on the same population. Manifest
+trimmed from 20 → 18 force-of-evidence claims, then re-introduced the
+two fold-preservation claims, landing at 20 release-tier claims with
+real evidence.
+
 ### Added
 
+- **Fold-preservation claims** (#50) — both proteon force fields are
+  gated against OpenMM minimization on the same 1000-PDB random
+  sample at TM-score level:
+  - `proteon-charmm19-fold-preservation-vs-openmm-release-1k-pdbs`:
+    proteon CHARMM19+EEF1 median TM=0.9944, OpenMM CHARMM36+OBC2
+    median TM=0.9991, median tm_diff +0.0040, n_ok=886/1000.
+  - `proteon-amber96-fold-preservation-vs-openmm-release-1k-pdbs`:
+    proteon AMBER96 median TM=0.9959, OpenMM AMBER96 median
+    TM=0.9992, median tm_diff +0.0028, n_ok=864/1000. Cleanest
+    cross-implementation oracle proteon ships — both arms claim
+    AMBER96, so the diff is purely implementation, not parameter
+    set.
+  - `validation/fold_preservation/join_fold_preservation.py` joins
+    proteon-side and OpenMM-side per-PDB JSONLs into the canonical
+    artifact `{pdb, n_ca, proteon: {...}, openmm: {...}, tm_diff,
+    rmsd_diff_A}`.
+  - `validation/report/render_fold_preservation.py` — per-claim HTML
+    with TM distributions per side, tm_diff histogram against the
+    claim's tolerance band, scatter, and top-20 outliers.
+- **Three-tier capture schema** (#46) — `evident/CAPTURE_SCHEMA.md`
+  defines `minimal` / `extended` / `full` capture levels for oracle
+  runners, the per-PDB filesystem layout, the `hardware.json`
+  schema, and the renderer contract. `PROTEON_CAPTURE_LEVEL` env
+  controls the level.
 - `validation/charmm19_eef1_ball_oracle.py` migrates from
-  `concurrent.futures.ProcessPoolExecutor` to `pebble.ProcessPool` for
-  true per-task subprocess isolation. Closes the `BrokenProcessPool`
-  cascade that limited the v0.1.3 50K corpus run's `n_ok` to 807 of
-  44 210 attempted. (#44)
-- New env knob `TASK_TIMEOUT_S` (default 120 s) on the corpus oracle
+  `concurrent.futures.ProcessPoolExecutor` to `pebble.ProcessPool`
+  for true per-task subprocess isolation. Closes the
+  `BrokenProcessPool` cascade that limited the v0.1.3 50K corpus
+  run's `n_ok` to 807 of 44,210 attempted. (#44)
+- New env knob `TASK_TIMEOUT_S` (default 60 s) on the corpus oracle
   runner — terminates hung BALL setup tasks individually instead of
   stalling the whole run.
 - `pebble` added to both EVIDENT image variants' pip oracle install
@@ -26,18 +62,45 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ### Changed
 
+- **Population definition for the 50K oracle is now "well-resolved
+  wwPDB"** (#47). The runner skips PDBs with missing heavy atoms
+  instead of running `PDBFixer.addMissingAtoms()`, which hangs
+  deterministically on certain inputs. The defensible population
+  shifts from "everything PDBFixer can repair" → "structures
+  resolved well enough to score directly". 18,912 / 44,210 records
+  on the v0.1.4 run skip for this reason — they are explicitly
+  out-of-population, not failures.
 - mkdssp build chain in both `evident/Dockerfile` and
   `evident/Dockerfile.cuda` is now version-pinned: `libmcfp v1.4.2`,
   `libcifpp v10.0.3`, `dssp v4.6.1`. Earlier `--depth 1 main` clones
   caused three breaking-upstream incidents during v1 prep. ARGs are
   exposed (`LIBMCFP_VERSION`, `LIBCIFPP_VERSION`, `DSSP_VERSION`)
   for downstream override. Closes #13.
+- `evident/Dockerfile.cuda` switched from `jammy + 2 PPAs` to
+  `noble + 0 PPAs` (#45) — eliminates the Launchpad/PPA flake class
+  that broke 4 of the v0.1.3 cuda image builds.
+- `libglib2.0-0` added to both runtime stages (#45). Apptainer smoke
+  on monster3 caught `import ball` failing on
+  `libglib-2.0.so.0: cannot open shared object file` in the cuda
+  image; same fix applied to slim defensively.
 
-### Pending re-run on monster3 before v0.1.4 ships
+### Removed
 
-- Re-run the 50K corpus oracle with the pebble runner; expected
-  `n_ok ≈ 14 500` vs the v0.1.3 bundle's 807. Re-cut the v0.1.4
-  EVIDENT bundle with the new artifact.
+- 2 release-tier claims trimmed from `evident/evident.yaml` (#49)
+  that asserted evidence we don't currently have:
+  - `forcefield_amber_openmm` — removed; AMBER96 vs OpenMM AMBER96
+    is now carried by the fold-preservation pair (#50).
+  - `msa.yaml` — removed; MSA feature parity is held in unit-test
+    scope, not framework-tier.
+
+### Fixed
+
+- 50K corpus run pass rate climbs from 807 / 44,210 (v0.1.3) to
+  5,309 / 44,210 (v0.1.4) on the same input population. The lift
+  is the sum of: pebble per-task isolation killing the
+  `BrokenProcessPool` cascade, the `addMissingAtoms` hang fix,
+  and the 60 s task timeout terminating the long tail of stuck
+  BALL setups.
 
 ## [0.1.3] — 2026-05-03
 

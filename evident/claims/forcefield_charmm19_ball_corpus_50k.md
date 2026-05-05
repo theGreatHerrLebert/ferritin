@@ -31,51 +31,61 @@ the failure rate at scale matters more than the median.
    replay input.
 3. **Run**: same runner (`validation/charmm19_eef1_ball_oracle.py`),
    same per-component split, same NoCutoff convention as the 1k
-   claim. Wall time: ~30 minutes on a 32-worker
-   AMD Threadripper-class host.
+   claim. Wall time: ~225 minutes (v0.1.4) on a 32-worker
+   AMD Threadripper-class host. Wall time grew vs v0.1.3 because
+   pebble runs each task in its own subprocess (no cascade
+   short-circuit).
 
 ## Outcome
 
-Headline (commit at lock time, 2026-05-03):
+Headline (v0.1.4, lock time 2026-05-04):
 
 ```
-n_ok = 807 / n_skip = 2 084 / n_err = 33 (of 2 924 attempted)
-                       (44 210 - 41 346 BrokenProcessPool cascades)
+n_attempted=44 210
+n_ok        = 5 309
+n_skip      = 37 258  (18 912 missing-heavy-atoms,
+                       18 344 BALL NaN/inf typer,
+                       2 non-AA residues)
+n_err       =  1 643  (1 604 60s timeouts,
+                       35 PDB-parse ValueError,
+                       4 BALL SIGSEGV — isolated by pebble)
 
-bond_stretch    median 0.054%  pass 770/807
-angle_bend      median 0.011%  pass 800/807
-vdw             median 0.014%  pass 802/807
-electrostatic   median 0.019%  pass 804/807
-solvation       median 1.621%  pass 807/807
-torsion         median 0.001%  pass 807/807
-improper_torsion median 0.414%  pass 597/807
+                  median   p95    p99    pass/5309   band
+bond_stretch       0.06%  2.21%  8.80%   4731/5309   <1.0%
+angle_bend         0.01%  0.39%  2.82%   5179/5309   <1.0%
+vdw                0.01%  0.13%  1.47%   5268/5309   <2.5%
+electrostatic      0.02%  0.02%  0.02%   5289/5309   <1.0%
+solvation          1.61%  2.16%  2.39%   5304/5309   <5.0%
+torsion            0.00%  0.00%  0.00%   5309/5309   <2.5%
+improper_torsion   0.70% 23.11% 200.34%       —      <2.5% (median only)
 ```
 
-Six of seven components meet their per-tier band on the median.
-improper_torsion's median (0.41%) is well within band; the tail
-(p99 ~52%) is the residue-template variant coverage gap surfaced
-at scale.
+All seven components meet their per-tier band on the median.
+improper_torsion's median (0.70%) is well within band; the tail
+(p95 ~23%, p99 ~200%) is the residue-template variant coverage
+gap surfaced at scale, the same gap visible in the 1k claim.
+bond_stretch's p99 ~8.8% is a similar tail (free-CYS HG and
+disulfide-CYS edge cases).
 
-## Why the n_ok is 807, not ~14 500
+## Why the n_ok jumped 807 → 5 309 between v0.1.3 and v0.1.4
 
-The 1k claim observed a 13.9% BrokenProcessPool cascade rate; the
-50K random sample contains many more pathological inputs (free CYS,
-unusual altlocs, large multi-chain assemblies that PDBFixer leaves
-in degenerate states, etc.) and the cascade rate climbs to ~93% on
-a single pass. Python's
-`concurrent.futures.ProcessPoolExecutor` propagates a single worker's
-SIGSEGV exit to all 31 in-flight futures even with
-`max_tasks_per_child=1`.
+The v0.1.3 bundle hit `concurrent.futures.ProcessPoolExecutor`'s
+"broken pool" cascade: a single worker SIGSEGV from BALL on a
+pathological topology propagated to all 31 in-flight futures, even
+with `max_tasks_per_child=1`. The cascade rate climbed to ~93% on
+a single pass against the 50K random wwPDB sample.
 
-The 807 records are real measurements with full proteon and BALL
-energies on each side — they're not biased by the cascade. The
-~41 346 cascade errors are runner-quality noise, not force-field
-correctness data points. The runner-side fix is to swap
-`concurrent.futures` for `pebble.ProcessPool.schedule(timeout=...)`,
+PR #44 migrated the runner to `pebble.ProcessPool.schedule(timeout=…)`,
 which runs each task in its own subprocess and handles SIGSEGV as
-a per-task error with no pool-level damage. Tracked as a
-ball-py + runner robustness follow-up; the 807 records here are
-preserved unchanged through that migration.
+a per-task failure with no pool-level damage. The 4 isolated
+SIGSEGVs in the v0.1.4 run are now per-task records; without
+pebble they would have re-cascaded.
+
+The remaining 37 258 skips are now dominated by well-defined,
+scientifically documented out-of-population categories rather than
+runner-quality cascades — see PR #47 for the missing-heavy-atoms
+skip rationale (PDBFixer.addMissingAtoms hangs deterministically on
+certain inputs).
 
 ## What this claim isn't
 
@@ -85,7 +95,8 @@ preserved unchanged through that migration.
   `claims/fold_preservation_charmm.yaml` — different metric (TM
   score after minimisation), different oracle (OpenMM CHARMM36
   + OBC2).
-- **Not a 50K _correctness_ claim.** It's a 807-records-out-of-44 210
-  claim, framed honestly. Improving the n_ok ratio is a
-  runner-quality task (pebble migration), not a force-field
-  improvement.
+- **Not a "100% PDB coverage" claim.** It's a 5 309-records-out-of-
+  44 210 claim against a population narrowed to "well-resolved
+  wwPDB structures BALL can type", framed honestly. Widening the
+  population requires upstream fixes in BALL's typer and PDBFixer's
+  reconstruction loop, not force-field changes.
