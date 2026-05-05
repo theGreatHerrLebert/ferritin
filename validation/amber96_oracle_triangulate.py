@@ -39,7 +39,11 @@ GMX = os.environ.get(
 )
 
 
-def pdbfixer_prep(pdb_path: str, out_path: str) -> None:
+def pdbfixer_prep(pdb_path: str, out_path: str) -> int:
+    """Returns 0 on success; positive missing-atom count if the input has
+    missing heavy atoms (caller should skip — addMissingAtoms() hangs
+    deterministically on a non-trivial fraction of wwPDB inputs, per PR #47).
+    """
     fixer = PDBFixer(filename=pdb_path)
     fixer.findMissingResidues()
     fixer.missingResidues = {}
@@ -47,10 +51,12 @@ def pdbfixer_prep(pdb_path: str, out_path: str) -> None:
     fixer.replaceNonstandardResidues()
     fixer.removeHeterogens(keepWater=False)
     fixer.findMissingAtoms()
-    fixer.addMissingAtoms()
+    if fixer.missingAtoms:
+        return len(fixer.missingAtoms)
     fixer.addMissingHydrogens(7.0)
     with open(out_path, "w") as f:
         app.PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)
+    return 0
 
 
 def gromacs_prep(pdb_path: str, work_dir: str) -> tuple[str, str]:
@@ -147,7 +153,15 @@ def main():
     with tempfile.TemporaryDirectory() as work:
         # Path X: PDBFixer → OpenMM + proteon.
         pdbfixer_out = f"{work}/pdbfixer.pdb"
-        pdbfixer_prep(pdb_path, pdbfixer_out)
+        n_missing = pdbfixer_prep(pdb_path, pdbfixer_out)
+        if n_missing:
+            print(
+                f"skipped {Path(pdb_path).name}: {n_missing} missing heavy "
+                f"atoms (addMissingAtoms() hangs on this input; pre-resolve "
+                f"the structure or pick a different PDB)",
+                flush=True,
+            )
+            return 2
         e_omm_x = openmm_energy(pdbfixer_out)
         e_fer_x = proteon_energy(pdbfixer_out)
 

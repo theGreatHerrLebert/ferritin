@@ -11,6 +11,31 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ## [Unreleased]
 
+### Changed
+
+- **Skip-missing-atoms fix extended to all PDBFixer-using oracle runners**
+  (#48, follow-up to PR #47). The `addMissingAtoms()` deadlock that bottlenecked
+  the v0.1.3 50K corpus oracle isn't unique to CHARMM — every runner that
+  preprocesses wwPDB inputs through PDBFixer hits it. This change applies
+  the PR #47 skip pattern to:
+  - `validation/amber96_oracle.py` (release-tier 1k AMBER96 vs OpenMM)
+  - `validation/amber96_oracle_triangulate.py` (single-PDB triangulation)
+  - `validation/amber96_obc_oracle.py` (OBC GB diagnostic)
+  - `validation/tm_fold_preservation_openmm.py` (fold-pres CHARMM, OpenMM side)
+  - `validation/tm_fold_preservation_openmm_amber.py` (fold-pres AMBER, OpenMM side)
+  - `validation/diag_obc_params.py` (OBC param diagnostic)
+
+  Each runner now detects missing heavy atoms (`fixer.findMissingAtoms()`
+  followed by `if fixer.missingAtoms:`) and skips the PDB rather than
+  invoking the deadlocking `fixer.addMissingAtoms()`. The comparison
+  surface narrows to "well-resolved wwPDB" — the same population definition
+  the v0.1.4 CHARMM corpus oracle adopted, and the more defensible
+  scientific scope (modeled-back atoms have ad-hoc geometry that distorts
+  downstream energies regardless).
+
+  Pre-empts the v0.2.0 50K extensions in #42 from re-discovering the same
+  79%-timeout regression class.
+
 ## [0.1.4] — 2026-05-04
 
 Second EVIDENT release. Trust pyramid completed: the dropped
