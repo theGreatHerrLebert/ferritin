@@ -11,6 +11,33 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ## [Unreleased]
 
+### Added
+
+- **SASA release-tier claim now triangulates against TWO oracles** —
+  Biopython AND FreeSASA. `validation/run_validation.py::test_sasa`
+  computes a FreeSASA Shrake-Rupley result alongside Biopython's, records
+  `freesasa_total` / `freesasa_time_ms` / `freesasa_relative_diff` per
+  structure, and downgrades to `warn` if EITHER oracle disagrees by >5%.
+  Two independent C lineages agreeing on Shrake-Rupley is much stronger
+  evidence than against either alone, per the
+  `feedback_triangulate_with_two_oracles` principle (a shared bug in
+  proteon vs Biopython couldn't also be present vs FreeSASA's
+  independently-implemented core).
+- `evident/claims/sasa.yaml` release-tier claim title + claim text +
+  tolerances + oracle list updated for the two-oracle gate. Adds:
+  - `median_relative_error < 0.005` vs Biopython (existing gate, unchanged)
+  - `median_relative_error < 0.02` vs FreeSASA (new — looser because
+    Biopython and FreeSASA themselves disagree by ~0.5–1% on most
+    structures from atom-radius and probe-discretisation conventions)
+  - `pass_rate >= 0.95` (existing gate, now keyed on either oracle
+    triggering the warn downgrade)
+  - Capability `sasa-cross-tool-parity` added alongside
+    `sasa-accuracy-distributional`.
+- `validation/report/render_sasa_release.py` extended: new
+  `plot_freesasa_distribution` histogram, two new headline-table rows
+  (median / p95 / p99 / band-pass count for the FreeSASA side), new
+  HTML section explaining the two-oracle framing.
+
 ### Fixed
 
 - `validation/amber96_oracle.py` now passes `nonbonded_cutoff=1e6` to

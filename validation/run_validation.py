@@ -49,6 +49,20 @@ try:
 except ImportError:
     HAS_GEMMI = False
 
+try:
+    import freesasa
+    HAS_FREESASA = True
+    # FreeSASA defaults to Lee & Richards; switch to Shrake-Rupley so the
+    # algorithm matches Biopython + proteon. probe radius 1.4 Å is the
+    # default both upstream tools use.
+    _FREESASA_PARAMS = freesasa.Parameters({
+        "algorithm": freesasa.ShrakeRupley,
+        "probe-radius": 1.4,
+    })
+except ImportError:
+    HAS_FREESASA = False
+    _FREESASA_PARAMS = None
+
 # v0.2.0 data-mount contract: USALIGN_BIN env var picks the binary location.
 # EVIDENT image exports USALIGN_BIN=/usr/local/bin/USalign via docker-entrypoint.sh;
 # local dev defaults to the sibling oracle checkout under /scratch/TMAlign/USAlign.
@@ -175,6 +189,32 @@ def test_sasa(path: str) -> dict:
                     result["details"]["warning"] = f"SASA diff {rel_diff:.1%}"
         except Exception as e:
             result["details"]["biopython_error"] = str(e)[:100]
+
+    # Second oracle: FreeSASA (independent C lineage; agreement against both
+    # Biopython AND FreeSASA is much stronger evidence of correctness than
+    # against either alone, per the "triangulate with two oracles" principle).
+    if HAS_FREESASA:
+        try:
+            t0 = time.time()
+            fs_s = freesasa.Structure(path)
+            fs_result = freesasa.calc(fs_s, _FREESASA_PARAMS)
+            fs_total = float(fs_result.totalArea())
+            fs_time = time.time() - t0
+            result["details"]["freesasa_total"] = round(fs_total, 1)
+            result["details"]["freesasa_time_ms"] = round(fs_time * 1000, 1)
+
+            if fs_total > 0:
+                rel_diff_fs = abs(fe_total - fs_total) / fs_total
+                result["details"]["freesasa_relative_diff"] = round(rel_diff_fs, 4)
+                if rel_diff_fs > 0.05:
+                    # Don't downgrade an already-warn structure; only escalate.
+                    if result["status"] == "pass":
+                        result["status"] = "warn"
+                    prev = result["details"].get("warning", "")
+                    suffix = f"; FreeSASA diff {rel_diff_fs:.1%}" if prev else f"FreeSASA diff {rel_diff_fs:.1%}"
+                    result["details"]["warning"] = (prev or "") + suffix
+        except Exception as e:
+            result["details"]["freesasa_error"] = str(e)[:100]
 
     return result
 
