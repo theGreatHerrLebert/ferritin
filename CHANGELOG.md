@@ -11,6 +11,27 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ## [Unreleased]
 
+### Changed
+
+- `validation/amber96_oracle.py` migrated from
+  `concurrent.futures.ProcessPoolExecutor` to `pebble.ProcessPool` for
+  per-task subprocess isolation, mirroring the v0.1.4 CHARMM oracle
+  pattern (#44). Pre-empts the `BrokenProcessPool` cascade at 50K
+  scale that limited the v0.1.3 CHARMM run's `n_ok` to 807 of 44,210.
+  Adds `TASK_TIMEOUT_S` env knob (default 60s) to terminate hung
+  workers individually instead of stalling the whole run, hoists
+  heavy imports (proteon, openmm, pdbfixer, pebble) to module
+  top-level so cold-start cost is amortised across tasks, and adds
+  `PROTEON_PDB_LIST` support so 50K runs can use a pre-filtered
+  protein-only list. Also adds the v0.2.0 universal env var synonyms
+  (`PROTEON_CORPUS_DIR`, `PROTEON_OUTPUT_DIR`,
+  `PROTEON_AMBER_ORACLE_OUT`) and resume-from-existing-OUT logic to
+  match the CHARMM oracle. Unblocks the AMBER96 vs OpenMM 50K
+  extension on monster3 (#42).
+- `tests/test_evident_runner_contract.py` extended with v0.2.0
+  contract checks for `amber96_oracle.py` (env synonym + legacy-wins
+  precedence) — same shape as the existing CHARMM tests.
+
 ### Added
 
 - **v0.2.0 data-mount contract** — every release-tier oracle runner now
