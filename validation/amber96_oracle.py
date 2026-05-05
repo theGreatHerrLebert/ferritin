@@ -139,9 +139,16 @@ def compare_one(pdb_path: str) -> dict:
         # 4. Proteon single-point on same atoms + positions.
         s = proteon.load(tmp_path)
         rec["proteon_n_atoms"] = int(s.atom_count)
-        # nbl_threshold large forces exact O(N²) path to match OpenMM NoCutoff.
+        # nbl_threshold large forces exact O(N²) path; nonbonded_cutoff=1e6
+        # disables proteon's default 15 Å cutoff with switching, matching
+        # OpenMM's NoCutoff convention. Without this, proteon truncates the
+        # long-range Coulomb at 15 Å while OpenMM goes full-range, giving a
+        # systematic ~5% rel_diff (per the warning emitted by
+        # proteon.forcefield: "pass nonbonded_cutoff=1e6 to disable for
+        # oracle-grade comparison").
         result = proteon.compute_energy(
-            s, ff="amber96", units="kJ/mol", nbl_threshold=10**9
+            s, ff="amber96", units="kJ/mol",
+            nbl_threshold=10**9, nonbonded_cutoff=1e6,
         )
         rec["e_total_proteon"] = float(result["total"])
         rec["components_proteon"] = {

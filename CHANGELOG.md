@@ -38,6 +38,19 @@ release tag has a paired EVIDENT bundle pinned by sha256.
   (median / p95 / p99 / band-pass count for the FreeSASA side), new
   HTML section explaining the two-oracle framing.
 
+### Fixed
+
+- `validation/amber96_oracle.py` now passes `nonbonded_cutoff=1e6` to
+  `proteon.compute_energy(ff="amber96", ...)` to match OpenMM's NoCutoff
+  convention. Without this, proteon truncates long-range Coulomb at 15 Å
+  while the OpenMM arm goes full-range, producing a systematic ~5%
+  median rel_diff. The 0.2% agreement the AMBER96 oracle ought to ship
+  was being silently masked. Surfaced by the v0.2.0 contract end-to-end
+  smoke on monster3 (50-PDB sample under apptainer bind-mount) — the
+  bind-mount itself worked, but the runner output flagged the cutoff
+  mismatch via proteon's own UserWarning. PR #56 shipped this gap; this
+  PR closes it before any 50K AMBER96 run lands a real artifact.
+
 ### Changed
 
 - `validation/amber96_oracle.py` migrated from
