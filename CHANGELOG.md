@@ -59,6 +59,23 @@ release tag has a paired EVIDENT bundle pinned by sha256.
   `PROTEON_PDB_DIR` / `PROTEON_CHARMM_ORACLE_OUT` env vars and the new
   universal `PROTEON_CORPUS_DIR` / `PROTEON_OUTPUT_DIR` synonyms,
   legacy first.
+- **Skip-missing-atoms fix extended to all PDBFixer-using oracle runners**
+  (#48, follow-up to PR #47). The `addMissingAtoms()` deadlock that
+  bottlenecked the v0.1.3 50K corpus oracle isn't unique to CHARMM — every
+  runner that preprocesses wwPDB inputs through PDBFixer hits it. This
+  applies the PR #47 skip pattern to `validation/amber96_oracle.py`,
+  `validation/amber96_oracle_triangulate.py`,
+  `validation/amber96_obc_oracle.py`,
+  `validation/tm_fold_preservation_openmm.py`,
+  `validation/tm_fold_preservation_openmm_amber.py`, and
+  `validation/diag_obc_params.py`. Each runner detects missing heavy
+  atoms via `fixer.findMissingAtoms()` and skips rather than invoking
+  the deadlocking `fixer.addMissingAtoms()`. Comparison surface narrows
+  to "well-resolved wwPDB" — the same population the v0.1.4 CHARMM
+  corpus oracle adopted, and the more defensible scientific scope
+  (modeled-back atoms have ad-hoc geometry). Pre-empts v0.2.0 50K
+  extensions (#42) from re-discovering the same 79%-timeout regression
+  class.
 
 ### Compatibility
 

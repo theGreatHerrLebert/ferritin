@@ -62,8 +62,15 @@ def tm_pair(ca_ref: np.ndarray, ca_mov: np.ndarray) -> dict:
             "n_ca": int(n), "n_aligned": int(n_aln)}
 
 
-def prepare_fixer(pdb_path: str) -> PDBFixer:
-    """Load + fix + add H. Returns PDBFixer with complete topology."""
+def prepare_fixer(pdb_path: str) -> tuple[PDBFixer | None, int]:
+    """Load + fix + add H. Returns (fixer, 0) on success.
+
+    On missing heavy atoms, returns (None, n_missing) so the caller can skip:
+    PDBFixer's addMissingAtoms() hangs deterministically on a non-trivial
+    fraction of wwPDB inputs (PR #47). The fold-preservation comparison
+    surface narrows to "well-resolved wwPDB" — the more defensible
+    scientific population anyway.
+    """
     fixer = PDBFixer(filename=pdb_path)
     fixer.findMissingResidues()
     # Only add missing atoms (skip missing terminal residues — too aggressive).
@@ -72,9 +79,10 @@ def prepare_fixer(pdb_path: str) -> PDBFixer:
     fixer.replaceNonstandardResidues()
     fixer.removeHeterogens(keepWater=False)
     fixer.findMissingAtoms()
-    fixer.addMissingAtoms()
+    if fixer.missingAtoms:
+        return None, len(fixer.missingAtoms)
     fixer.addMissingHydrogens(7.0)
-    return fixer
+    return fixer, 0
 
 
 def run_one(pdb_path: str, ff: app.ForceField, platform: openmm.Platform,
@@ -82,7 +90,12 @@ def run_one(pdb_path: str, ff: app.ForceField, platform: openmm.Platform,
     rec = {"pdb": Path(pdb_path).name}
     t0 = time.perf_counter()
     try:
-        fixer = prepare_fixer(pdb_path)
+        fixer, n_missing = prepare_fixer(pdb_path)
+        if fixer is None:
+            rec["skipped"] = "missing_heavy_atoms"
+            rec["missing_count"] = int(n_missing)
+            rec["wall_s"] = float(time.perf_counter() - t0)
+            return rec
         top = fixer.topology
         pos_pre = fixer.positions
         ca_pre = extract_ca(top, pos_pre)
