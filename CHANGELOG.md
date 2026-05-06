@@ -11,6 +11,28 @@ release tag has a paired EVIDENT bundle pinned by sha256.
 
 ## [Unreleased]
 
+### Changed
+
+- **Fold-preservation runners now support resume + `PROTEON_PDB_LIST`**.
+  All four runners (proteon CHARMM, proteon AMBER, OpenMM CHARMM,
+  OpenMM AMBER) previously opened OUT in `"w"` mode and re-walked the
+  full directory glob on every invocation. At 50K scale this means a
+  single SIGTERM / OOM / NFS hiccup during the multi-day run dropped
+  every record, so the entire run had to restart from zero.
+  Mirrors the pattern already shipped in `charmm19_eef1_ball_oracle.py`
+  (#44):
+  - On startup: read existing OUT, build `done_names` set of PDBs
+    already in the JSONL.
+  - Compute `pending = sample − done_names`, skip what's already done.
+  - Open OUT in `"a"` mode so the resume seed is preserved.
+  - `PROTEON_PDB_LIST=path/to/list.txt` overrides the directory glob,
+    so 50K runs can use the same `validation/protein_only_50k.txt`
+    pre-filter the CHARMM 50K oracle does (drops ~6K non-protein
+    structures the FF can't parametrise).
+  Surfaced when the first 50K fold-pres CHARMM run on monster3 hit
+  proteon-side rate 0.32/s → ~40 hr per side, so the full chain is
+  ~3 days. At that scale, no resume is unacceptable.
+
 ### Added
 
 - **Three new 50K release-tier claims** (covering the v0.2.0 #42

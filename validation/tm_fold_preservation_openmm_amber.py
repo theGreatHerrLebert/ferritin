@@ -153,13 +153,36 @@ def _worker(pdb_path: str) -> dict:
 
 
 def main():
-    # Pick sample deterministically (same seed as proteon bench).
-    pdbs = sorted(p.name for p in PDB_DIR.glob("*.pdb"))
-    rng = random.Random(SEED)
-    rng.shuffle(pdbs)
-    sample = [PDB_DIR / name for name in pdbs[:N]]
-    print(f"Sampled {len(sample)} PDBs (seed={SEED})", flush=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    pdb_list = os.environ.get("PROTEON_PDB_LIST")
+    if pdb_list:
+        list_path = Path(pdb_list)
+        if not list_path.is_file():
+            raise SystemExit(f"PDB list file not found: {list_path}")
+        with open(list_path) as f:
+            paths = [line.strip() for line in f if line.strip()]
+        paths = [p for p in paths if Path(p).is_file()][:N]
+        sample = [Path(p) for p in paths]
+        print(f"Loaded {len(sample)} PDB paths from {list_path}", flush=True)
+    else:
+        pdbs = sorted(p.name for p in PDB_DIR.glob("*.pdb"))
+        rng = random.Random(SEED)
+        rng.shuffle(pdbs)
+        sample = [PDB_DIR / name for name in pdbs[:N]]
+        print(f"Sampled {len(sample)} PDBs from {PDB_DIR} (seed={SEED})", flush=True)
+
+    done_names: set[str] = set()
+    if OUT.exists():
+        with open(OUT) as f:
+            for line in f:
+                try:
+                    done_names.add(json.loads(line)["pdb"])
+                except Exception:
+                    pass
+        print(f"Resuming: {len(done_names)} PDBs already in {OUT}", flush=True)
+    pending = [p for p in sample if p.name not in done_names]
+    print(f"Total sample: {len(sample)} PDBs; {len(pending)} pending after resume", flush=True)
     print(f"Writing to {OUT}", flush=True)
 
     n_workers = int(os.environ.get("N_WORKERS", "32"))
@@ -167,8 +190,8 @@ def main():
 
     t0 = time.perf_counter()
     n_ok = n_fail = n_skip = 0
-    with open(OUT, "w") as f, ProcessPoolExecutor(max_workers=n_workers) as pool:
-        futures = {pool.submit(_worker, str(p)): (i, p) for i, p in enumerate(sample)}
+    with open(OUT, "a") as f, ProcessPoolExecutor(max_workers=n_workers) as pool:
+        futures = {pool.submit(_worker, str(p)): (i, p) for i, p in enumerate(pending)}
         done = 0
         for fut in as_completed(futures):
             rec = fut.result()
@@ -181,12 +204,13 @@ def main():
             f.write(json.dumps(rec) + "\n")
             f.flush()
             done += 1
-            if done % 25 == 0 or done == len(sample):
+            if done % 25 == 0 or done == len(pending):
+                progress = len(done_names) + done
                 elapsed = time.perf_counter() - t0
                 rate = done / elapsed if elapsed > 0 else 0
-                eta = (len(sample) - done) / rate if rate > 0 else 0
+                eta = (len(pending) - done) / rate if rate > 0 else 0
                 print(
-                    f"[{done}/{len(sample)}] ok={n_ok} fail={n_fail} skip={n_skip} "
+                    f"[{progress}/{len(sample)}] ok={n_ok} fail={n_fail} skip={n_skip} "
                     f"rate={rate:.2f}/s eta={eta/60:.1f}min",
                     flush=True,
                 )
